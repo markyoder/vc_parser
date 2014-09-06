@@ -1,0 +1,1 @@
+these may end up being custom parsing/analysis scripts for VC. namely, this would be functionality not available in pyvc.py or quakelib... and will probalby be an R&D zone for making contributions to these libraries.

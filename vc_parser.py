@@ -224,12 +224,22 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, f
 	# 3) for each block-sweep in the event, add the local CFF (aka, add the shear_init + mu*normal_init for each entry in the event.
 	# 4) time (year) of the event can be taken from the event_table.
 	#
+	CFF=[]
 	events = get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=section_id, n_cpus=n_cpus)
 	col_dict = {}
 	map(col_dict.__setitem__, events[0], range(len(events[0])))
 	#
 	# so, events is a time series of events (earthquakes) on a particular fault section.
 	# for each event, the normal/shear stresses are calculated.
+	#
+	# now, fetch block level data. for now, let's return a simpler data set than we initially read.
+	#
+	for event in events:
+		# get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table')
+		blocks = get_event_blocks(sim_file=sim_file, event_number=event[col_dict['event_number']])
+		
+#
+	
 #
 def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
 	# ... and "time_series" is implied.

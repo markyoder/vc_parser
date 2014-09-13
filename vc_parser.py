@@ -5,6 +5,7 @@ import math
 import h5py
 import numpy
 import scipy
+import operator
 #
 import cStringIO
 import sys
@@ -146,19 +147,28 @@ def get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_na
 												# though they do appear to be in the same order as in the hdf5 viewer tool... and note that %.id.dtype does
 												# return the columns in the proper sequence.
 		#
-		event_blocks = [x for x in block_info if x['section_id'] in section_ids]
+		#event_blocks = [x for x in block_info if x['section_id'] in section_ids]
+		event_blocks = fetch_data_mpp(n_cpus=None, src_data=block_info, col_name='section_id', matching_vals=section_ids)
 	#
 	return [block_cols] + event_blocks
 	
-#def get_stress_time_series(sim_file=allcal_full_mks, block_id):
-#	pass
 
-def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None):
+def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
+	#
+	# ... and what's weird is that this seems to run WAY faster using multiprocessing (non-linearly faster) -- 1 cpu running for a minute or so
+	# and maybe a second or two using 4 processors... and in fact, even running 1 processor but using the multiprocessing structure is much,
+	# much faster.
+	#
+	# allow for multi-processing:
+	if n_cpus == None: n_cpus = mpp.cpu_count()
+	#
 	with h5py.File(sim_file,'r') as vc_data:
-		view_ebs = vc_data['events_by_section']
+		#
+		#
+		view_ebs = vc_data['events_by_section']		# "events by section" view
 		event_ids_tbl = view_ebs['section_%d' % section_id]
 		#
-		event_ids_ary = numpy.array(numpy.zeros(event_ids_tbl.len()), dtype='int64')
+		event_ids_ary = numpy.array(numpy.zeros(event_ids_tbl.len()), dtype='int64')	# array needs to be initialized with data type for hdf5.read_direct()
 		#event_ids_ary.shape(numpy.zeros(event_ids_tbl.len(), len(event_ids_tbl[0])))
 		event_ids_tbl.read_direct(event_ids_ary)
 		#
@@ -166,67 +176,230 @@ def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None):
 		# this is a choice, computationally. we can do it in a list comprehension [], or we can index the source list (event_id values
 		# are sorted, so once we find one event in the master list, we can stop looking for it in the event_ids_ary list.
 		# list comprehension is simpler...
-		section_events = [x for x in vc_data['event_table'] if x['event_number'] in event_ids_ary]
-		#
-	#
-	#return event_ids_ary
-	return section_events
-
-def get_event_time_series_on_section_mp(sim_file=allcal_full_mks, section_id=None, n_procs=2):
-	if n_procs==None: n_procs = mpp.cpu_count
-	#
-	with h5py.File(sim_file,'r') as vc_data:
-		# for now, single-process this prelimnary step (no point i think in mpp)...
-		view_ebs = vc_data['events_by_section']
-		event_ids_tbl = view_ebs['section_%d' % section_id]
-		#
-		event_ids_ary = numpy.array(numpy.zeros(event_ids_tbl.len()), dtype='int64')
-		#event_ids_ary.shape(numpy.zeros(event_ids_tbl.len(), len(event_ids_tbl[0])))
-		event_ids_tbl.read_direct(event_ids_ary)
-		#
-		# now, fetch event data:
-		# this is a choice, computationally. we can do it in a list comprehension [], or we can index the source list (event_id values
-		# are sorted, so once we find one event in the master list, we can stop looking for it in the event_ids_ary list.
-		# list comprehension is simpler...
-		src_table = vc_data['event_table']	# table from which we draw data
-		test_table = event_ids_ary			# table we test against -- are dat in this list?
-		#
-		# now, we'll need to chop this up for multi-processing... and figure out which type of mpp we want to use...
-		chunk_size = len(src_table)/n_procs
-		#results_queue = multiprocessing.Queue()
-		workers = mpp.Queue()
-		section_events = mpp.Queue()
-		worker_sections = []
-		worker_pool = mpp.Pool(processes=n_procs)
-		#
-		wrker_sections=mpp.Queue()
-		for i in xrange(n_procs):
-			i0=i*chunk_size
-			i1 = (i+1)*chunk_size
-			if i==(n_procs-1): i1 = len(src_table)
-			print "process_%d: (%d, %d)" % (i, i0, i1)
+		src_data = vc_data['event_table']
+		col_names = cols_from_h5_dict(src_data.id.dtype.fields)
+		col_name = 'event_number'
+		#if n_cpus in (1, None):
+		if n_cpus == None:
+			# this should never be true any longer. see note above. strangely, using the mpp setup seems to make this run much, much
+			# faster, even if only using the single CPU.
 			#
-			wrker_sections.put(src_table[i0:i1])
+			#section_events = [x for x in vc_data[src_data] if x[col_name] in event_ids_ary[:]]
+			section_events = find_in(tbl_in=src_data, col_name=col_name, in_list=event_ids_ary, pipe_out=None) 
+		else:
 			
-			#section_events = [x for x in vc_data['event_table'] if vc_data['event_table']['event_number'] in event_ids_ary]
-			#workers.put(mpp.Process(target=_worker_in_table, args=(src_table[i0:i1], test_table, 'event_number', section_events)))
-			#workers[-1].start()
-			#print "worker %d started" % i
-		resultses = worker_pool.map(_worker_in_table, [wrker_sections, test_table, 'event_number', section_events])
-		#for i in xrange(len(workers)):
-		#	workers[i].join()
-			
-		#
+			my_pipes = []
+			section_events = []
+			my_processes = []
+			sublist_len = min(len(src_data), (len(src_data)/n_cpus)+1)		# a little trick to ensure we get the full list and don't overrun...
+			#
+			for i in xrange(n_cpus):
+				child_pipe, parent_pipe = mpp.Pipe()
+				my_pipes+= [parent_pipe]
+				#my_processes+=[mpp.Process(target=find_in, args=(src_data[i*sublist_len:(i+1)*sublist_len], col_name, event_ids_ary, child_pipe))]
+				my_processes+=[mpp.Process(target=find_in, kwargs={'tbl_in':src_data[i*sublist_len:(i+1)*sublist_len], 'col_name':col_name, 'in_list':event_ids_ary, 'pipe_out':child_pipe})]
+				my_processes[-1].start()
+			#
+			print "%d/%d processes started." % (len(my_pipes), len(my_processes))
+			#
+			for i, proc in enumerate(my_processes): my_processes[i].join()
+			#
+			# processes are now started and joined, and we'll wait until they are all finished (each join() will hold the calling
+			# process until it's finished)
+			for i, pipe in enumerate(my_pipes):
+				in_my_pipe = pipe.recv()
+				print "adding %d new row..." % len(in_my_pipe)
+				section_events += in_my_pipe
+				my_pipes[i].close()
+					
 	#
 	#return event_ids_ary
-	return section_events
-'''
-class _table_sorter(mpp.Process):
-	def __init__(self,src_table, test_table, test_col_src, target_tbl):
-		self.src_table = src_table
-		self.test_table = test_table
-		self 
-'''
+	# columns we might care about:
+	return [col_names] + section_events
+#
+def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
+	# CFF = shear_stress - mu*normal_stress
+	# 1) get events for the section (use "events_by_section")
+	# 2) for each event, gather all the blocks (use the event_sweep_table).
+	# 3) for each block-sweep in the event, add the local CFF (aka, add the shear_init + mu*normal_init for each entry in the event.
+	# 4) time (year) of the event can be taken from the event_table.
+	#
+	events = get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=section_id, n_cpus=n_cpus)
+	col_dict = {}
+	map(col_dict.__setitem__, events[0], range(len(events[0])))
+	#
+	# so, events is a time series of events (earthquakes) on a particular fault section.
+	# for each event, the normal/shear stresses are calculated.
+#
+def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
+	# ... and "time_series" is implied.
+	# get time series of stress on a block. plot 2 axes on one plot: normal_stress, shear_stress.
+	# note: the CFF, what we'll ultimately want, is:
+	# CFF_j = shear_stress_j(t) - mu_j*normal_stress_j(t)
+	#
+	events = get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=section_id, n_cpus=n_cpus)
+	col_dict = {}
+	map(col_dict.__setitem__, events[0], range(len(events[0])))
+	#
+	# each time step has an initial + final stress value.
+	ts_single = []
+	mags = []
+	ts = []
+	shear_stress  = []
+	normal_stress = []
+	ave_slip = []
+	for rw in events[1:]:
+		ts += [rw[col_dict['event_year']], rw[col_dict['event_year']]]
+		ts_single += [rw[col_dict['event_year']]]
+		mags += [rw[col_dict['event_magnitude']]]
+		shear_stress += [rw[col_dict['event_shear_init']], rw[col_dict['event_shear_final']]]
+		normal_stress += [rw[col_dict['event_normal_init']], rw[col_dict['event_normal_final']]]
+		ave_slip += ['event_average_slip']
+	#
+	#
+	# plotting bits:
+	myfig = plt.figure(fignum)
+	myfig.clf()
+	#
+	myfig.add_axes([.05, .05, .9, .4], label='shear')
+	myfig.add_axes([.05, .5, .9, .4], sharex=myfig.axes[0])
+	#
+	#ax = plt.gca()
+	for ax in myfig.axes:
+		ax.set_xscale('linear')
+		ax.set_yscale('log')
+		ax.set_ylabel('stress (VC units)', size=14)
+		
+		#
+	
+	#
+	# let's look at peak values...
+	upper_shear_init = get_peaks(events[1:], col=col_dict['event_shear_init'], peak_type='upper')
+	upper_shear_final = get_peaks(events[1:], col=col_dict['event_shear_final'], peak_type='upper')
+	#print "lens: ", len(upper_shear_init), len(upper_shear_final)
+	#print upper_shear_init[-5:]
+	#print upper_shear_final[-5:]
+	lower_shear_init = get_peaks(events[1:], col=col_dict['event_shear_init'], peak_type='lower')
+	lower_shear_final = get_peaks(events[1:], col=col_dict['event_shear_final'], peak_type='lower')
+	#
+	upper_normal_init = get_peaks(events[1:], col=col_dict['event_normal_init'], peak_type='upper')
+	upper_normal_final = get_peaks(events[1:], col=col_dict['event_normal_final'], peak_type='upper')
+	lower_normal_init = get_peaks(events[1:], col=col_dict['event_normal_init'], peak_type='lower')
+	lower_normal_final = get_peaks(events[1:], col=col_dict['event_normal_final'], peak_type='lower')
+	#
+	ax = myfig.axes[0]
+	ax.plot(ts, shear_stress, '.-', label='shear stress')
+	for tbl, col,lbl in [(upper_shear_init, 'event_shear_init', 'init_upper'), (upper_shear_final, 'event_shear_final', 'final_upper'), (lower_shear_init, 'event_shear_init', 'init_lower'), (lower_shear_final, 'event_shear_final', 'final_lower')]:
+		#ax.plot(map(operator.itemgetter(col_dict['event_year'], upper_shear_init)), map(operator.itemgetter(col_dict['event_shear_init'], upper_shear_init)),
+		#print tbl[0]
+		X = map(operator.itemgetter(col_dict['event_year']), tbl)
+		Y = map(operator.itemgetter(col_dict[col]), tbl)
+		ax.plot(X, Y, '--.', label=lbl)
+	#
+	ax2 = ax.twinx()
+	ax2.set_yscale('linear')
+	ax2.plot(ts_single, mags, 'o')
+	#
+	ax.set_xlabel('time (year)', size=14)
+	#
+	ax = myfig.axes[1]
+	ax.plot(ts, normal_stress, '.-', label='normal stress')
+	for tbl, col, lbl in [(upper_normal_init, 'event_normal_init', 'init_upper'), (upper_normal_final, 'event_normal_final', 'final_upper'), (lower_normal_init, 'event_normal_init', 'init_lower'), (lower_normal_final, 'event_normal_final', 'final_lower')]:
+		X = map(operator.itemgetter(col_dict['event_year']), tbl)
+		Y = map(operator.itemgetter(col_dict[col]), tbl)
+		ax.plot(X, Y, '--.', label=lbl)
+	#
+	for ax in myfig.axes:
+		ax.legend(loc=0, numpoints=1)
+	#
+	
+	
+	
+#
+# helper functions:
+#
+def get_peaks(data_in=[], col=0, peak_type='upper'):
+	peaks_out = []
+	for i, rw in enumerate(data_in[1:-1]):
+		if hasattr(rw, '__iter__')==False and hasattr(rw, '__len__')==False:
+			#print "making iterable...", rw
+			rw=[rw]
+			col=0	
+		#
+		#print data_in[i-1][col], data_in[i][col], data_in[i+1][col], data_in[i-1][col]<data_in[i][col], data_in[i+1][col]<data_in[i][col]
+		if peak_type == 'upper':
+			if data_in[i][col]>data_in[i-1][col] and data_in[i][col]>data_in[i+1][col]: peaks_out += [data_in[i]]
+		if peak_type == 'lower':
+			if data_in[i][col]<data_in[i-1][col] and data_in[i][col]<data_in[i+1][col]: peaks_out += [data_in[i]]
+		#
+	#
+	return peaks_out
+
+#
+def fetch_data_mpp(n_cpus=None, src_data=[], col_name='', matching_vals=[]):
+	#
+	# wrap up the whole multi-processing fetch data process. aka, use this to to a multi-processing search for values in a table.
+	# n_cpus: number of processors to use. pass None to get all cpus.
+	# src_data: data to be searched.
+	# col_name: column in src_data to be searched
+	# matching_vals: values to match.
+	#
+	# basically, it looks like this should aways be used. there appears to be some latency that Process() (or something in the mpp framework)
+	# overcomes, so even for a single CPU, this runs WAY faster than a straight list comprehension statement... maybe because it runs compiled?
+	#
+	if n_cpus == None: n_cpus = mpp.cpu_count()
+	#
+	my_pipes = []
+	output = []
+	my_processes = []
+	sublist_len = min(len(src_data), (len(src_data)/n_cpus)+1)		# a little trick to ensure we get the full list and don't overrun...
+	#
+	for i in xrange(n_cpus):
+		child_pipe, parent_pipe = mpp.Pipe()
+		my_pipes+= [parent_pipe]
+		#my_processes+=[mpp.Process(target=find_in, args=(src_data[i*sublist_len:(i+1)*sublist_len], col_name, event_ids_ary, child_pipe))]
+		my_processes+=[mpp.Process(target=find_in, kwargs={'tbl_in':src_data[i*sublist_len:(i+1)*sublist_len], 'col_name':col_name, 'in_list':matching_vals, 'pipe_out':child_pipe})]
+		my_processes[-1].start()
+	#
+	#print "%d/%d processes started." % (len(my_pipes), len(my_processes))
+	#
+	for i, proc in enumerate(my_processes): my_processes[i].join()
+	#
+	# processes are now started and joined, and we'll wait until they are all finished (each join() will hold the calling
+	# process until it's finished)
+	for i, pipe in enumerate(my_pipes):
+		#in_my_pipe = pipe.recv()
+		#print "adding %d new row..." % len(in_my_pipe)
+		output += pipe.recv()
+		my_pipes[i].close()
+	#
+	return output
+
+def find_in(tbl_in=[], col_name='', in_list=[], pipe_out=None):
+	# a "find" utility function. look for qualifying rows (presuming at this point a hdf5 type layoud). return the
+	# out_list via "return" or a pipe in the case of mpp.
+	#
+	output = [x for x in tbl_in if x[col_name] in in_list]
+	#
+	if pipe_out!=None:
+		pipe_out.send(output)
+		pipe_out.close()
+	else:
+		return output
+
+
+def cols_from_h5_dict(cols_dict):
+	# return column mames from an h5 columns dictionary.
+	# dict(proxy) will be like: {str{col_name}:(dtype, width_index),...}
+	# SO, we want to return them in order o width_index
+	#
+	col_names=[]
+	for key in cols_dict.keys():
+		col_names += [[key, cols_dict[key][1]]]
+	col_names.sort(key=lambda x:x[1])
+	#
+	return [x[0] for x in col_names]
+
 def _worker_in_table(src_table, test_table, test_col, target_Q):
 	#
 	# note we must be passed a 1-D vector test_table. 

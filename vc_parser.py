@@ -122,10 +122,25 @@ def get_event_sections(sim_file=allcal_full_mks, event_number=None):
 	#return sections_list
 	return sections
 
-def get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table'):
+		
+def fetch_h5_data(sim_file=allcal_full_mks, n_cpus=None, table_name=None, col_name=None, matching_vals=[]):
+	with h5py.File(sim_file, 'r') as h5_data:
+		this_table = h5_data[table_name]
+		table_cols = cols_from_h5_dict(this_table.id.dtype.fields)
+		#
+		output_data = fetch_data_mpp(n_cpus=n_cpus, src_data=this_table, col_name=col_name, matching_vals=matching_vals)
+	#
+	return output_data
+#
+
+
+def get_event_block_details(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table'):
 	'''
 	# get blocks involved in a particular event. first, get sections, then blocks from that section.
 	# this will probably all change for the better. for now, use some available tools from PyVC
+	#
+	# ... but have a closer look at this. i think it might be a bit redundant. event_sweep_table includes an event_number, so we should
+	# be able to forego collecting all the sections, etc. unless we require detailed information about the blocks in the event... which this will give us.
 	'''
 	#
 	#
@@ -217,7 +232,7 @@ def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, 
 	# columns we might care about:
 	return [col_names] + section_events
 #
-def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
+def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 	# CFF = shear_stress - mu*normal_stress
 	# 1) get events for the section (use "events_by_section")
 	# 2) for each event, gather all the blocks (use the event_sweep_table).
@@ -234,11 +249,12 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, f
 	#
 	# now, fetch block level data. for now, let's return a simpler data set than we initially read.
 	#
-	for event in events:
+	for event in events[1:]:
 		# get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table')
-		blocks = get_event_blocks(sim_file=sim_file, event_number=event[col_dict['event_number']])
-		
-#
+		#
+		event_id=event[col_dict['event_number']]
+		blocks = fetch_h5_data(sim_file=sim_file, n_cpus=n_cpus, table_name='event_sweep_table', col_name='event_number', matching_vals=[event_id])
+		print "blocks (%d) fetched: %d" % (event_id, len(blocks))
 	
 #
 def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):

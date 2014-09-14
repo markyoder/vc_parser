@@ -121,18 +121,7 @@ def get_event_sections(sim_file=allcal_full_mks, event_number=None):
 	#
 	#return sections_list
 	return sections
-
-		
-def fetch_h5_data(sim_file=allcal_full_mks, n_cpus=None, table_name=None, col_name=None, matching_vals=[]):
-	with h5py.File(sim_file, 'r') as h5_data:
-		this_table = h5_data[table_name]
-		table_cols = cols_from_h5_dict(this_table.id.dtype.fields)
-		#
-		output_data = fetch_data_mpp(n_cpus=n_cpus, src_data=this_table, col_name=col_name, matching_vals=matching_vals)
-	#
-	return output_data
 #
-
 
 def get_event_block_details(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table'):
 	'''
@@ -166,8 +155,7 @@ def get_event_block_details(sim_file=allcal_full_mks, event_number=None, block_t
 		event_blocks = fetch_data_mpp(n_cpus=None, src_data=block_info, col_name='section_id', matching_vals=section_ids)
 	#
 	return [block_cols] + event_blocks
-	
-
+#
 def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 	#
 	# ... and what's weird is that this seems to run WAY faster using multiprocessing (non-linearly faster) -- 1 cpu running for a minute or so
@@ -232,6 +220,24 @@ def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, 
 	# columns we might care about:
 	return [col_names] + section_events
 #
+def get_blocks_info_dict(sim_file=allcal_full_mks, block_ids=None):
+	# if block_ids==None, get all of them...
+	with h5py.File(sim_file, 'r') as vc_data:
+		blocks_table = vc_data['block_info_table']
+		block_cols = cols_from_h5_dict(blocks_table.id.dtype.fields)
+		#
+		blockses = {}
+		for block in blocks_table:
+			if block_ids!=None and block['block_id'] not in block_ids: continue
+			#
+			block_dict = {}
+			#
+			[block_dict.__setitem__(key, block[key]) for key in block_cols]
+			blockses[block['block_id']] = block_dict
+		#
+	#
+	return blockses
+#
 def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 	# CFF = shear_stress - mu*normal_stress
 	# 1) get events for the section (use "events_by_section")
@@ -244,6 +250,9 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 	col_dict = {}
 	map(col_dict.__setitem__, events[0], range(len(events[0])))
 	#
+	# pre-load blocks data:
+	blocks_data = get_blocks_info_dict(sim_file=sim_file, block_ids=None)
+	#
 	# so, events is a time series of events (earthquakes) on a particular fault section.
 	# for each event, the normal/shear stresses are calculated.
 	#
@@ -253,8 +262,12 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 		# get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table')
 		#
 		event_id=event[col_dict['event_number']]
+		# this needs to be sped up maybe -- perhaps by maintaining the hdf5 context?
 		blocks = fetch_h5_data(sim_file=sim_file, n_cpus=n_cpus, table_name='event_sweep_table', col_name='event_number', matching_vals=[event_id])
 		print "blocks (%d) fetched: %d" % (event_id, len(blocks))
+		#
+		# ... and now get the block info for each block in the event (from the blocks_data dict).
+		
 	
 #
 def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
@@ -412,8 +425,16 @@ def find_in(tbl_in=[], col_name='', in_list=[], pipe_out=None):
 		pipe_out.close()
 	else:
 		return output
-
-
+#		
+def fetch_h5_data(sim_file=allcal_full_mks, n_cpus=None, table_name=None, col_name=None, matching_vals=[]):
+	with h5py.File(sim_file, 'r') as h5_data:
+		this_table = h5_data[table_name]
+		table_cols = cols_from_h5_dict(this_table.id.dtype.fields)
+		#
+		output_data = fetch_data_mpp(n_cpus=n_cpus, src_data=this_table, col_name=col_name, matching_vals=matching_vals)
+	#
+	return output_data
+#
 def cols_from_h5_dict(cols_dict):
 	# return column mames from an h5 columns dictionary.
 	# dict(proxy) will be like: {str{col_name}:(dtype, width_index),...}

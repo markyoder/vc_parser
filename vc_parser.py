@@ -156,8 +156,12 @@ def get_event_block_details(sim_file=allcal_full_mks, event_number=None, block_t
 	#
 	return [block_cols] + event_blocks
 #
-def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
+def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, is_sorted=False):
 	#
+	# is_sorted: some sort based indexing in the find_it() (or whatever) function. this shortens the list over which
+	# the data are searched, but at the expense of the list comprehension... so it actually runs slower by about 30% in preliminary tests.
+	#
+	
 	# ... and what's weird is that this seems to run WAY faster using multiprocessing (non-linearly faster) -- 1 cpu running for a minute or so
 	# and maybe a second or two using 4 processors... and in fact, even running 1 processor but using the multiprocessing structure is much,
 	# much faster.
@@ -200,7 +204,7 @@ def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, 
 				child_pipe, parent_pipe = mpp.Pipe()
 				my_pipes+= [parent_pipe]
 				#my_processes+=[mpp.Process(target=find_in, args=(src_data[i*sublist_len:(i+1)*sublist_len], col_name, event_ids_ary, child_pipe))]
-				my_processes+=[mpp.Process(target=find_in, kwargs={'tbl_in':src_data[i*sublist_len:(i+1)*sublist_len], 'col_name':col_name, 'in_list':event_ids_ary, 'pipe_out':child_pipe})]
+				my_processes+=[mpp.Process(target=find_in, kwargs={'tbl_in':src_data[i*sublist_len:(i+1)*sublist_len], 'col_name':col_name, 'in_list':event_ids_ary, 'pipe_out':child_pipe, 'is_sorted':is_sorted})]
 				my_processes[-1].start()
 			#
 			print "%d/%d processes started." % (len(my_pipes), len(my_processes))
@@ -222,6 +226,8 @@ def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, 
 #
 def get_blocks_info_dict(sim_file=allcal_full_mks, block_ids=None):
 	# if block_ids==None, get all of them...
+	# and we could parallelize this, or we can use it as a single processor implementation that can be run in parallel...
+	#
 	with h5py.File(sim_file, 'r') as vc_data:
 		blocks_table = vc_data['block_info_table']
 		block_cols = cols_from_h5_dict(blocks_table.id.dtype.fields)
@@ -238,6 +244,31 @@ def get_blocks_info_dict(sim_file=allcal_full_mks, block_ids=None):
 	#
 	return blockses
 #
+def calc_CFF_from_block_data(block_data):
+	# a row of block data (assume dict. or hdf5 format):
+	return block_data['shear_init'] - block_data['mu']*block_data['normal_init']
+
+def calc_CFF(shear_stress=0., normal_stress=0., mu=.8):
+	return shear_stress - normal_stress*mu
+#
+def get_event_CFF(sweep_blocks, n_cpus=None):
+	# @sweep_blocks: blocks from event_sweep_table (for a given event(s))
+	#
+	# CFF = shear_stress - mu*normal_stress
+	if n_cpus==None: n_cpus=mpp.cpu_count()
+	#
+	my_pool = mpp.Pool(processes=n_cpus)
+	CFFs = my_pool.map_async(calc_CFF_from_block_data, sweep_blocks)	# imap returns an ordered iterable. map_async()
+																		# returns a "results object"
+																		# which is better? dunno. 
+	my_pool.close()	# this is very very important. note a Pool() can be executed recursively, so this tells the Pool() object
+					# that no more tasks are coming its way. otherwise, it remains open an eats up a bunch of memory and makes
+					# a huge mess in the mem. stack.
+					# don't know if the join() is necessary...
+	my_pool.join()													
+	#
+	return sum(CFFs.get())
+#
 def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 	# CFF = shear_stress - mu*normal_stress
 	# 1) get events for the section (use "events_by_section")
@@ -251,24 +282,38 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 	map(col_dict.__setitem__, events[0], range(len(events[0])))
 	#
 	# pre-load blocks data:
-	blocks_data = get_blocks_info_dict(sim_file=sim_file, block_ids=None)
+	# (actually, we don't need this all the required data are in "sweeps").
+	#blocks_data = get_blocks_info_dict(sim_file=sim_file, block_ids=None)
 	#
 	# so, events is a time series of events (earthquakes) on a particular fault section.
 	# for each event, the normal/shear stresses are calculated.
 	#
 	# now, fetch block level data. for now, let's return a simpler data set than we initially read.
 	#
-	for event in events[1:]:
-		# get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table')
+	with h5py.File(sim_file) as vc_data:
+		sweep_data = vc_data['event_sweep_table']
+		for event in events[1:]:
+			# get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table')
+			#
+			event_id=event[col_dict['event_number']]
+			# this needs to be sped up maybe -- perhaps by maintaining the hdf5 context?
+			#
+			#blocks = fetch_h5_data(sim_file=sim_file, n_cpus=n_cpus, table_name='event_sweep_table', col_name='event_number', matching_vals=[event_id])
+			#
+			# this should be faster, since we don't have to open and reopen the file... but i'm not sure how much
+			# faster it is. certainly for smaller jobs, the sipler syntax is probably fine.
+			blocks = fetch_h5_table_data(h5_table=sweep_data, n_cpus=None, col_name='event_number', matching_vals=[event_id])
+			print "blocks (%d) fetched: %d" % (event_id, len(blocks))
+			#
+			# ... and now get the block info for each block in the event (from the blocks_data dict).
+			# ... but more specifically, let's calculate the cumulative CFF for this event (summing the local CFF for each block).
+			#
+			CFF+=[[event_id, get_event_CFF(blocks)]]
+			#print "CFF calculated: %s" % str(CFF[-1])
+			#if len(blocks)>10: return blocks
+			blocks=None
 		#
-		event_id=event[col_dict['event_number']]
-		# this needs to be sped up maybe -- perhaps by maintaining the hdf5 context?
-		blocks = fetch_h5_data(sim_file=sim_file, n_cpus=n_cpus, table_name='event_sweep_table', col_name='event_number', matching_vals=[event_id])
-		print "blocks (%d) fetched: %d" % (event_id, len(blocks))
-		#
-		# ... and now get the block info for each block in the event (from the blocks_data dict).
-		
-	
+	return CFF
 #
 def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
 	# ... and "time_series" is implied.
@@ -350,10 +395,7 @@ def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None
 	#
 	for ax in myfig.axes:
 		ax.legend(loc=0, numpoints=1)
-	#
-	
-	
-	
+	#	
 #
 # helper functions:
 #
@@ -375,8 +417,9 @@ def get_peaks(data_in=[], col=0, peak_type='upper'):
 	return peaks_out
 
 #
-def fetch_data_mpp(n_cpus=None, src_data=[], col_name='', matching_vals=[]):
+def fetch_data_mpp(n_cpus=None, src_data=[], col_name='', matching_vals=[], is_sorted=False):
 	#
+	# (there's probably a simpler way to do this usnig pool.apply_async() or something...
 	# wrap up the whole multi-processing fetch data process. aka, use this to to a multi-processing search for values in a table.
 	# n_cpus: number of processors to use. pass None to get all cpus.
 	# src_data: data to be searched.
@@ -397,7 +440,7 @@ def fetch_data_mpp(n_cpus=None, src_data=[], col_name='', matching_vals=[]):
 		child_pipe, parent_pipe = mpp.Pipe()
 		my_pipes+= [parent_pipe]
 		#my_processes+=[mpp.Process(target=find_in, args=(src_data[i*sublist_len:(i+1)*sublist_len], col_name, event_ids_ary, child_pipe))]
-		my_processes+=[mpp.Process(target=find_in, kwargs={'tbl_in':src_data[i*sublist_len:(i+1)*sublist_len], 'col_name':col_name, 'in_list':matching_vals, 'pipe_out':child_pipe})]
+		my_processes+=[mpp.Process(target=find_in, kwargs={'tbl_in':src_data[i*sublist_len:(i+1)*sublist_len], 'col_name':col_name, 'in_list':matching_vals, 'pipe_out':child_pipe, 'is_sorted':is_sorted})]
 		my_processes[-1].start()
 	#
 	#print "%d/%d processes started." % (len(my_pipes), len(my_processes))
@@ -414,11 +457,35 @@ def fetch_data_mpp(n_cpus=None, src_data=[], col_name='', matching_vals=[]):
 	#
 	return output
 
-def find_in(tbl_in=[], col_name='', in_list=[], pipe_out=None):
+def find_in(tbl_in=[], col_name='', in_list=[], pipe_out=None, is_sorted=False):
 	# a "find" utility function. look for qualifying rows (presuming at this point a hdf5 type layoud). return the
 	# out_list via "return" or a pipe in the case of mpp.
+	# (see notes below regarding @is_sorted)
 	#
-	output = [x for x in tbl_in if x[col_name] in in_list]
+	if is_sorted != True: 
+		output = [x for x in tbl_in if x[col_name] in in_list]
+	if is_sorted == True:
+		# if the data are sorted, we can use an indexing of sorts to improve performance... but we break list-comprehension syntax,
+		# and we have to find the max/min values, so in the end this is much more costly and should not be used except perhaps in cases
+		# where the soruce data are HUGE and the "in_list" data are quite small. we might also (see below) add the condition that the
+		# in_list data are sorted so we can quickly extract the min/max values.
+		min_val = min(in_list)
+		max_val = max(in_list)
+		output = []
+		for i, rw in enumerate(tbl_in):
+			if rw[col_name]<min_val: continue
+			if rw[col_name]>max_val: break
+			#
+			if rw[col_name] in in_list: output+=[rw]
+		#
+		# or a variation on the list comprehension?
+		#output = [x for x in tbl_in if x[col_name]>=min_val and x[col_name]<=max_val and x[col_name] in in_list]
+		#
+		#it seems that the sorted method is consistently slower, probably  because it requreis first finding the min/max values (which
+		# involves spinning the list. if the in_list were sorted, we could get something out of this by pulling mthe max/min
+		# vals directly from that list. also, the list-comprehension syntax does not appear to avoid spinning the whole list, so the
+		# standard "for" syntax is preferable.
+			
 	#
 	if pipe_out!=None:
 		pipe_out.send(output)
@@ -432,6 +499,16 @@ def fetch_h5_data(sim_file=allcal_full_mks, n_cpus=None, table_name=None, col_na
 		table_cols = cols_from_h5_dict(this_table.id.dtype.fields)
 		#
 		output_data = fetch_data_mpp(n_cpus=n_cpus, src_data=this_table, col_name=col_name, matching_vals=matching_vals)
+	#
+	return output_data
+#		
+def fetch_h5_table_data(h5_table=None, n_cpus=None, col_name=None, matching_vals=[]):
+	# fetch hdf5 data, but with the hdf5 file context specified in the calling function, aka -- skip to the table.
+	# (see also fetch_h5_data() for context-not-specified).
+	#
+	#table_cols = cols_from_h5_dict(h5_table.id.dtype.fields)
+	#
+	output_data = fetch_data_mpp(n_cpus=n_cpus, src_data=h5_table, col_name=col_name, matching_vals=matching_vals)
 	#
 	return output_data
 #

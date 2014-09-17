@@ -18,8 +18,8 @@ import inspect
 import multiprocessing as mpp
 
 #pyvc = imp.load_source('pyvc', '../PyVC/pyvc')
-import pyvc as pyvc
-pvca = imp.load_source('pyvc.vcanalysis', '../PyVC/pyvc/vcanalysis.py')
+#import pyvc as pyvc
+#pvca = imp.load_source('pyvc.vcanalysis', '../PyVC/pyvc/vcanalysis.py')
 #import pyvc
 #import pyvc.vcanalysis as pvca
 #
@@ -295,18 +295,32 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 	CFF = numpy.load(ary_in)
 	#
 	# assume either [event_id/num, year, CFF] or [event_id/num, CFF]
+	if len(CFF[0])==2:
+		y_col=1
+	if len(CFF[0])>=3:
+		y_col=2
+	CFF_peaks = get_peaks(data_in=CFF, col=y_col, peak_type='lower')
 	#
 	zCFF = zip(*CFF)
+	X=zCFF[0]
+	Y=zCFF[y_col]
+	#
+	zCFF_peaks = zip(*CFF_peaks)
+	X_peaks = zCFF_peaks[0]
+	Y_peaks = zCFF_peaks[y_col]
+	'''
 	if len(CFF[0])==2:
 		X=zCFF[0]
 		Y=zCFF[1]
 	if len(CFF[0])>=3:
 		X=zCFF[1]
 		Y=zCFF[2]
+	'''
 	#
 	plt.figure(fnum)
 	plt.clf()
-	plt.semilogy(X, [-1*y for y in Y], '.-')
+	#plt.semilogy(X, [-1*y for y in Y], '.-')
+	plt.semilogy(X_peaks, [-1*y for y in Y_peaks], '.-')
 	
 #
 def get_EMC_CFF():
@@ -500,7 +514,7 @@ def make_h5_indexed_dict(h5_table=None, n_cpus=None, index_col=None, use_obj=Tru
 		jobs[i].join()
 				
 	return output_dict
-
+#
 def index_dict_test(N=10**6):
 	# test mpp index maker...
 	with h5py.File(allcal_full_mks,'r') as f:
@@ -521,10 +535,6 @@ def index_dict_test(N=10**6):
 			print "time_%d: %f" % (i, times[i]-times[i-1])
 		#
 	return None
-			
-
-		
-	
 #
 def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
 	# ... and "time_series" is implied.
@@ -626,7 +636,6 @@ def get_peaks(data_in=[], col=0, peak_type='upper'):
 		#
 	#
 	return peaks_out
-
 #
 def fetch_data_mpp(n_cpus=None, src_data=[], col_name='', matching_vals=[], is_sorted=False):
 	#

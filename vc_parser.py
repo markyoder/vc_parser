@@ -276,6 +276,8 @@ def get_event_CFF(sweep_blocks, n_cpus=None):
 	return sum(CFFs.get())
 #
 def get_final_event_CFF(sweep_blocks, n_cpus=None):
+	# aka, calc the "final", not the "initial" cff for an event (given the set of blocks for
+	# that event).
 	# @sweep_blocks: blocks from event_sweep_table (for a given event(s))
 	# (see get_event_CFF() for additional notes)
 	#

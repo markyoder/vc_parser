@@ -314,10 +314,14 @@ def get_EMC_CFF():
 	#
 	for section in sections:
 		X=get_CFF_on_section(section_id=section)
-		#X=numpy.array(X)
-		#X.dump('data/EMC_CFF_timeseries_section_%d.npy' % section)
-		with open('data/EMC_CFF_timeseries_section_%d.npy' % section, 'w') as f_out:
-			json.dump(X, f_out, indent=1)
+		X=numpy.array(X)
+		X.dump('data/EMC_CFF_timeseries_section_%d.npy' % section)
+		
+		#with open('data/EMC_CFF_timeseries_section_%d.json' % section, 'w') as f_out:
+		#	#... well crap, these won't json.dump(s)() because the 'integer' values in the data are not
+		#	# proper integers; they numpy.uint32 (i presume  numpy unsigned integers, 32 bit), and json
+		#	# does not know what to do with them. we could try to handle them, or we can forego json...
+		#	json.dump(X, f_out, indent=1)
 		#
 	return None
 #
@@ -362,7 +366,7 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 			# ... and now get the block info for each block in the event (from the blocks_data dict).
 			# ... but more specifically, let's calculate the cumulative CFF for this event (summing the local CFF for each block).
 			#
-			#CFF+=[[event_id, event_year, get_event_CFF(blocks), get_final_event_CFF(blocks)]]
+			#CFF+=[[event_id, event_year, event['event_magnitude'], get_event_CFF(blocks), get_final_event_CFF(blocks)]]
 			#
 			CFF+=[{'event_id':event_id, 'event_year':event_year,'event_magnitude':event['event_magnitude'], 'CFF':get_event_CFF(blocks), 'CFF_final':get_final_event_CFF(blocks)}]
 			#print "CFF calculated: %s" % str(CFF[-1])
@@ -520,11 +524,7 @@ def index_dict_test(N=10**6):
 		for i in xrange(1, len(times)):
 			print "time_%d: %f" % (i, times[i]-times[i-1])
 		#
-	return None
-			
-
-		
-	
+	return None	
 #
 def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
 	# ... and "time_series" is implied.
@@ -564,9 +564,7 @@ def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None
 		ax.set_xscale('linear')
 		ax.set_yscale('log')
 		ax.set_ylabel('stress (VC units)', size=14)
-		
 		#
-	
 	#
 	# let's look at peak values...
 	upper_shear_init = get_peaks(events[1:], col=col_dict['event_shear_init'], peak_type='upper')

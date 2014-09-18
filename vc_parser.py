@@ -18,8 +18,8 @@ import inspect
 import multiprocessing as mpp
 
 #pyvc = imp.load_source('pyvc', '../PyVC/pyvc')
-import pyvc as pyvc
-pvca = imp.load_source('pyvc.vcanalysis', '../PyVC/pyvc/vcanalysis.py')
+#import pyvc as pyvc
+#pvca = imp.load_source('pyvc.vcanalysis', '../PyVC/pyvc/vcanalysis.py')
 #import pyvc
 #import pyvc.vcanalysis as pvca
 #
@@ -295,18 +295,32 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 	CFF = numpy.load(ary_in)
 	#
 	# assume either [event_id/num, year, CFF] or [event_id/num, CFF]
+	if len(CFF[0])==2:
+		y_col=1
+	if len(CFF[0])>=3:
+		y_col=2
+	CFF_peaks = get_peaks(data_in=CFF, col=y_col, peak_type='lower')
 	#
 	zCFF = zip(*CFF)
+	X=zCFF[0]
+	Y=zCFF[y_col]
+	#
+	zCFF_peaks = zip(*CFF_peaks)
+	X_peaks = zCFF_peaks[0]
+	Y_peaks = zCFF_peaks[y_col]
+	'''
 	if len(CFF[0])==2:
 		X=zCFF[0]
 		Y=zCFF[1]
 	if len(CFF[0])>=3:
 		X=zCFF[1]
 		Y=zCFF[2]
+	'''
 	#
 	plt.figure(fnum)
 	plt.clf()
-	plt.semilogy(X, [-1*y for y in Y], '.-')
+	#plt.semilogy(X, [-1*y for y in Y], '.-')
+	plt.semilogy(X_peaks, [-1*y for y in Y_peaks], '.-')
 	
 #
 def get_EMC_CFF():
@@ -325,8 +339,11 @@ def get_EMC_CFF():
 		#
 	return None
 #
-def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
+def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, event_sweeps_dict=None):
 	# CFF = shear_stress - mu*normal_stress
+	#  blocks: dictionary of blocks indexed by event number: {<event_number>:[block_data, block_data, etc.], <>:[]}
+	# for runs of multiple instances, this can be pre-calculated and shared.
+	#
 	# 1) get events for the section (use "events_by_section")
 	# 2) for each event, gather all the blocks (use the event_sweep_table).
 	# 3) for each block-sweep in the event, add the local CFF (aka, add the shear_init + mu*normal_init for each entry in the event.
@@ -334,8 +351,10 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 	#
 	CFF=[]
 	events = get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=section_id, n_cpus=n_cpus)
-	col_dict = {}
-	map(col_dict.__setitem__, events[0], range(len(events[0])))
+	# not using this any longer...
+	#col_dict = {}
+	#map(col_dict.__setitem__, events[0], range(len(events[0])))
+	#col_dict = {event:i for i, event in enumerate(events[0])}
 	#
 	# pre-load blocks data:
 	# (actually, we don't need this all the required data are in "sweeps").
@@ -348,6 +367,9 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 	#
 	with h5py.File(sim_file) as vc_data:
 		sweep_data = vc_data['event_sweep_table']
+		# pre-calc a dictionary of event-sweeps. each event_number will include a list of sweep events.
+		if event_sweeps_dict==None: event_sweeps_dict = make_h5_indexed_dict_spp(h5_in=sweep_data, index_col='event_number')
+		#
 		for ev_num, event in enumerate(events[1:]):
 			# get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table')
 			#
@@ -360,7 +382,10 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 			#
 			# this should be faster, since we don't have to open and reopen the file... but i'm not sure how much
 			# faster it is. certainly for smaller jobs, the sipler syntax is probably fine.
-			blocks = fetch_h5_table_data(h5_table=sweep_data, n_cpus=None, col_name='event_number', matching_vals=[event_id])
+			# ... but still slow, so use a pre-indexed list of sweep events...
+			#blocks = fetch_h5_table_data(h5_table=sweep_data, n_cpus=None, col_name='event_number', matching_vals=[event_id])
+			blocks = event_sweeps_dict[event_id]
+			#
 			if ev_num%250==0: print "(%d) blocks (%d) fetched: %d" % (ev_num, event_id, len(blocks))
 			#
 			# ... and now get the block info for each block in the event (from the blocks_data dict).
@@ -375,16 +400,20 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None):
 		#
 	return CFF
 #
+def h5_index_event_number(h5_in=None, index_col='event_number'):
+	# ... though we might be able to use initialize() pool kwarg. for now...
+	return make_h5_indexed_dict_spp(h5_in=h5_in, index_col=index_col)
+#
 def make_h5_indexed_dict_spp(h5_in=None, index_col=None, pipe_out=None):
 	# worker for make_h5_indexed_dict (or can be used standalone).
 	# group rows by unique value(s) in index_col
 	#
 	# guessing a bit about how to properly optimize this...
 	#return_dict = {}
-	key_vals = set(h5_in[index_col])
+	#key_vals = set(h5_in[index_col])
 	print "setting up keys:"
 	#[return_dict.__setitem__(key, []) for key in key_vals]
-	return_dict = {key:[] for key in key_vals}
+	return_dict = {key:[] for key in set(h5_in[index_col])}
 	print "keys configured. assign rows:"
 	[return_dict[rw[index_col]].append(rw) for rw in h5_in]
 	#
@@ -447,8 +476,39 @@ class h5_indexed_dict_worker(mpp.Process):
 				print 'excepting...'
 				return return_dict
 	#
-#	
-def make_h5_indexed_dict(h5_table=None, n_cpus=None, index_col=None, use_obj=True):
+#
+def make_h5_indexed_pool(h5_table=None, n_cpus=None):
+	# incidentals:
+	index_col='event_number'
+	if n_cpus==None: n_cpus = mpp.cpu_count()
+	data_len = len(h5_table)
+	job_indices = [i*data_len/n_cpus for i in xrange(n_cpus)] + [data_len]
+	#
+	print "job_indices: ", job_indices
+	#
+	jobs = []
+	pipes = []
+	output_dict={key:[] for key in set(h5_table[index_col])}
+	#
+	pool =  mpp.Pool(processes=n_cpus)
+	#
+	for i in xrange(n_cpus):
+		jobs += [h5_table[job_indices[i]:job_indices[i+1]]]
+	#
+	results = pool.map_async(h5_index_event_number, jobs)
+	pool.close()
+	pool.join()
+	#
+	# [output_dict[key].extend(tmp_dict[key]) for key in tmp_dict.keys()]
+	returns = results.get()
+	for dct in returns:
+		[output_dict[key].extend(dct[key]) for key in dct.keys()]
+	#
+	return output_dict
+	
+	
+#
+def make_h5_indexed_dict(h5_table=None, n_cpus=None, index_col=None, use_obj=False):
 	'''
 	# (mpp implied)
 	#
@@ -470,7 +530,7 @@ def make_h5_indexed_dict(h5_table=None, n_cpus=None, index_col=None, use_obj=Tru
 	#
 	jobs = []
 	pipes = []
-	output_dict={}
+	output_dict={key:[] for key in set(h5_table[index_col])}
 	#
 	for i in xrange(n_cpus):
 		p1, p2 = mpp.Pipe()
@@ -491,10 +551,12 @@ def make_h5_indexed_dict(h5_table=None, n_cpus=None, index_col=None, use_obj=Tru
 	# of subsets. we could handle it in processor assignment, or we can do it by pre-indexing the dictionary (like we do
 	# in the worker(s) ).
 	#output_dict = {key:[] for key in set(h5_table[index_col])}	# gives an initialized dict. with empty value lists.
+	#
 	for i, p in enumerate(pipes):
 		#output_dict.update(pipes[i].recv())
-		# this doesn't appear to be too time-costly... but, at lest once the system finds its indices, the spp seems to be
-		# much faster...
+		# this doesn't appear to be too time-costly... but, at lest once the system finds its indices, 
+		#the spp seems to be much faster...; the fast majority of the 'cost' is in piping back the data.
+		# pool.map_async() might be faster
 		tmp_dict = pipes[i].recv()
 		[output_dict[key].extend(tmp_dict[key]) for key in tmp_dict.keys()]
 		pipes[i].close()
@@ -504,27 +566,43 @@ def make_h5_indexed_dict(h5_table=None, n_cpus=None, index_col=None, use_obj=Tru
 		jobs[i].join()
 				
 	return output_dict
-
+#
 def index_dict_test(N=10**6):
 	# test mpp index maker...
+	# and the results... it's much, much faster to do dictionary assignment using a single processor.
+	# mpp can be marginally faster to assign values over 10**6 values or so, but the cost of piping back
+	# the data is HUGE. basically, this test takes about 2 seconds in spp. this process takes about
+	# 1.5-1.7 seconds in at least two of the mpp modes, but piping back the data puts the whole process at
+	# ~ 7 seconds, 10 seconds using the pool.map_async() method.
+	#
 	with h5py.File(allcal_full_mks,'r') as f:
 		sweeps = f['event_sweep_table']
+		if N==None: N=len(sweeps)
 		times=[]
 		times+=[time.time()]
 		#
 		sweeps1 = make_h5_indexed_dict_spp(h5_in=sweeps[0:N], index_col='event_number')
 		times+=[time.time()]
 		#
-		sweeps1 = make_h5_indexed_dict(h5_table=sweeps[0:N], index_col='event_number', use_obj=False)
+		sweeps2 = make_h5_indexed_dict(h5_table=sweeps[0:N], index_col='event_number', use_obj=False)
 		times+=[time.time()]
 
-		sweeps1 = make_h5_indexed_dict(h5_table=sweeps[0:N], index_col='event_number', use_obj=False)
+		sweeps3 = make_h5_indexed_dict(h5_table=sweeps[0:N], index_col='event_number', use_obj=False)
+		times+=[time.time()]
+		#
+		sweeps4 = make_h5_indexed_pool(h5_table=sweeps[0:N], n_cpus=None)
 		times+=[time.time()]
 		#
 		for i in xrange(1, len(times)):
 			print "time_%d: %f" % (i, times[i]-times[i-1])
+		print "lens (1,2,3, 4): %d, %d, %d, %d" % (len(sweeps1), len(sweeps2), len(sweeps3), len(sweeps4))
+		print "equalities: ", sweeps1==sweeps2, sweeps2==sweeps3, sweeps3==sweeps1, sweeps1==sweeps4, sweeps2==sweeps4, sweeps3==sweeps4
 		#
+<<<<<<< HEAD
 	return None	
+=======
+	return None
+>>>>>>> faab36675c3bb64b73456025671ab22184f5cacb
 #
 def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
 	# ... and "time_series" is implied.
@@ -624,7 +702,6 @@ def get_peaks(data_in=[], col=0, peak_type='upper'):
 		#
 	#
 	return peaks_out
-
 #
 def fetch_data_mpp(n_cpus=None, src_data=[], col_name='', matching_vals=[], is_sorted=False):
 	#

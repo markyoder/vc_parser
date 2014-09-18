@@ -335,7 +335,7 @@ def get_EMC_CFF():
 		#
 	return None
 #
-def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, blocks=None):
+def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, event_sweeps_dict=None):
 	# CFF = shear_stress - mu*normal_stress
 	#  blocks: dictionary of blocks indexed by event number: {<event_number>:[block_data, block_data, etc.], <>:[]}
 	# for runs of multiple instances, this can be pre-calculated and shared.
@@ -364,7 +364,7 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, b
 	with h5py.File(sim_file) as vc_data:
 		sweep_data = vc_data['event_sweep_table']
 		# pre-calc a dictionary of event-sweeps. each event_number will include a list of sweep events.
-		event_sweeps_dict = make_h5_indexed_dict_spp(h5_in=sweep_data, index_col='event_number')
+		if event_sweeps_dict==None: event_sweeps_dict = make_h5_indexed_dict_spp(h5_in=sweep_data, index_col='event_number')
 		#
 		for ev_num, event in enumerate(events[1:]):
 			# get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table')
@@ -380,7 +380,7 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, b
 			# faster it is. certainly for smaller jobs, the sipler syntax is probably fine.
 			# ... but still slow, so use a pre-indexed list of sweep events...
 			#blocks = fetch_h5_table_data(h5_table=sweep_data, n_cpus=None, col_name='event_number', matching_vals=[event_id])
-			if blocks==None: blocks = event_sweeps_dict[event_id]
+			blocks = event_sweeps_dict[event_id]
 			#
 			if ev_num%250==0: print "(%d) blocks (%d) fetched: %d" % (ev_num, event_id, len(blocks))
 			#

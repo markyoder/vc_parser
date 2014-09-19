@@ -197,7 +197,6 @@ def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, 
 			#section_events = [x for x in vc_data[src_data] if x[col_name] in event_ids_ary[:]]
 			section_events = find_in(tbl_in=src_data, col_name=col_name, in_list=event_ids_ary, pipe_out=None) 
 		else:
-			
 			my_pipes = []
 			section_events = []
 			my_processes = []
@@ -212,16 +211,18 @@ def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, 
 			#
 			print "%d/%d processes started." % (len(my_pipes), len(my_processes))
 			#
-			for i, proc in enumerate(my_processes): my_processes[i].join()
-			#
 			# processes are now started and joined, and we'll wait until they are all finished (each join() will hold the calling
 			# process until it's finished)
 			for i, pipe in enumerate(my_pipes):
 				in_my_pipe = pipe.recv()
-				print "adding %d new row..." % len(in_my_pipe)
+				#print "adding %d new row..." % len(in_my_pipe)
 				section_events += in_my_pipe
 				my_pipes[i].close()
-					
+			#
+			# and join, but note that the join() must follow pipe.recv(), or it hangs forever and ever because the sending
+			# pipe never closes...
+			for i, proc in enumerate(my_processes): 
+				if my_processes[i].is_alive(): my_processes[i].join()					
 	#
 	#return event_ids_ary
 	# columns we might care about:
@@ -247,24 +248,49 @@ def get_blocks_info_dict(sim_file=allcal_full_mks, block_ids=None):
 	#
 	return blockses
 #
+# a suite of functions to get total CFF for an event by summing the CFF from all the blocks in the event.
+# the variety of functions are to facilitate different approaches to multiprocessing...
+#
 def calc_final_CFF_from_block_data(block_data):
 	return block_data['shear_final'] - block_data['mu']*block_data['normal_final']
 #
 def calc_CFF_from_block_data(block_data, initial_stress=True):
-	# a row of block data (assume dict. or hdf5 format):
-	return block_data['shear_init'] - block_data['mu']*block_data['normal_init']
-#
+	# a row of block data (assume dict. or hdf5 format) (aka, data from 1 block).:
+	if initial_stress==False:
+		return block_data['shear_final'] - block_data['mu']*block_data['normal_final']
+	else:
+		return block_data['shear_init'] - block_data['mu']*block_data['normal_init']
+
+def calc_CFFs_from_blocks(sweep_blocks, pipe=None):
+	# a single-processor (spp) function to calculate total initial and final CFF from a set of "sweep" blocks:
+	# note this is meant to be single-process (mpp.Process() ) friendly.
+	#
+	total_cff_init  = 0.
+	total_cff_final = 0.
+	#
+	for blk in sweep_blocks:
+		total_cff_init  += blk['shear_init']  - blk['mu']*blk['normal_init']
+		total_cff_final += blk['shear_final'] - blk['mu']*blk['normal_final']
+	#
+	if pipe!=None:
+		try:
+			pipe.send({'cff_init':total_cff_init, 'cff_final':total_cff_final})
+		except:
+			pipe=None
+	if pipe==None: 
+		return {'cff_init':total_cff_init, 'cff_final':total_cff_final}
+	
 def calc_CFF(shear_stress=0., normal_stress=0., mu=.8):
 	return shear_stress - normal_stress*mu
 #
-def get_event_CFF(sweep_blocks, n_cpus=None):
+def get_event_CFF(sweep_blocks, n_cpus=None, chunksize=100):
 	# @sweep_blocks: blocks from event_sweep_table (for a given event(s))
 	#
 	# CFF = shear_stress - mu*normal_stress
 	if n_cpus==None: n_cpus=mpp.cpu_count()
 	#
 	my_pool = mpp.Pool(processes=n_cpus)
-	CFFs = my_pool.map_async(calc_CFF_from_block_data, sweep_blocks)	# imap returns an ordered iterable. map_async()
+	CFFs = my_pool.map_async(calc_CFF_from_block_data, sweep_blocks, chunksize=chunksize)	# imap returns an ordered iterable. map_async()
 																		# returns a "results object"
 																		# which is better? dunno. 
 	my_pool.close()	# this is very very important. note a Pool() can be executed recursively, so this tells the Pool() object
@@ -275,7 +301,7 @@ def get_event_CFF(sweep_blocks, n_cpus=None):
 	#
 	return sum(CFFs.get())
 #
-def get_final_event_CFF(sweep_blocks, n_cpus=None):
+def get_final_event_CFF(sweep_blocks, n_cpus=None, chunksize=100):
 	# aka, calc the "final", not the "initial" cff for an event (given the set of blocks for
 	# that event).
 	# @sweep_blocks: blocks from event_sweep_table (for a given event(s))
@@ -285,53 +311,147 @@ def get_final_event_CFF(sweep_blocks, n_cpus=None):
 	if n_cpus==None: n_cpus=mpp.cpu_count()
 	#
 	my_pool = mpp.Pool(processes=n_cpus)
-	CFFs = my_pool.map_async(calc_final_CFF_from_block_data, sweep_blocks)	
+	CFFs = my_pool.map_async(calc_final_CFF_from_block_data, sweep_blocks, chunksize=chunksize)	
 	my_pool.close()	
 	my_pool.join()												
 	#
 	return sum(CFFs.get())
 #
-def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
-	CFF = numpy.load(ary_in)
+def cff_dict_npy(dict_in):
+	# convert an older style dff dict to a structured numpy array.
 	#
-	# assume either [event_id/num, year, CFF] or [event_id/num, CFF]
-	if len(CFF[0])==2:
-		y_col=1
-	if len(CFF[0])>=3:
-		y_col=2
-	CFF_peaks = get_peaks(data_in=CFF, col=y_col, peak_type='lower')
+	dtypes = []
+	lst_data = []
+	keys = dict_in[0].keys()
+	for key in keys:
+		v_type = 'float64'
+		if key=='event_id': v_type='int64'
+		#
+		dtypes += [(key, v_type)]
 	#
-	zCFF = zip(*CFF)
-	X=zCFF[0]
-	Y=zCFF[y_col]
+	print "dtypes: ", dtypes
+	# since we're doing this dynamically, data will have to be accessed dynamically, but that shouldn't be a problem...
 	#
-	zCFF_peaks = zip(*CFF_peaks)
-	X_peaks = zCFF_peaks[0]
-	Y_peaks = zCFF_peaks[y_col]
-	'''
-	if len(CFF[0])==2:
-		X=zCFF[0]
-		Y=zCFF[1]
-	if len(CFF[0])>=3:
-		X=zCFF[1]
-		Y=zCFF[2]
-	'''
+	for rw in dict_in:
+		lst_data += [[]]
+		for key in keys:
+			lst_data[-1]+=[rw[key]]
+		#print lst_data[-1]
+		#lst_rw = numpy.array(lst_rw, dtype=dtypes)
+		
+		#
 	#
-	plt.figure(fnum)
-	plt.clf()
-	#plt.semilogy(X, [-1*y for y in Y], '.-')
-	plt.semilogy(X_peaks, [-1*y for y in Y_peaks], '.-')
+	#ary_data = numpy.zeros((len(keys),) dtype=dtypes)
+	ary_data = numpy.array(numpy.zeros(len(lst_data)), dtype=dtypes)
+	#ary_data[:] = lst_data
+	# ... no idea how to do this...
+	#
+	return lst_data
+		
+	#
 	
 #
-def get_EMC_CFF():
-	sections = [16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149]
+def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
+	# this script is for some of the earlier CFF numpy array types. newer arrays will require different scripting.
+	# for older data sets (most likely):
+	#	# 2 cols: event_number, CFF_initial
+	#   # 3 cols: event_number, event_year, CFF_initial
+	#   # 4 cols: event_number, event_year, CFF_initial, CFF_final
+	#  later versions will include column names.
+	#
+	CFF = numpy.load(ary_in)
+	#
+	# what kind of array did we get?
+	# this is not very efficient, in that we rewrite the whole enchilada for the new types, but i don't
+	# expect that we'll be returning to these unformatted (unstructured) array types.
+	# so, focus on newer structured arrays. leave the old thing in out of principle.
+	#	
+	if isinstance(CFF, numpy.recarray)==True:
+		# it's a structured array.
+		cols = map(operator.itemgetter(0), CFF.dtype.descr)
+		# cols should be like: ['event_number', 'event_year', 'event_mag', 'cff_initial', 'cff_final']
+		#
+		plt.figure(fnum)
+		plt.clf()
+		#
+		# create two axes:
+		# magnitudes plot
+		# CFF plot.
+		#
+		X = CFF['event_year']
+		Y = -1*CFF['cff_initial']
+		# use "peak" values to cut through some noise.
+		peaks = get_peaks(zip(*[X,Y]), col=1, peak_type='upper')
+		X_peaks, Y_peaks = zip(*peaks)
+		#
+		ax = plt.gca()
+		ax.set_xscale('linear')
+		ax.set_yscale('log')
+		# first, raw CFF (initial):
+		plt.fill_between(X, Y, y2=min(Y), color='b', alpha=.2, zorder=4)
+		plt.plot(X_peaks, Y_peaks, '.-', zorder=5)
+	#	
+	if isinstance(CFF, numpy.recarray)==False:
+		# a regular, old-style, numpy.ndarray -- aka, no columns. guess the column structure from what we know...
+		#
+		# assume either [event_id/num, year, CFF] or [event_id/num, CFF]
+		if len(CFF[0])==2:
+			y_col=1
+		if len(CFF[0])>=3:
+			x_col=1
+			y_col=2
+		if len(CFF[0])>=5:
+			x_col=1
+			y_col=3
+		#CFF_peaks = get_peaks(data_in=CFF, col=y_col, peak_type='lower')
+		#
+		zCFF = zip(*CFF)
+		X=zCFF[x_col]
+		Y=zCFF[y_col]
+		Y=[-1*y for y in Y]
+		CFF_peaks = get_peaks(data_in = zip(*[X,Y]), col=1, peak_type='upper')
+		#
+		zCFF_peaks = zip(*CFF_peaks)
+		X_peaks = zCFF_peaks[0]
+		Y_peaks = zCFF_peaks[1]
+		#
+		'''
+		if len(CFF[0])==2:
+			X=zCFF[0]
+			Y=zCFF[1]
+		if len(CFF[0])>=3:
+			X=zCFF[1]
+			Y=zCFF[2]
+		'''
+		#
+		plt.figure(fnum)
+		plt.clf()
+		#
+		ax = plt.gca()
+		ax.set_xscale('linear')
+		ax.set_yscale('log')
+		plt.fill_between(X, Y, y2=min(Y), color='b', alpha=.2, zorder=4)
+		plt.plot(X_peaks, Y_peaks, '.-', zorder=5)				
+
+#
+# end CFF calculators and helpers...	
+#
+def get_EMC_CFF(sections=None):
+	if sections==None: sections = [16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149]
+	#
+	event_sweeps_dict = None
+	#with h5py.File(sim_file) as vc_data:
+	#	# pre-calc a dictionary of event-sweeps. each event_number will include a list of sweep events.
+	#	event_sweeps_dict = make_h5_indexed_dict_spp(h5_in=vc_data['event_sweep_table'], index_col='event_number')
 	#
 	for section in sections:
-		X=get_CFF_on_section(section_id=section)
+		X=get_CFF_on_section(section_id=section, event_sweeps_dict=event_sweeps_dict)
 		X=numpy.array(X)
-		X.dump('data/EMC_CFF_timeseries_section_%d.npy' % section)
-		
-		#with open('data/EMC_CFF_timeseries_section_%d.json' % section, 'w') as f_out:
+		X.dump('data/VC_CFF_timeseries_section_%d.npy' % section)
+		#
+		# ... and we may have redefined the offending variable types by using the structured
+		# numpy array, so let's have a go at json as well:
+		#with open('data/VC_CFF_timeseries_section_%d.json' % section, 'w') as f_out:
 		#	#... well crap, these won't json.dump(s)() because the 'integer' values in the data are not
 		#	# proper integers; they numpy.uint32 (i presume  numpy unsigned integers, 32 bit), and json
 		#	# does not know what to do with them. we could try to handle them, or we can forego json...
@@ -349,8 +469,13 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 	# 3) for each block-sweep in the event, add the local CFF (aka, add the shear_init + mu*normal_init for each entry in the event.
 	# 4) time (year) of the event can be taken from the event_table.
 	#
+	time_start = time.time()
+	print "starting CFF(t) for section: %d (%s)" % (section_id, time.ctime())
+	if n_cpus==None: n_cpus = mpp.cpu_count()
 	CFF=[]
 	events = get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=section_id, n_cpus=n_cpus)
+	t0=time.time()
+	#
 	# not using this any longer...
 	#col_dict = {}
 	#map(col_dict.__setitem__, events[0], range(len(events[0])))
@@ -367,10 +492,18 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 	#
 	with h5py.File(sim_file) as vc_data:
 		sweep_data = vc_data['event_sweep_table']
-		# pre-calc a dictionary of event-sweeps. each event_number will include a list of sweep events.
-		if event_sweeps_dict==None: event_sweeps_dict = make_h5_indexed_dict_spp(h5_in=sweep_data, index_col='event_number')
+		max_index = len(events)-1
 		#
-		for ev_num, event in enumerate(events[1:]):
+		# pre-calc a dictionary of event-sweeps. each event_number will include a list of sweep events.
+		#if event_sweeps_dict==None: 
+		#	print "setting up sweeps dictionary..."
+		#	event_sweeps_dict = make_h5_indexed_dict_spp(h5_in=sweep_data, index_col='event_number')
+		#
+		# make some mpp queues:
+		jobs     = []
+		#pipes    = []
+		#cff_outs = []
+		for ev_count, event in enumerate(events[1:]):
 			# get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table')
 			#
 			#event_id=event[col_dict['event_number']]
@@ -383,34 +516,128 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 			# this should be faster, since we don't have to open and reopen the file... but i'm not sure how much
 			# faster it is. certainly for smaller jobs, the sipler syntax is probably fine.
 			# ... but still slow, so use a pre-indexed list of sweep events...
-			#blocks = fetch_h5_table_data(h5_table=sweep_data, n_cpus=None, col_name='event_number', matching_vals=[event_id])
-			blocks = event_sweeps_dict[event_id]
+			if event_sweeps_dict ==None:
+				blocks = fetch_h5_table_data(h5_table=sweep_data, n_cpus=None, col_name='event_number', matching_vals=[event_id])
+			else:
+				# ... though i'm starting to think that this dict. object is not any faster (in fact likely slower)
+				# than (repeatedly) accessing the h5 table directly.
+				blocks = event_sweeps_dict[event_id]
 			#
-			if ev_num%250==0: print "(%d) blocks (%d) fetched: %d" % (ev_num, event_id, len(blocks))
+			if ev_count%250==0:
+				#print "(%d) blocks (%d) fetched: %d" % (ev_count, event_id, len(blocks))
+				t1=time.time()
+				print "fetching CFF events: %d/%d, %d blocks fetched, dt=%s" % (ev_count, max_index, len(blocks), str(t1-t0))
+				t0=t1
 			#
 			# ... and now get the block info for each block in the event (from the blocks_data dict).
 			# ... but more specifically, let's calculate the cumulative CFF for this event (summing the local CFF for each block).
 			#
 			#CFF+=[[event_id, event_year, event['event_magnitude'], get_event_CFF(blocks), get_final_event_CFF(blocks)]]
 			#
-			CFF+=[{'event_id':event_id, 'event_year':event_year,'event_magnitude':event['event_magnitude'], 'CFF':get_event_CFF(blocks), 'CFF_final':get_final_event_CFF(blocks)}]
-			#print "CFF calculated: %s" % str(CFF[-1])
-			#if len(blocks)>10: return blocks
+			# ... and this approach appears to be killing us. i think mpp is simply not efficient with this generalized approach
+			#  (aka, doing the mpp on each set of blocks.). it may be faster and more memory efficient
+			# to do each set of blocks as a process, either by mapping (which i think will kill us in memory)
+			# or by using processes (and for now, just suck up that larger chunks are going to slow down smaller chunks
+			# inthe join).
+			#
+			# ... and instead of returning a list of dicts, let's return a structured numpy.array().
+			# we can define the column names and types; see below.
+			#
+			pipe1, pipe2 = mpp.Pipe()
+			P=mpp.Process(target=calc_CFFs_from_blocks, args=[blocks, pipe1])
+			P.start()
+			#jobs+=[{'process':P, 'pipe':pipe2, 'cff_out':{'event_id':event_id, 'event_year':event_year,'event_magnitude':event['event_magnitude']}}]
+			jobs+=[{'process':P, 'pipe':pipe2, 'cff_out':[event_id, event_year, event['event_magnitude']]}]
+			#pipes+=[pipe2]
+			#cff_outs += [{'event_id':event_id, 'event_year':event_year,'event_magnitude':event['event_magnitude']}]
+			#
+			# we're spinning through this, so we should have n>1 processes running. let's slow them down...
+			if ev_count%n_cpus==(n_cpus-1) or ev_count==max_index:
+				#print "do joins..."
+				for j, job in enumerate(jobs):
+					#print "from pipe[%d]: " % (j), pipes[j].recv()
+					cff_vals = job['pipe'].recv()
+					job['pipe'].close()
+					#job['cff_out'].update(cff_vals)		# cff_vals like: {'cff_init':total_cff_init, 'cff_final':total_cff_final}
+					job['cff_out'] += [cff_vals['cff_init'], cff_vals['cff_final']]
+					#
+					CFF+=[job['cff_out']]
+				#
+				#print "waiting on pipes..."
+				# and just to be sure, join until we're all done with this set:
+				for j, job in enumerate(jobs):
+					job['process'].join()
+				#print "joins complete"
+				jobs=[]
+			#
+			##CFF+=[{'event_id':event_id, 'event_year':event_year,'event_magnitude':event['event_magnitude'], 'CFF':get_event_CFF(blocks), 'CF_final':get_final_event_CFF(blocks)}]
+			#CFF+=[{'event_id':event_id, 'event_year':event_year,'event_magnitude':event['event_magnitude']}]
+			#CFF['CFF']      = get_event_CFF(blocks, chunksize=128)
+			#CFF['CF_final'] = get_final_event_CFF(blocks, chunksize=128)		# process quasi-serially...
+			#
+			# calc_CFFs_from_blocks(sweep_blocks)
+			#
 			blocks=None
 		#
+	# convert CFF to a structured array (basically, we're after named columns; in this case, defining the data types is
+	# easy as well).
+	# this is what we'll want to do, but for some reason it doesn't work worth a damn. just send back the list for now...
+	#CFF = numpy.array(CFF, dtype=[('event_number', 'int32'), ('event_year', 'int32'), ('event_magnitude', 'float64'), ('CFF_init', 'float64'), ('CFF_final', 'float64')])
+	#
+	print "finished CFF(t) for section: %d (%s: %f)" % (section_id, time.ctime(), time.time()-time_start)
+	#
+	# convert to structured array with named cols (note this syntax, because this is not as easy as it should be):
+	CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_mag', 'cff_initial', 'cff_final'], formats=[type(x).__name__ for x in CFF[0]])
+	#
 	return CFF
+def make_structured_array_from_file(fname_in, col_names = ['event_number', 'event_year', 'event_mag', 'cff_initial', 'cff_final'], col_formats = None, fname_out=None):
+	# note: this yields a numpy.recraray, as opposed to the standard numpy.ndarray type/instance. note that, given
+	# recarray A and ndarray B:
+	#
+	# isinstance(A, numpy.ndarray):  True
+	# isinstance(B, numpy.ndarray):  True
+	# isinstance(A, numpy.recarray): True
+	# isinstance(B, numpy.recarray): False
+	#
+	# so, recarray inherits ndarray.
+	#
+	with open(fname_in, 'r') as f:
+		X  = numpy.load(f)
+		if col_formats == None: col_formats = [type(x).__name__ for x in X[0]]
+		#
+		Xs = numpy.core.records.fromarrays(X.transpose(), names=col_names, formats=col_formats)
+		#
+	#
+	if fname_out==None:
+		dot_index = fname_in.rfind('.')
+		fname_out = fname_in[0:dot_index] + '_struct' + fname_in[dot_index:]
+	#
+	with open(fname_out, 'w') as f:
+		Xs.dump(f)
+	#
+	return Xs
+	
+		
 #
 def h5_index_event_number(h5_in=None, index_col='event_number'):
+	# this is a little helper funciton to facilitate map() and other mpp scripts.
 	# ... though we might be able to use initialize() pool kwarg. for now...
 	return make_h5_indexed_dict_spp(h5_in=h5_in, index_col=index_col)
 #
-def make_h5_indexed_dict_spp(h5_in=None, index_col=None, pipe_out=None):
+def make_h5_indexed_dict_spp(h5_in=None, index_col=None, pipe_out=None, data_set_name=None):
 	# worker for make_h5_indexed_dict (or can be used standalone).
 	# group rows by unique value(s) in index_col
+	# @data_set_name: use only if h5_in is a string defining the name of the hdf5 filename.
 	#
-	# guessing a bit about how to properly optimize this...
-	#return_dict = {}
-	#key_vals = set(h5_in[index_col])
+	# we might want to call this outside an HDF5 context (maybe we want to do this always...)
+	# so, if the h5_in data type is a string, assume it's a file-name, and assume we get a not-None data_set_name
+	# open the file
+	if isinstance(h5_in, str):
+		# we've (probably) been passed the name of the hdf5 source file. open it and call this function recursively:
+		with h5py.File(h5_in, 'r') as f:
+			return make_h5_indexed_dict_spp(h5_in=f[data_set_name], index_col=index_col, pipe_out=pipe_out)
+	#
+	#
 	print "setting up keys:"
 	#[return_dict.__setitem__(key, []) for key in key_vals]
 	return_dict = {key:[] for key in set(h5_in[index_col])}
@@ -477,12 +704,13 @@ class h5_indexed_dict_worker(mpp.Process):
 				return return_dict
 	#
 #
-def make_h5_indexed_pool(h5_table=None, n_cpus=None):
+def make_h5_indexed_pool(h5_table=None, n_cpus=None, chunksize=None):
 	# incidentals:
 	index_col='event_number'
 	if n_cpus==None: n_cpus = mpp.cpu_count()
 	data_len = len(h5_table)
 	job_indices = [i*data_len/n_cpus for i in xrange(n_cpus)] + [data_len]
+	if chunksize==None: chunksize = len(h5_table)/n_cpus
 	#
 	print "job_indices: ", job_indices
 	#
@@ -495,7 +723,7 @@ def make_h5_indexed_pool(h5_table=None, n_cpus=None):
 	for i in xrange(n_cpus):
 		jobs += [h5_table[job_indices[i]:job_indices[i+1]]]
 	#
-	results = pool.map_async(h5_index_event_number, jobs)
+	results = pool.map_async(h5_index_event_number, jobs, chunksize=chunksize)
 	pool.close()
 	pool.join()
 	#
@@ -596,13 +824,66 @@ def index_dict_test(N=10**6):
 		for i in xrange(1, len(times)):
 			print "time_%d: %f" % (i, times[i]-times[i-1])
 		print "lens (1,2,3, 4): %d, %d, %d, %d" % (len(sweeps1), len(sweeps2), len(sweeps3), len(sweeps4))
-		print "equalities: ", sweeps1==sweeps2, sweeps2==sweeps3, sweeps3==sweeps1, sweeps1==sweeps4, sweeps2==sweeps4, sweeps3==sweeps4
+		equal_tests = [[sweeps1, sweeps2], [sweeps2,sweeps3], [sweeps3,sweeps1], [sweeps1,sweeps4], [sweeps2,sweeps4], [sweeps3,sweeps4]]
 		#
-<<<<<<< HEAD
-	return None	
-=======
+		
+		# process() MPP eqality test:
+		# (this approach is definitely more memory efficient and tractable than the pool().map_async() method.
+		# it might also be worth looking into a Queue() method, but generally it seems that 
+		#
+		jobs=[]
+		pipes=[]
+		n_procs=mpp.cpu_count()
+		print "equalities (in some order):"
+		for i, rw in enumerate(equal_tests):
+			if len(rw)<2: continue
+			#P=mpp.Process(target=operator.eq, args=[rw[0], rw[1]])
+			pipe1, pipe2 = mpp.Pipe()
+			P=mpp.Process(target=print_eq, args=[rw[0], rw[1], pipe2])
+			P.start()
+			jobs+=[P]
+			pipes+=[pipe1]
+			# ... and of course, we could be cleaning these up as well, and probably monitoring them and spawning new processes
+			# as they finish (using the pipes() maybe?
+			# .. but we need better tracking of how many processes we started.
+			if i%n_procs==(n_procs-1) or i==len(equal_tests)-1:
+				print "do joins..."
+				for j, job in enumerate(jobs):
+					#
+					print "from pipe[%d]: " % (j), pipes[j].recv()
+					pipes[j].close()
+				#
+				for job in jobs: job.join()
+				jobs=[]
+				pipes=[]
+				#
+			#
+		#
+		equal_tests=None
+		#
+		'''
+		# testing pool method for evaluating equality. it is super memory intensive and problematic. maybe try direct processes?
+		3
+		#print "equalsies in: ", [[operator.eq] + [S] for S in equal_tests]
+		arg_list = [[operator.eq] + [S] for S in equal_tests]
+		for l in arg_list: print l[0], len(l), len(l[1])
+		#
+		eq_pool = mpp.Pool(mpp.cpu_count())
+		equalses = eq_pool.map_async(map_helper, arg_list)
+		#print "equalities: ", sweeps1==sweeps2, sweeps2==sweeps3, sweeps3==sweeps1, sweeps1==sweeps4, sweeps2==sweeps4, sweeps3==sweeps4
+		results = equalses.get()
+		eq_pool.close()
+		print "equalities: ", results
+		'''
+		#
 	return None
->>>>>>> faab36675c3bb64b73456025671ab22184f5cacb
+#
+def print_eq(a,b, pipe=None):
+	truth = (a==b)
+	if pipe!=None:
+		pipe.send(truth)
+		pipe.close()
+	print truth
 #
 def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
 	# ... and "time_series" is implied.
@@ -686,6 +967,38 @@ def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None
 #
 # helper functions:
 #
+def tmp_test():
+	A=[[1,2], [2,3], [4,5], [6,7]]
+	P=mpp.Pool(mpp.cpu_count())
+	X=P.map_async(map_helper, [[operator.eq]+a for a in A])
+	#
+	return X.get()
+
+
+def null_funct(args=[], kwargs={}):
+	pass
+#
+def map_helper(args_in = [null_funct, [], {}]):
+	# helper function for pool.map_async(). pass data as a list(-like object):
+	# [function, [args], {kwargs}] (though we'll allow for some mistakes).
+	#
+	funct = args_in[0]
+	#
+	# allow for different formatting options:
+	if not (isinstance(args_in[1], list) or isinstance(args_in[1], tuple) or isinstance(args_in[1], dict)):
+		# probably passed a list of parameters. just use them:
+		args = args_in[1:]
+		#
+		return funct(*args)
+	#
+	# if the args are "properly" formatted:
+	args=[]
+	kwargs = {}
+	for arg in args_in[1:]:
+		if isinstance(arg, list) or isinstance(arg, tuple): args += arg
+		if isinstance(arg, dict): kwargs.update(arg)
+	return funct(*args, **kwargs)
+#
 def get_peaks(data_in=[], col=0, peak_type='upper'):
 	peaks_out = []
 	for i, rw in enumerate(data_in[1:-1]):
@@ -737,7 +1050,7 @@ def fetch_data_mpp(n_cpus=None, src_data=[], col_name='', matching_vals=[], is_s
 	# process until it's finished)
 	for i, pipe in enumerate(my_pipes):
 		#in_my_pipe = pipe.recv()
-		#print "adding %d new row..." % len(in_my_pipe)
+		#
 		output += pipe.recv()
 		my_pipes[i].close()
 	#

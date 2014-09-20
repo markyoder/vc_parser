@@ -371,25 +371,48 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 		cols = map(operator.itemgetter(0), CFF.dtype.descr)
 		# cols should be like: ['event_number', 'event_year', 'event_mag', 'cff_initial', 'cff_final']
 		#
-		plt.figure(fnum)
-		plt.clf()
+		f=plt.figure(fnum)
+		f.clf()
 		#
 		# create two axes:
 		# magnitudes plot
+		ax_mag = f.add_axes([.1, .1, .85, .4])
 		# CFF plot.
+		ax_CFF = f.add_axes([.1, .5, .85, .4], sharex=ax_mag)
+		
 		#
 		X = CFF['event_year']
-		Y = -1*CFF['cff_initial']
+		X_finals = [x+.01 for x in X]
+		#
+		Y0 = -1*CFF['cff_initial']
+		Y_final = -1*(CFF['cff_final'])
+		
+		X = list(X) + list(X_finals)
+		X.sort()
+		#
+		Y = []
+		for i, y in enumerate(Y0):
+			Y += [Y0[i]]
+			Y += [Y_final[i]]
+		
+		print len(X), len(X_finals)
+		print len(Y)
+		#
 		# use "peak" values to cut through some noise.
 		peaks = get_peaks(zip(*[X,Y]), col=1, peak_type='upper')
 		X_peaks, Y_peaks = zip(*peaks)
 		#
-		ax = plt.gca()
-		ax.set_xscale('linear')
-		ax.set_yscale('log')
+		#ax = plt.gca()
+		ax_CFF.set_xscale('linear')
+		ax_CFF.set_yscale('log')
 		# first, raw CFF (initial):
-		plt.fill_between(X, Y, y2=min(Y), color='b', alpha=.2, zorder=4)
-		plt.plot(X_peaks, Y_peaks, '.-', zorder=5)
+		ax_CFF.fill_between(X, Y, y2=min(Y), color='b', alpha=.2, zorder=4)
+		ax_CFF.plot(X_peaks, Y_peaks, '.-', zorder=5)
+		#
+		ax_mag.set_xscale('linear')
+		ax_mag.set_yscale('linear')
+		min_mag = min(CFF['event_mag']) - .5
+		ax_mag.vlines(CFF['event_year'], [min_mag for x in CFF['event_mag']], CFF['event_mag'], color='b', alpha=.9)
 	#	
 	if isinstance(CFF, numpy.recarray)==False:
 		# a regular, old-style, numpy.ndarray -- aka, no columns. guess the column structure from what we know...

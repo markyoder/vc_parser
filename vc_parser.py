@@ -376,19 +376,21 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 		#
 		# create two axes:
 		# magnitudes plot
-		ax_mag = f.add_axes([.1, .1, .85, .4])
+		ax_mag = f.add_axes([.1, .05, .85, .25])
 		# CFF plot.
-		ax_CFF = f.add_axes([.1, .5, .85, .4], sharex=ax_mag)
-		
+		ax_CFF = f.add_axes([.1, .35, .85, .25], sharex=ax_mag)
+		ax_ints = f.add_axes([.1, .65, .85, .25], sharex=ax_mag)
 		#
-		X = CFF['event_year']
-		X_finals = [x+.01 for x in X]
+		X_init = CFF['event_year']
+		X_finals = [x+.01 for x in X_init]
 		#
 		Y0 = -1*CFF['cff_initial']
 		Y_final = -1*(CFF['cff_final'])
 		
-		X = list(X) + list(X_finals)
+		X = list(X_init) + list(X_finals)
 		X.sort()
+		#
+		intervals = X_init[1:] - X_init[:-1]	
 		#
 		Y = []
 		for i, y in enumerate(Y0):
@@ -406,13 +408,18 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 		ax_CFF.set_xscale('linear')
 		ax_CFF.set_yscale('log')
 		# first, raw CFF (initial):
+		ax_CFF.plot(X, Y, '.-', color='b', alpha=.2, zorder=4)
 		ax_CFF.fill_between(X, Y, y2=min(Y), color='b', alpha=.2, zorder=4)
-		ax_CFF.plot(X_peaks, Y_peaks, '.-', zorder=5)
+		ax_CFF.plot(X_peaks, Y_peaks, '-', zorder=5)
 		#
 		ax_mag.set_xscale('linear')
 		ax_mag.set_yscale('linear')
 		min_mag = min(CFF['event_mag']) - .5
 		ax_mag.vlines(CFF['event_year'], [min_mag for x in CFF['event_mag']], CFF['event_mag'], color='b', alpha=.9)
+		#
+		ax_ints.set_xscale('linear')
+		ax_ints.set_yscale('log')
+		ax_ints.plot(X_init[1:], intervals, '.-', alpha=.9)
 	#	
 	if isinstance(CFF, numpy.recarray)==False:
 		# a regular, old-style, numpy.ndarray -- aka, no columns. guess the column structure from what we know...

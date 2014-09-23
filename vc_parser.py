@@ -396,9 +396,6 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 		for i, y in enumerate(Y0):
 			Y += [Y0[i]]
 			Y += [Y_final[i]]
-		
-		print len(X), len(X_finals)
-		print len(Y)
 		#
 		# use "peak" values to cut through some noise.
 		peaks = get_peaks(zip(*[X,Y]), col=1, peak_type='upper')
@@ -407,6 +404,7 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 		#ax = plt.gca()
 		ax_CFF.set_xscale('linear')
 		ax_CFF.set_yscale('log')
+		ax_CFF.set_ylabel('CFF')
 		# first, raw CFF (initial):
 		ax_CFF.plot(X, Y, '.-', color='b', alpha=.2, zorder=4)
 		ax_CFF.fill_between(X, Y, y2=min(Y), color='b', alpha=.2, zorder=4)
@@ -414,11 +412,14 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 		#
 		ax_mag.set_xscale('linear')
 		ax_mag.set_yscale('linear')
+		ax_mag.set_ylabel('event magnitude $m$')
+		ax_mag.set_xlabel('event year $t$')
 		min_mag = min(CFF['event_mag']) - .5
 		ax_mag.vlines(CFF['event_year'], [min_mag for x in CFF['event_mag']], CFF['event_mag'], color='b', alpha=.9)
 		#
 		ax_ints.set_xscale('linear')
 		ax_ints.set_yscale('log')
+		ax_ints.set_ylabel('intervals $\\Delta t$')
 		ax_ints.plot(X_init[1:], intervals, '.-', alpha=.9)
 	#	
 	if isinstance(CFF, numpy.recarray)==False:

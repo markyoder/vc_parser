@@ -269,6 +269,8 @@ def calc_CFFs_from_blocks(sweep_blocks, pipe=None):
 	total_cff_init  = 0.
 	total_cff_final = 0.
 	#
+	n_blocks = float(len(sweep_blocks))
+	#
 	for blk in sweep_blocks:
 		total_cff_init  += blk['shear_init']  - blk['mu']*blk['normal_init']
 		total_cff_final += blk['shear_final'] - blk['mu']*blk['normal_final']
@@ -279,7 +281,7 @@ def calc_CFFs_from_blocks(sweep_blocks, pipe=None):
 		except:
 			pipe=None
 	if pipe==None: 
-		return {'cff_init':total_cff_init, 'cff_final':total_cff_final}
+		return {'cff_init':total_cff_init, 'cff_final':total_cff_final, 'mean_cff_init':total_cff_init/n_blocks, 'mean_cff_final':total_cff_init/n_blocks}
 	
 def calc_CFF(shear_stress=0., normal_stress=0., mu=.8):
 	return shear_stress - normal_stress*mu
@@ -351,19 +353,34 @@ def cff_dict_npy(dict_in):
 		
 	#
 #
-def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False):
+def mean_recurrenceses(section_ids=[], m0=7.0):
+	# wrapper script to plot a whole bunch of mean_recurrence data onto a single figure.
+	if section_ids == None or (hasattr(section_ids, '__len__' and len(section_ids)==0)):
+		section_ids = emc_section_filter['filter']
+	#
+	for sec_id in section_ids:
+		do_clf=False
+		if sec_id==section_ids[0]:
+			do_clf=True
+		#
+		z=mean_recurrence(ary_in='data/VC_CFF_timeseries_section_%d.npy' % sec_id, m0=m0, do_plots=True, do_clf=do_clf)
+	#
+	return None
+		
+		
+def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
 	# find mean, stdev Delta_t, N between m>m0 events in ary_in.
 	# for now, assume ary_in is a structured array, h5, or name of a structured array file.
 	#
 	if isinstance(ary_in, str)==True:
 		ary_in = numpy.load(ary_in)
 	#
-	Ns, Js, Ts = zip(*[[x['event_number'], j, x['event_year']] for j, x in enumerate(ary_in) if float(x['event_magnitude'])>m0])
+	Ns, Js, Ts, Ms = zip(*[[x['event_number'], j, x['event_year'], x['event_magnitude']] for j, x in enumerate(ary_in) if float(x['event_magnitude'])>m0])
 	Ns_total, Js_total, Ts_total = zip(*[[x['event_number'], j, x['event_year']] for j, x in enumerate(ary_in) ])
 	#
 	dNs = [Ns[i]-Ns[i-1] for i, n in enumerate(Ns[1:])][1:]
 	dJs = [Js[i]-Js[i-1] for i, n in enumerate(Js[1:])][1:]
-	dTs = [Ts[i]-Ts[i-1] for i, t in enumerate(Ts[1:])][1:]
+	dTs = [(Ts[i]-Ts[i-1])*10.**(4.5-m0) for i, t in enumerate(Ts[1:])][1:]
 	
 	stress_drop_total = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:]]
 	stress_drop = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:] if float(x['event_magnitude'])>m0]
@@ -378,7 +395,7 @@ def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_
 		#print len(dTs_total), len(dJs_total), len(stress_drop_total)
 		#print len(dTs), len(dJs), len(stress_drop)
 		plt.figure(1)
-		plt.clf()
+		if do_clf: plt.clf()
 		ax = plt.gca()
 		ax.set_xscale('log')
 		ax.set_yscale('log')
@@ -388,7 +405,7 @@ def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_
 		plt.ylabel('stress drop $(CFF_{final} - CFF_{initial})^2$')
 		#
 		plt.figure(2)
-		plt.clf()
+		if do_clf: plt.clf()
 		ax = plt.gca()
 		ax.set_xscale('log')
 		ax.set_yscale('log')
@@ -543,7 +560,7 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquis
 		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], 'r-', zorder=5, alpha=.8)
 		#
 		ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b']  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='m', zorder=1, alpha=.5)
-		ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='m', zorder=1, alpha=.25)
+		ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0.0 for x in trend_data], color='m', zorder=1, alpha=.25)
 		#ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b'] / x['interval_rate_ratio'] for x in trend_data], y2=[0.0 for x in trend_data], where=[(x['lin_fit_b'] / x['interval_rate_ratio'])<0. for x in trend_data], color='m', zorder=1, alpha=.5)
 		
 		ax_trend2.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
@@ -676,9 +693,10 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 		for ev_count, event in enumerate(events[1:]):
 			# get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table')
 			#
-			#event_id=event[col_dict['event_number']]
+			# "events" is a list type, but each row is some sort of numpy recarray (returns numpy.void), but acts like rec_array
 			event_id=event['event_number']
 			event_year = event['event_year']
+			event_area = event['event_area']
 			# this needs to be sped up maybe -- perhaps by maintaining the hdf5 context?
 			#
 			#blocks = fetch_h5_data(sim_file=sim_file, n_cpus=n_cpus, table_name='event_sweep_table', col_name='event_number', matching_vals=[event_id])
@@ -729,7 +747,9 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 					cff_vals = job['pipe'].recv()
 					job['pipe'].close()
 					#job['cff_out'].update(cff_vals)		# cff_vals like: {'cff_init':total_cff_init, 'cff_final':total_cff_final}
-					job['cff_out'] += [cff_vals['cff_init'], cff_vals['cff_final']]
+					#job['cff_out'] += [cff_vals['cff_init'], cff_vals['cff_final'], cff_vals['mean_cff_init'], cff_vals['mean_cff_final']]
+					# ... but instead of the "block-mean" value returned by calc_CFFs_from_blocks, let's use the event_area:
+					job['cff_out'] += [cff_vals['cff_init']/event_area, cff_vals['cff_final']/event_area, event_area]
 					#
 					CFF+=[job['cff_out']]
 				#
@@ -757,11 +777,12 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 	print "finished CFF(t) for section: %d (%s: %f)" % (section_id, time.ctime(), time.time()-time_start)
 	#
 	# convert to structured array with named cols (note this syntax, because this is not as easy as it should be):
-	CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final'], formats=[type(x).__name__ for x in CFF[0]])
+	CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final', 'event_area'], formats=[type(x).__name__ for x in CFF[0]])
 	#
 	return CFF
 #
 def make_structured_arrays(file_profile = 'data/VC_CFF_timeseries_section_*.npy'):
+	# wrapper to convert a bunch of normal arrays or maybe lists to numpy structured arrays (numpy.recarray).
 	G=glob.glob(file_profile)
 	#
 	for g in G:
@@ -771,9 +792,54 @@ def make_structured_arrays(file_profile = 'data/VC_CFF_timeseries_section_*.npy'
 			print "successful..."
 		except:
 			print "failed to 'fix' file %s. it might have already been converted..." % g
-	
-	
-def make_structured_array_from_file(fname_in, col_names = ['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final'], col_formats = None, fname_out=None):
+
+def fix_CFF_in_struct_arrays(file_profile = 'data/VC_CFF_timeseries_section_*.npy', h5file = allcal_full_mks):
+	# ALMOST CERTAINLY A ONE-TIME JOB SCRIPT...
+	#
+	# when the CFF time series were initially compiled, we summed the CFF functions but did not provide a mean value,
+	# so the CFF is sort of nonsense. <CFF> can be calculated from the event_table['event_area'], or
+	# it can be caluclated from the length of the sweep-subset -- which is probably how it would be caluclated in real-time,
+	# so for now, let's just do that (recognizing that it will take a bit longer).
+	G=glob.glob(file_profile)
+	#
+	with h5py.File(h5file, 'r') as f:
+		for g in G:
+			print "fixing file: %s" % g
+			#
+			with open(g, 'r') as f_read:
+				datas = numpy.load(f_read)
+			new_data=[]
+			names, types = zip(*datas.dtype.descr)
+			#
+			# now, for each event in the data:
+			# get the event_number and corresponding event data
+			# update the CFF as CFF/Area
+			# add area to the data
+			# then, output a new structured array.
+			#
+			for i, rw in enumerate(datas):
+				event_number = rw['event_number']
+				event_data = f['event_table'][event_number]	# noting that event_number will be the index of this table (i=event_number)
+				event_area = event_data['event_area']
+				#
+				new_data_row = rw.copy()
+				new_data_row['cff_initial']/=event_area
+				new_data_row['cff_final']/=event_area
+				#
+				new_data += [list(new_data_row.tolist())]
+				#print "new data: ", new_data[-1]
+				new_data[-1] += [event_area]
+			#
+			# make structured array from new_data
+			new_data = numpy.array(new_data)
+			new_data = numpy.core.records.fromarrays(new_data.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final', 'event_area'], formats=[type(x).__name__ for x in new_data[0]])
+			#
+			with open(g, 'w') as f2:
+				new_data.dump(f2)
+			#
+			print "fixed (hopefully) file: ", g
+		
+def make_structured_array_from_file(fname_in, col_names = ['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final', 'mean_cff_init', 'mean_cff_final'], col_formats = None, fname_out=None):
 	# note: this yields a numpy.recraray, as opposed to the standard numpy.ndarray type/instance. note that, given
 	# recarray A and ndarray B:
 	#

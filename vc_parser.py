@@ -6,6 +6,7 @@ import h5py
 import numpy
 import scipy
 import operator
+import glob
 #
 import cStringIO
 import sys
@@ -349,9 +350,107 @@ def cff_dict_npy(dict_in):
 	return lst_data
 		
 	#
-	
 #
-def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
+def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False):
+	# find mean, stdev Delta_t, N between m>m0 events in ary_in.
+	# for now, assume ary_in is a structured array, h5, or name of a structured array file.
+	#
+	if isinstance(ary_in, str)==True:
+		ary_in = numpy.load(ary_in)
+	#
+	Ns, Js, Ts = zip(*[[x['event_number'], j, x['event_year']] for j, x in enumerate(ary_in) if float(x['event_magnitude'])>m0])
+	Ns_total, Js_total, Ts_total = zip(*[[x['event_number'], j, x['event_year']] for j, x in enumerate(ary_in) ])
+	#
+	dNs = [Ns[i]-Ns[i-1] for i, n in enumerate(Ns[1:])][1:]
+	dJs = [Js[i]-Js[i-1] for i, n in enumerate(Js[1:])][1:]
+	dTs = [Ts[i]-Ts[i-1] for i, t in enumerate(Ts[1:])][1:]
+	
+	stress_drop_total = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:]]
+	stress_drop = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:] if float(x['event_magnitude'])>m0]
+	dNs_total = [Ns_total[i]-Ns_total[i-1] for i, n in enumerate(Ns_total[1:])][1:]
+	dJs_total = [Js_total[i]-Js_total[i-1] for i, n in enumerate(Js_total[1:])][1:]
+	dTs_total = [Ts_total[i]-Ts_total[i-1] for i, t in enumerate(Ts_total[1:])][1:]
+	#
+	r_dict = {'mean_dN': numpy.mean(dNs), 'stdev_dN':numpy.std(dNs), 'mean_dT':numpy.mean(dTs), 'stdev_dT':numpy.std(dTs), 'mean_dN_fault':numpy.mean(dJs), 'stdev_dN_fault':numpy.std(dJs)}
+	#
+	#
+	if do_plots:
+		#print len(dTs_total), len(dJs_total), len(stress_drop_total)
+		#print len(dTs), len(dJs), len(stress_drop)
+		plt.figure(1)
+		plt.clf()
+		ax = plt.gca()
+		ax.set_xscale('log')
+		ax.set_yscale('log')
+		plt.plot(dTs_total, stress_drop_total, '.', zorder=4)
+		plt.plot( dTs, stress_drop[-len(dNs):],'.', zorder=5)
+		plt.xlabel('interval $\\Delta t$')
+		plt.ylabel('stress drop $(CFF_{final} - CFF_{initial})^2$')
+		#
+		plt.figure(2)
+		plt.clf()
+		ax = plt.gca()
+		ax.set_xscale('log')
+		ax.set_yscale('log')
+		plt.plot(dNs_total, stress_drop_total, '.')
+		plt.plot(dNs, stress_drop[-len(dNs):], '.')
+		#plt.plot( stress_drop[2:], dJs,'.')
+		plt.xlabel('event-interval, $\\Delta N$')
+		plt.ylabel('stress drop $(CFF_{final} - CFF_{initial})^2$')
+		#
+		print r_dict
+	#
+	return r_dict
+#
+def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
+		if isinstance(ary_in, str)==True:
+			ary_in = numpy.load(ary_in)
+		#
+		Xs = ary_in['event_year'][1:]
+		Ns = ary_in['event_number'][1:]
+		intervals = numpy.array(map(math.log10, ary_in['event_year'])[1:]) - numpy.array(map(math.log10, ary_in['event_year'])[:-1])
+		mean_interval = numpy.mean(intervals)
+		#
+		X_numpy = numpy.array([[x, 1.0] for x in Xs])
+		
+		# first, get a fixed length line-fit:
+		#for i in xrange(nyqquist_len, len(ary_in)):
+		#	rw = ary_in[i]
+		fitses = [numpy.linalg.lstsq(X_numpy[i-nyquist_len:i], intervals[i-nyquist_len:i])[0] for i in xrange(nyquist_len, len(ary_in))]
+		#
+		output_names = ['event_number', 'event_year', 'lin_fit_a', 'lin_fit_b']
+		#
+		# get record-breaking intervals
+		nrbs=[]
+		output_names += ['rb_ratio']
+		for i in xrange(nyquist_len, len(ary_in)):
+			#
+			nrbs_up=[intervals[i-nyquist_len]]
+			nrbs_dn=[intervals[i-nyquist_len]]
+			#
+			for j, interval in enumerate(intervals[i-nyquist_len:i]):
+				if interval > nrbs_up[-1]: nrbs_up+=[interval]
+				if interval < nrbs_dn[-1]: nrbs_dn+=[interval]
+			#
+			nrbs += [math.log10(float(len(nrbs_up))/float(len(nrbs_dn)))]
+			#rb_ratio = float(len(nrbs_up))/float(len(nrbs_dn))
+			#outputs[i]+=[rb_ratio]
+			#
+		#nrbs = [None for i in xrange(nyquist_len)] + nrbs
+		#
+		outputs = [[Ns[i], Xs[i], fitses[i][0], fitses[i][1], nrbs[i], intervals[i]/mean_interval] for i in xrange(len(fitses))]
+		output_names += ['interval_rate_ratio']
+		print "lens:: ", len(nrbs), len(outputs)
+		#
+		#CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final'], formats=[type(x).__name__ for x in CFF[0]])
+		outputs = numpy.core.records.fromarrays(zip(*outputs), names=output_names, formats = [type(x).__name__ for x in outputs[0]])
+		#
+		return outputs
+		
+		
+			
+#
+def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquist_factor=.5):
 	# this script is for some of the earlier CFF numpy array types. newer arrays will require different scripting.
 	# for older data sets (most likely):
 	#	# 2 cols: event_number, CFF_initial
@@ -361,6 +460,12 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 	#
 	CFF = numpy.load(ary_in)
 	#
+	recurrence_data = mean_recurrence(ary_in=CFF, m0=7.0)
+	nyquist_len = int(nyquist_factor*recurrence_data['mean_dN_fault'])
+	nyquist_time = nyquist_factor*recurrence_data['mean_dT']
+	#
+	trend_data = get_trend_analysis(ary_in=CFF, nyquist_len = nyquist_len, nyquist_time=nyquist_time)
+	#
 	# what kind of array did we get?
 	# this is not very efficient, in that we rewrite the whole enchilada for the new types, but i don't
 	# expect that we'll be returning to these unformatted (unstructured) array types.
@@ -369,7 +474,7 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 	if isinstance(CFF, numpy.recarray)==True:
 		# it's a structured array.
 		cols = map(operator.itemgetter(0), CFF.dtype.descr)
-		# cols should be like: ['event_number', 'event_year', 'event_mag', 'cff_initial', 'cff_final']
+		# cols should be like: ['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final']
 		#
 		f=plt.figure(fnum)
 		f.clf()
@@ -379,7 +484,10 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 		ax_mag = f.add_axes([.1, .05, .85, .25])
 		# CFF plot.
 		ax_CFF = f.add_axes([.1, .35, .85, .25], sharex=ax_mag)
+		ax_dCFF = ax_CFF.twinx()	# over-plot stress (CFF) drop...
 		ax_ints = f.add_axes([.1, .65, .85, .25], sharex=ax_mag)
+		ax_mag2 = ax_ints.twinx()
+		ax_trend=ax_mag.twinx()
 		#
 		X_init = CFF['event_year']
 		X_finals = [x+.01 for x in X_init]
@@ -390,9 +498,12 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 		X = list(X_init) + list(X_finals)
 		X.sort()
 		#
-		intervals = X_init[1:] - X_init[:-1]	
+		intervals = X_init[1:] - X_init[:-1]
+		
+		big_mags = zip(*[[x['event_year'], x['event_magnitude']] for x in CFF if x['event_magnitude']>7.0])
 		#
 		Y = []
+		CFF_drops = [(x['cff_initial'] - x['cff_final'])**2. for x in CFF]
 		for i, y in enumerate(Y0):
 			Y += [Y0[i]]
 			Y += [Y_final[i]]
@@ -404,22 +515,50 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 		peaks = get_peaks(zip(*[X,Y]), col=1, peak_type='upper')
 		X_peaks, Y_peaks = zip(*peaks)
 		#
+		# CFF Plot:
 		#ax = plt.gca()
 		ax_CFF.set_xscale('linear')
 		ax_CFF.set_yscale('log')
+		ax_dCFF.set_xscale('linear')
+		ax_dCFF.set_yscale('log')
 		# first, raw CFF (initial):
 		ax_CFF.plot(X, Y, '.-', color='b', alpha=.2, zorder=4)
 		ax_CFF.fill_between(X, Y, y2=min(Y), color='b', alpha=.2, zorder=4)
 		ax_CFF.plot(X_peaks, Y_peaks, '-', zorder=5)
+		ax_dCFF.plot(CFF['event_year'], CFF_drops, 'g.-', zorder=7, alpha=.9)
 		#
+		# Magnitude plot (by itself):
 		ax_mag.set_xscale('linear')
 		ax_mag.set_yscale('linear')
-		min_mag = min(CFF['event_mag']) - .5
-		ax_mag.vlines(CFF['event_year'], [min_mag for x in CFF['event_mag']], CFF['event_mag'], color='b', alpha=.9)
+		min_mag = min(CFF['event_magnitude']) - .5
+		ax_mag.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='b', alpha=.9)
+		ax_mag.set_ylabel('magnitude $m$')
 		#
+		ax_trend.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], 'r-', zorder=5, alpha=.8)
+		ax_trend.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='r', zorder=2, alpha=.8)
+		ax_trend.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
+		ax_trend.set_ylabel('(log) interval slope $b$')
+		#
+		ax_trend2 = ax_ints.twinx()
+		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], 'r-', zorder=5, alpha=.8)
+		#
+		ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b']  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='m', zorder=1, alpha=.5)
+		ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='m', zorder=1, alpha=.25)
+		#ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b'] / x['interval_rate_ratio'] for x in trend_data], y2=[0.0 for x in trend_data], where=[(x['lin_fit_b'] / x['interval_rate_ratio'])<0. for x in trend_data], color='m', zorder=1, alpha=.5)
+		
+		ax_trend2.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
+		#
+		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['rb_ratio'] for x in trend_data], 'c--')
+		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] + x['rb_ratio'] for x in trend_data], 'c-')
+		
+		#
+		# Interval Plots:
 		ax_ints.set_xscale('linear')
 		ax_ints.set_yscale('log')
 		ax_ints.plot(X_init[1:], intervals, '.-', alpha=.9)
+		ax_mag2.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='g', alpha=.9, lw=2)
+		ax_mag2.vlines(big_mags[0], [min_mag for x in big_mags[1]], big_mags[1], color='r', lw=2.5, alpha=.9)
+		ax_mag2.set_ylabel('magnitude $m$')
 	#	
 	if isinstance(CFF, numpy.recarray)==False:
 		# a regular, old-style, numpy.ndarray -- aka, no columns. guess the column structure from what we know...
@@ -462,7 +601,8 @@ def plot_CFF_ary(ary_in='data/VC_CFF_section_125.ary', fnum=0):
 		ax.set_yscale('log')
 		plt.fill_between(X, Y, y2=min(Y), color='b', alpha=.2, zorder=4)
 		plt.plot(X_peaks, Y_peaks, '.-', zorder=5)				
-
+	#
+	return CFF
 #
 # end CFF calculators and helpers...	
 #
@@ -617,10 +757,23 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 	print "finished CFF(t) for section: %d (%s: %f)" % (section_id, time.ctime(), time.time()-time_start)
 	#
 	# convert to structured array with named cols (note this syntax, because this is not as easy as it should be):
-	CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_mag', 'cff_initial', 'cff_final'], formats=[type(x).__name__ for x in CFF[0]])
+	CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final'], formats=[type(x).__name__ for x in CFF[0]])
 	#
 	return CFF
-def make_structured_array_from_file(fname_in, col_names = ['event_number', 'event_year', 'event_mag', 'cff_initial', 'cff_final'], col_formats = None, fname_out=None):
+#
+def make_structured_arrays(file_profile = 'data/VC_CFF_timeseries_section_*.npy'):
+	G=glob.glob(file_profile)
+	#
+	for g in G:
+		print "fixing file: %s" % g
+		try:
+			z=make_structured_array_from_file(fname_in=g, fname_out=g)
+			print "successful..."
+		except:
+			print "failed to 'fix' file %s. it might have already been converted..." % g
+	
+	
+def make_structured_array_from_file(fname_in, col_names = ['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final'], col_formats = None, fname_out=None):
 	# note: this yields a numpy.recraray, as opposed to the standard numpy.ndarray type/instance. note that, given
 	# recarray A and ndarray B:
 	#
@@ -633,6 +786,8 @@ def make_structured_array_from_file(fname_in, col_names = ['event_number', 'even
 	#
 	with open(fname_in, 'r') as f:
 		X  = numpy.load(f)
+		X=numpy.array(X.tolist())		# if we want to modify an existing array, we'll probably need to convert it first.
+		#
 		if col_formats == None: col_formats = [type(x).__name__ for x in X[0]]
 		#
 		Xs = numpy.core.records.fromarrays(X.transpose(), names=col_names, formats=col_formats)

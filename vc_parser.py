@@ -321,18 +321,15 @@ def get_final_event_CFF(sweep_blocks, n_cpus=None, chunksize=100):
 	return sum(CFFs.get())
 #
 def cff_dict_npy(dict_in):
-	# convert an older style dff dict to a structured numpy array.
+	# convert an older style cff dict to a structured numpy array.
+	# this is not tested, but it should work with minor tweaks at most.
 	#
-	dtypes = []
+	dtype_names = []
+	#dtype_types = []
+	#
 	lst_data = []
-	keys = dict_in[0].keys()
-	for key in keys:
-		v_type = 'float64'
-		if key=='event_id': v_type='int64'
-		#
-		dtypes += [(key, v_type)]
+	dtype_names = [key for key in dict_in[0].keys()]
 	#
-	print "dtypes: ", dtypes
 	# since we're doing this dynamically, data will have to be accessed dynamically, but that shouldn't be a problem...
 	#
 	for rw in dict_in:
@@ -344,14 +341,167 @@ def cff_dict_npy(dict_in):
 		
 		#
 	#
-	#ary_data = numpy.zeros((len(keys),) dtype=dtypes)
-	ary_data = numpy.array(numpy.zeros(len(lst_data)), dtype=dtypes)
-	#ary_data[:] = lst_data
-	# ... no idea how to do this...
+	
+	# outputs = numpy.core.records.fromarrays(zip(*outputs), names=output_names, formats = [type(x).__name__ for x in outputs[0]])
+	
+	ary_data = numpy.core.records.fromarrays(zip(*lst_data), names=dtype_names, formats=[type(x).__name__ for x in lst_data[0]])
 	#
 	return lst_data
 		
 	#
+#
+def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5):
+	'''
+	#
+	# forecast based on seismic acceleration. specifically, for a set of data (a fault-section time-series),
+	# find the slopes of the inter-occurrence intervals. slope<0 implies acceleration, implies hazard.
+	# the evaluation metric will be basically a ROC type:
+	# 1) total time "at alert" serves as "false alarm"
+	# 2) fraction of "predicted" events. this will vary. for starters:
+	#     - slope at time t_i of event or time t_i-1 of the previous event is below b_0 (typically, b_0=0.0).
+	#     - the "_i-1" condition is fair because 1) we don't know the slope is changin until the even happens
+	#       and 2) in a real scenario, we'd have aftershocks, which woluld turn the post-seismic slope positive.
+	'''
+	#
+	CFF = numpy.load(ary_in)
+	#
+	recurrence_data = mean_recurrence(ary_in=CFF, m0=m0)
+	nyquist_len = int(nyquist_factor*recurrence_data['mean_dN_fault'])
+	nyquist_time = nyquist_factor*recurrence_data['mean_dT']
+	#
+	trend_data = get_trend_analysis(ary_in=CFF, nyquist_len = nyquist_len, nyquist_time=nyquist_time)
+	#trend_data_dict = {trend_data['event_year']:x for x in trend_data}
+	CFF_dict = {x['event_year']:x for x in CFF}
+	print "trend lengths: ", len(trend_data), len(CFF), nyquist_len
+	max_n = len(trend_data)
+	#
+	# trend_data includes columns: ['event_number', 'event_year', 'lin_fit_a', 'lin_fit_b', 'rb_ratio', 'interval_rate_ratios']
+	#
+	# first, just get the total time under alert:
+	alert_time = 0.0
+	alert_segments = [[]]		# a collection of lists...
+	#
+	for i, rw in enumerate(trend_data):
+		# when we find b<b_0, we issue an alert until the next earthquake -- unless this one was 'big',
+		# in this case m>=7.
+		#
+		if i>=(max_n-1): break
+		#
+		if rw['lin_fit_b']>=0:
+			# null case
+			# if we've been collecting "alert" events, stop. if not, just troll along...
+			if len(alert_segments[-1])>0:
+				#
+				alert_segments+= [[]]
+		
+		else:
+			# accelerating case:
+			#this_mag = CFF[-max_n:][i+1]['event_magnitude']
+			this_mag = CFF_dict[rw['event_year']]['event_magnitude']
+			#
+			if len(alert_segments[-1])==0:
+				alert_segments[-1]+=[[trend_data[i]['event_year'], trend_data[i]['lin_fit_b']]]
+			if this_mag<m0:
+				# add the next event as the alert (aka, issue an alert until we have new data).
+				#print "len alert_seg: %d" % len(alert_segments[-1])
+				alert_segments[-1]+=[[trend_data[i+1]['event_year'], trend_data[i+1]['lin_fit_b']]]
+			if this_mag>=m0:
+				# this is "the" earthquake. add this entry (it's probably already there) from the previous entry.
+				alert_segments[-1]+=[[trend_data[i]['event_year'], trend_data[i]['lin_fit_b']]]
+			#
+		#
+	#
+	while len(alert_segments[-1])==0: alert_segments.pop()
+	#
+	# now, calculate total alert time:
+	total_alert_time = 0.0
+	total_total_time = CFF[-1]['event_year'] - CFF[0]['event_year']
+	#
+	for alert_segment in alert_segments:
+		total_alert_time += (alert_segment[-1][0] - alert_segment[0][0])
+	#
+	# and prediction success:
+	n_predicted = 0
+	n_missed = 0
+	#
+	# was an alert issued at the time of an m>m0 event?
+	# we should clean this up, but for now, make and use dictionaries...
+	#alert_dict = {x[0]:x[1] for x in 
+	alert_dict = {}
+	for seg in alert_segments:
+		#
+		for rw in seg:
+			alert_dict[rw[0]] = rw[1]
+	#
+	for i, rw in enumerate(CFF):
+		if rw['event_magnitude']<m0: continue
+		#
+		# this is a really dumb way to do this, so fix it:
+		#
+		# otherwise, its a big one. we need two conditions:
+		# 1) the alert was active during the event.
+		# 2) the alert had already been issued.
+		CFF_index = rw['event_number']
+		prev_year = CFF[i-1]['event_year']
+		#if alert_dict.has_key(rw['event_year']):
+		if alert_dict.has_key(rw['event_year']) and alert_dict.has_key(prev_year):			
+			n_predicted += 1
+		else:
+			n_missed += 1
+	
+	#
+	#
+	
+	# diagnostic plots of forecast metric:
+	plt.figure(0)
+	plt.clf()
+	#
+	ax_metric = plt.gca()
+	ax_mags = ax_metric.twinx()
+	min_mag = min(CFF['event_magnitude'])
+	#
+	for segment in alert_segments:
+		X,Y = zip(*segment)
+		ax_metric.set_yscale('linear')
+		ax_metric.fill_between(X,[-y+min_mag for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y] )
+		#
+		ax_mags.fill_between(X, [min_mag for x in X], [m0 for x in X], zorder=5, alpha=.2, color='m')
+	
+	
+	ax_mags.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='b', alpha=.7)
+	X_big_mags, Y_big_mags = zip(*[[x['event_year'], x['event_magnitude']] for x in CFF if x['event_magnitude']>m0])
+	ax_mags.vlines(X_big_mags, [min_mag for x in Y_big_mags], Y_big_mags, color='r', alpha=.9, lw=2.5)
+	#
+	#
+	print "preliminary report:"
+	print "alert time: %f / %f :: %f " % (total_alert_time, total_total_time, total_alert_time/total_total_time)
+	print "n_predicted: %d, n_missed: %d (%f )" % (n_predicted, n_missed, float(n_predicted)/(float(n_predicted)+n_missed))
+		
+	
+	#
+	#return alert_segments
+	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments}
+#
+def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy'):
+	'''
+	# scatter plot of hit_ratio vs alert_time_ratio for as many data as we throw at it.
+	'''		
+	# wrapper to convert a bunch of normal arrays or maybe lists to numpy structured arrays (numpy.recarray).
+	G=glob.glob(file_profile)
+	#
+	X, Y = [], []
+	#
+	for g in G:
+		fc_data = forecast_metric_1(ary_in=g, m0=7.0, b_0 = 0.0, nyquist_factor=.5)
+		#
+		X+=[float(fc_data['n_predicted'])/(fc_data['n_predicted'] + float(fc_data['n_missed']))]
+		Y+=[fc_data['total_alert_time']/fc_data['total_time']]
+	#
+	plt.figure(0)
+	plt.clf()
+	plt.plot(X, Y, '.')
+	plt.xlabel('n_predicted/n_total')
+	plt.ylabel('percent alert time')
 #
 def mean_recurrenceses(section_ids=[], m0=7.0):
 	# wrapper script to plot a whole bunch of mean_recurrence data onto a single figure.
@@ -462,10 +612,7 @@ def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
 		#CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final'], formats=[type(x).__name__ for x in CFF[0]])
 		outputs = numpy.core.records.fromarrays(zip(*outputs), names=output_names, formats = [type(x).__name__ for x in outputs[0]])
 		#
-		return outputs
-		
-		
-			
+		return outputs			
 #
 def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquist_factor=.5):
 	# this script is for some of the earlier CFF numpy array types. newer arrays will require different scripting.
@@ -490,8 +637,9 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquis
 	#	
 	if isinstance(CFF, numpy.recarray)==True:
 		# it's a structured array.
-		cols = map(operator.itemgetter(0), CFF.dtype.descr)
-		# cols should be like: ['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final']
+		#cols = map(operator.itemgetter(0), CFF.dtype.descr)
+		col = CFF.dtype.names
+		# cols should be like: ['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final', 'event_area']
 		#
 		f=plt.figure(fnum)
 		f.clf()

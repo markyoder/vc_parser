@@ -494,14 +494,15 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy'):
 	for g in G:
 		fc_data = forecast_metric_1(ary_in=g, m0=7.0, b_0 = 0.0, nyquist_factor=.5)
 		#
-		X+=[float(fc_data['n_predicted'])/(fc_data['n_predicted'] + float(fc_data['n_missed']))]
-		Y+=[fc_data['total_alert_time']/fc_data['total_time']]
+		Y+=[float(fc_data['n_predicted'])/(fc_data['n_predicted'] + float(fc_data['n_missed']))]
+		X+=[fc_data['total_alert_time']/fc_data['total_time']]
 	#
 	plt.figure(0)
 	plt.clf()
 	plt.plot(X, Y, '.')
-	plt.xlabel('n_predicted/n_total')
-	plt.ylabel('percent alert time')
+	plt.plot([0., 1.], [0., 1.], '-')
+	plt.ylabel('n_predicted/n_total')
+	plt.xlabel('percent alert time')
 #
 def mean_recurrenceses(section_ids=[], m0=7.0):
 	# wrapper script to plot a whole bunch of mean_recurrence data onto a single figure.

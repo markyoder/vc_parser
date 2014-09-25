@@ -7,6 +7,7 @@ import numpy
 import scipy
 import operator
 import glob
+import random
 #
 import cStringIO
 import sys
@@ -350,7 +351,7 @@ def cff_dict_npy(dict_in):
 		
 	#
 #
-def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5):
+def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False):
 	'''
 	#
 	# forecast based on seismic acceleration. specifically, for a set of data (a fault-section time-series),
@@ -387,7 +388,7 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 		#
 		if i>=(max_n-1): break
 		#
-		if rw['lin_fit_b']>=0:
+		if rw['lin_fit_b']>=b_0:
 			# null case
 			# if we've been collecting "alert" events, stop. if not, just troll along...
 			if len(alert_segments[-1])>0:
@@ -451,26 +452,26 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	
 	#
 	#
-	
-	# diagnostic plots of forecast metric:
-	plt.figure(0)
-	plt.clf()
-	#
-	ax_metric = plt.gca()
-	ax_mags = ax_metric.twinx()
-	min_mag = min(CFF['event_magnitude'])
-	#
-	for segment in alert_segments:
-		X,Y = zip(*segment)
-		ax_metric.set_yscale('linear')
-		ax_metric.fill_between(X,[-y+min_mag for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y] )
+	if do_plot:
+		# diagnostic plots of forecast metric:
+		plt.figure(0)
+		plt.clf()
 		#
-		ax_mags.fill_between(X, [min_mag for x in X], [m0 for x in X], zorder=5, alpha=.2, color='m')
+		ax_metric = plt.gca()
+		ax_mags = ax_metric.twinx()
+		min_mag = min(CFF['event_magnitude'])
+		#
+		for segment in alert_segments:
+			X,Y = zip(*segment)
+			ax_metric.set_yscale('linear')
+			ax_metric.fill_between(X,[-y+min_mag for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y] )
+			#
+			ax_mags.fill_between(X, [min_mag for x in X], [m0 for x in X], zorder=5, alpha=.2, color='m')
 	
 	
-	ax_mags.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='b', alpha=.7)
-	X_big_mags, Y_big_mags = zip(*[[x['event_year'], x['event_magnitude']] for x in CFF if x['event_magnitude']>m0])
-	ax_mags.vlines(X_big_mags, [min_mag for x in Y_big_mags], Y_big_mags, color='r', alpha=.9, lw=2.5)
+		ax_mags.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='b', alpha=.7)
+		X_big_mags, Y_big_mags = zip(*[[x['event_year'], x['event_magnitude']] for x in CFF if x['event_magnitude']>m0])
+		ax_mags.vlines(X_big_mags, [min_mag for x in Y_big_mags], Y_big_mags, color='r', alpha=.9, lw=2.5)
 	#
 	#
 	print "preliminary report:"
@@ -480,9 +481,10 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	
 	#
 	#return alert_segments
-	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments}
+	# , 'alert_segments':alert_segments
+	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 #
-def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy'):
+def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None):
 	'''
 	# scatter plot of hit_ratio vs alert_time_ratio for as many data as we throw at it.
 	'''		
@@ -491,18 +493,213 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy'):
 	#
 	X, Y = [], []
 	#
-	for g in G:
-		fc_data = forecast_metric_1(ary_in=g, m0=7.0, b_0 = 0.0, nyquist_factor=.5)
+	if do_spp:
+		# SPP version (if we want to force this for some reason):
+		for g in G:
+			fc_data = forecast_metric_1(ary_in=g, m0=m0, b_0 = b_0, nyquist_factor=nyquist_factor)
+			#
+			Y+=[float(fc_data['n_predicted'])/(fc_data['n_predicted'] + float(fc_data['n_missed']))]
+			X+=[fc_data['total_alert_time']/fc_data['total_time']]
+	#
+	else:
+		# use MPP:
+		if n_cpus==None: n_cpus = mpp.cpu_count()
+		pool = mpp.Pool(n_cpus)
+		if (m0, b_0, nyquist_factor)==forecast_metric_1.__defaults__[1:4] and False:
+			print "defaults. use map_async()"
+			# i'm guessing this is faster...
+			result_set = pool.map_async(forecast_metric_1, G)
+			pool.close()
+			pool.join()
+			#
+			resultses = result_set.get()	# will be a list of dictionary objects
+			
+		else:
+			# add/"apply" each file to the pool.
+			print "not default. use apply_async()"
+			result_set_list = [pool.apply_async(forecast_metric_1, args = (g, m0, b_0, nyquist_factor)) for g in G]
+			pool.close()
+			pool.join()
+			#
+			resultses = [x.get() for x in result_set_list]	# each entry in result_set_list is a dict; now we have a list of dicts.
+			
 		#
-		Y+=[float(fc_data['n_predicted'])/(fc_data['n_predicted'] + float(fc_data['n_missed']))]
-		X+=[fc_data['total_alert_time']/fc_data['total_time']]
+		# still MPP...
+		#
+		XY = [[x['total_alert_time']/x['total_time'] ,float(x['n_predicted'])/(x['n_predicted'] + float(x['n_missed']))] for x in resultses]
+		X,Y = zip(*XY)
+	# end MPP. now, either by SPP or MPP, we have X,Y
+	#
+	#
+	#return fc_datas
+	#
+	if do_plot:
+		#
+		plt.figure(0)
+		if do_clf: plt.clf()
+		plt.plot(X, Y, '.')
+		plt.plot([0., 1.], [0., 1.], '-')
+		plt.ylabel('n_predicted/n_total')
+		plt.xlabel('percent alert time')
+	#
+	if resultses[0].has_key('alert_segments'): [x.pop('alert_segments') for x in resultses]
+	return resultses
+#
+def optimize_metric_1(b_min=-.15, b_max=.15, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None):
+	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
+	#
+	R_b   = random.Random()
+	R_nyq = random.Random()
+	delta_b = b_max-b_min
+	delta_nyq = nyquist_max - nyquist_min
+	# and let's do this right and randomly sample...
+	if nits==None: nits = 1 + int(abs((delta_b/d_b)*((delta_nyq)/d_nyquist)))	# safe-guard for n->0
+	#
+	total_scores = []	# cumulative total score, like [[b_0, nyquist_factor, mean_score, score_stdev]]
+	#
+	for i in xrange(nits):
+		this_b   = b_min       + delta_b*R_b.random()
+		this_nyq = nyquist_min + delta_nyq*R_nyq.random()
+		datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=this_b, nyquist_factor=this_nyq, do_spp=False, do_plot=False, n_cpus=None)	# note: this will fully multiprocess.
+		#
+		# now, aggregate for this pram-set.
+		# datas is a list of dictionary objects like: {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
+		#
+		#score_row = [x['b'], x['nyquist_factor'], x['n_predicted']/(x['n_predicted']+x['n_missed']), x['total_alert_time']/x['total_time'], (x['n_predicted']/(x['n_predicted']+x['n_missed']) - x['total_alert_time']/x['total_time']) for x in datas]
+		scores = [x['n_predicted']/(x['n_predicted']+x['n_missed']) - x['total_alert_time']/x['total_time'] for x in datas]
+		mean_score = numpy.mean(scores)
+		score_stdev = numpy.std(scores)
+		#
+		total_scores += [[this_b, this_nyq, mean_score, score_stdev]]
+		#
+	#
+	return total_scores
+
+
+#
+def bunch_o_metric_1(nyquist_factor=0.425556):
+	# a bunch of metric 1 data...
+	my_b = .1
+	all_the_data = {}
+	while my_b>-.1:
+		datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=my_b, nyquist_factor=nyquist_factor, do_spp=False, do_plot=False)
+		# datas will be a list of dictionary objects. we want to construct independent "time" series for each fault (dict object):
+		for data in datas:
+			key = data['ary_in_name']
+			if all_the_data.has_key(key) == False: all_the_data[key] = []
+			#if all_the_data.has_key(key) == False: all_the_data[key] = {'prams':[], 'data':[]}
+			#
+			all_the_data[key]+=[[data['total_alert_time']/data['total_time'] ,float(data['n_predicted'])/(data['n_predicted'] + float(data['n_missed'])), data['b'], data['m0'], data['nyquist_factor']]]
+			#all_the_data[key]['data']+=[[data['total_alert_time']/data['total_time'] ,float(data['n_predicted'])/(data['n_predicted'] + float(data['n_missed']))
+			#all_the_data[key]['prams'] += [data['b'], data['m0'], data['nyquist_factor']]
+		
+		#XY = [[x['total_alert_time']/x['total_time'] ,float(x['n_predicted'])/(x['n_predicted'] + float(x['n_missed']))] for x in datas]
+		my_b-=.02
+	#
+	# wrap these up into recarrays:
+	for key in all_the_data.keys():
+		all_the_data[key] = numpy.core.records.fromarrays(zip(*all_the_data[key]), names=['false_alarm', 'hit_rate', 'b', 'm0', 'nyquist_factor'], formats = [type(x).__name__ for x in all_the_data[key][0]])
+		#
+	return all_the_data
+
+def plot_bunch_o_metric_1(all_the_data=None):
+	if all_the_data==None: all_the_data = bunch_o_metric()
 	#
 	plt.figure(0)
 	plt.clf()
-	plt.plot(X, Y, '.')
-	plt.plot([0., 1.], [0., 1.], '-')
-	plt.ylabel('n_predicted/n_total')
-	plt.xlabel('percent alert time')
+	plt.xlabel('percent alert time (false alarm)')
+	plt.ylabel('percent predicted')
+	plt.plot([0., 1.], [0.,1.], '--')
+	#
+	plt.figure(1)
+	plt.clf()
+	plt.xlabel('critical slobe $b_0$')
+	plt.ylabel('total score: hit_rate - false_alarm_rate')
+	plt.ion()
+	#
+	best_bs = []
+	for key in all_the_data.keys():
+		#X,Y = zip(*all_the_data[key])[0:2]
+		X,Y = all_the_data[key]['false_alarm'], all_the_data[key]['hit_rate']
+		bs = all_the_data[key]['b']
+		total_scores = [x['hit_rate'] - x['false_alarm'] for x in all_the_data[key]]
+		plt.figure(0)
+		plt.plot(X,Y, '.-')
+		plt.figure(1)
+		plt.plot(bs, total_scores, '.-')
+		max_score = max(total_scores)
+		max_index = total_scores.index(max_score)
+		best_bs+=[bs[max_index]]
+		plt.plot([bs[max_index]], [max_score], '*')
+		#
+		print "max predictor: ", X[max_index], Y[max_index], bs[max_index], max_score
+	mean_best_b = numpy.mean(best_bs)
+	std_best_b = numpy.std(best_bs)
+	print "best b: mean: %f, stdev: %f" % (mean_best_b, std_best_b)
+	#
+	return all_the_data
+#
+def bunch_o_metric_nyquist(b_0=0.009333, d_nyq = .05):
+	# a bunch of metric 1 data...
+	my_nyq = .25
+	all_the_data = {}
+	while my_nyq < .75:
+		datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=b_0, nyquist_factor=my_nyq, do_spp=False, do_plot=False)
+		# datas will be a list of dictionary objects. we want to construct independent "time" series for each fault (dict object):
+		for data in datas:
+			key = data['ary_in_name']
+			if all_the_data.has_key(key) == False: all_the_data[key] = []
+			#if all_the_data.has_key(key) == False: all_the_data[key] = {'prams':[], 'data':[]}
+			#
+			all_the_data[key]+=[[data['total_alert_time']/data['total_time'] ,float(data['n_predicted'])/(data['n_predicted'] + float(data['n_missed'])), data['b'], data['m0'], data['nyquist_factor']]]
+			#all_the_data[key]['data']+=[[data['total_alert_time']/data['total_time'] ,float(data['n_predicted'])/(data['n_predicted'] + float(data['n_missed']))
+			#all_the_data[key]['prams'] += [data['b'], data['m0'], data['nyquist_factor']]
+		
+		#XY = [[x['total_alert_time']/x['total_time'] ,float(x['n_predicted'])/(x['n_predicted'] + float(x['n_missed']))] for x in datas]
+		my_nyq+=d_nyq
+	#
+	# wrap these up into recarrays:
+	for key in all_the_data.keys():
+		all_the_data[key] = numpy.core.records.fromarrays(zip(*all_the_data[key]), names=['false_alarm', 'hit_rate', 'b', 'm0', 'nyquist_factor'], formats = [type(x).__name__ for x in all_the_data[key][0]])
+		#
+	return all_the_data
+
+def plot_bunch_o_metric_nyquist(all_the_data=None):
+	if all_the_data==None: all_the_data = bunch_o_metric_nyquist()
+	#
+	plt.figure(0)
+	plt.clf()
+	plt.xlabel('percent alert time (false alarm)')
+	plt.ylabel('percent predicted')
+	plt.plot([0., 1.], [0.,1.], '--')
+	#
+	plt.figure(1)
+	plt.clf()
+	plt.xlabel('nyquist factor')
+	plt.ylabel('total score: hit_rate - false_alarm_rate')
+	plt.ion()
+	#
+	best_nyquists = []
+	for key in all_the_data.keys():
+		#X,Y = zip(*all_the_data[key])[0:2]
+		X,Y = all_the_data[key]['false_alarm'], all_the_data[key]['hit_rate']
+		nyquists = all_the_data[key]['nyquist_factor']
+		total_scores = [x['hit_rate'] - x['false_alarm'] for x in all_the_data[key]]
+		plt.figure(0)
+		plt.plot(X,Y, '.-')
+		plt.figure(1)
+		plt.plot(nyquists, total_scores, '.-')
+		max_score = max(total_scores)
+		max_index = total_scores.index(max_score)
+		best_nyquists+=[nyquists[max_index]]
+		plt.plot([nyquists[max_index]], [max_score], '*', ms=10)
+		#
+		print "max predictor: ", X[max_index], Y[max_index], nyquists[max_index], max_score
+	mean_best_nyquists = numpy.mean(best_nyquists)
+	std_best_nyquists = numpy.std(best_nyquists)
+	print "best nyquist: mean: %f, stdev: %f" % (mean_best_nyquists, std_best_nyquists)
+	#
+	return all_the_data
 #
 def mean_recurrenceses(section_ids=[], m0=7.0):
 	# wrapper script to plot a whole bunch of mean_recurrence data onto a single figure.

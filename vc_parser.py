@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 plt.ion()
 #
 import math
@@ -548,8 +549,10 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 	if resultses[0].has_key('alert_segments'): [x.pop('alert_segments') for x in resultses]
 	return resultses
 #
-def optimize_metric_1(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None):
+def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None):
 	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
+	# this runs a fully composite optimization, which produces some not super believable... or optimal
+	# results. it seems that we would do better to optimize each fault independently.
 	#
 	R_b   = random.Random()
 	R_nyq = random.Random()
@@ -574,7 +577,7 @@ def optimize_metric_1(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=
 		# datas is a list of dictionary objects like: {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 		#
 		#score_row = [x['b'], x['nyquist_factor'], x['n_predicted']/(x['n_predicted']+x['n_missed']), x['total_alert_time']/x['total_time'], (x['n_predicted']/(x['n_predicted']+x['n_missed']) - x['total_alert_time']/x['total_time']) for x in datas]
-		scores = [x['n_predicted']/(x['n_predicted']+x['n_missed']) - x['total_alert_time']/x['total_time'] for x in datas]
+		scores = [float(x['n_predicted'])/(float(x['n_predicted'])+float(x['n_missed'])) - x['total_alert_time']/x['total_time'] for x in datas]
 		mean_score = numpy.mean(scores)
 		score_stdev = numpy.std(scores)
 		#
@@ -582,8 +585,117 @@ def optimize_metric_1(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=
 		#
 	total_scores.sort(key = lambda x: x[2])
 	#
+	total_scores = numpy.core.records.fromarrays(zip(*total_scores), names=['b_0', 'nyquist_factor', 'score', 'stdev'], formats = [type(x).__name__ for x in total_scores[key][0]])
+	#
 	return total_scores
+#
+def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None, dump_file='dumps/optimize_faultwise'):
+	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
+	# this runs a fully composite optimization, which produces some not super believable... or optimal
+	# results. it seems that we would do better to optimize each fault independently.
+	#
+	R_b   = random.Random()
+	R_nyq = random.Random()
+	delta_b = b_max-b_min
+	delta_nyq = nyquist_max - nyquist_min
+	# and let's do this right and randomly sample...
+	if nits==None: nits = 1 + int(abs((delta_b/d_b)*((delta_nyq)/d_nyquist)))	# safe-guard for n->0
+	#
+	fault_scores={}
+	#
+	for i in xrange(nits):
+		this_b   = b_min       + delta_b*R_b.random()
+		this_nyq = nyquist_min + delta_nyq*R_nyq.random()
+		print "************\n*************\n***************\n*************\n"
+		
+		try:
+			datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=this_b, nyquist_factor=this_nyq, do_spp=False, do_plot=False, n_cpus=None)	# note: this will fully multiprocess.
+		except:
+			print "ERROR!!! datas would not assimilate. probably bogus prams: b=%f, nq_fact=%f" % (this_b, this_nyq)
+			continue
+		#
+		# now, aggregate for this pram-set.
+		# datas is a list of dictionary objects like: {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
+		for rw in datas:
+			#
+			if fault_scores.has_key(rw['ary_in_name'])==False:
+				fault_scores[rw['ary_in_name']] = {}
+			this_score = float(rw['n_predicted'])/(float(rw['n_predicted'])+rw['n_missed']) - rw['total_alert_time']/rw['total_time']
+			fault_scores[rw['ary_in_name']][this_score] = rw	# index each row by the score for fast sorting.
+	#
+	# now, get the max score set for each row:
+	#return fault_scores
+	
+	scores_out = []
+	for key in fault_scores.keys():
+		rw = fault_scores[key]
+		i0 = key.index('section_') + len('section_')
+		fault_number = int(key[i0:key.index('.', i0)])
+		#
+		best_score = max(rw.keys())
+		best_set = rw[best_score]
+		#scores_out += [[key, best_set['b'], best_set['nyquist_factor'], best_score]]
+		
+		# controlled:
+		scores_out += [[fault_number, best_set['b'], best_set['nyquist_factor'], best_set['n_predicted'], best_set['n_missed'], best_set['total_alert_time'], best_set['total_time'], best_score]]
+		# automated:
+		#scores_out += [[fault_number] + [best_set[key] for key in best_set] + [best_score]]
+	#
+	#
+	
+	#print scores_out[0]
+	#print len(scores_out), len(scores_out[0])
+	scores_out = numpy.core.records.fromarrays(zip(*scores_out), names=['fault_id', 'b_0', 'nyquist_factor', 'n_predicted', 'n_missed', 'total_alert_time', 'total_time', 'score'], formats = [type(x).__name__ for x in scores_out[0]])
+	#
+	scores_out.dump('%s_best_scores.npy' % dump_file)
+	numpy.array(fault_scores).dump('%s_fault_scores.npy' % dump_file)
+	#
+	return scores_out
 
+def plot_best_opt_prams(scores_in):
+	#
+	if isinstance(scores_in, str):
+		scores_in = numpy.load(scores_in)
+	#
+	b_col = scores_in['b_0']
+	nq_col = scores_in['nyquist_factor']
+	#
+	# information gain:
+	plt.figure(0)
+	X = [scores_in['total_alert_time'][i]/t for i, t in enumerate(scores_in['total_time'])]
+	Y = [float(N)/(float(N)+scores_in['n_missed'][i]) for i, N in enumerate(scores_in['n_predicted'])]
+	plt.clf()
+	plt.plot(X,Y, '.')
+	plt.plot([0., 1.], [0.,1.], '-')
+	plt.xlabel('percent alert time')
+	plt.ylabel('percent predicted')
+	#
+	# best-fit parameters:
+	plt.figure(1)
+	plt.clf()
+	ax=plt.gca()
+	X=scores_in['b_0'].copy()
+	lst_scores=scores_in['score'].copy()
+	XY = zip(*[X, lst_scores])
+	XY.sort(key=lambda x:x[0])
+	X,Y = zip(*XY)
+	#ax.plot(scores_in['b_0'], scores_in['score'], 'b.-')
+	ax.plot(X,Y, 'b.-')
+	ax.set_xlabel('b_0')
+	ax.set_ylabel('score')
+	#
+	ax2 = ax.twiny()
+	XY = zip(*[scores_in['nyquist_factor'].copy(), scores_in['score'].copy()])
+	XY.sort(key=lambda x: x[0])
+	X,Y = zip(*XY)
+	ax2.plot(X, Y, 'g.-')
+	#ax2.plot(scores_in['nyquist_factor'], scores_in['score'], 'g.-')
+	ax2.set_xlabel('nyquist factor')
+	#
+	f2 = plt.figure(2)
+	f2.clf()
+	ax3d = f2.add_subplot(111, projection='3d')
+	ax3d.plot(scores_in['b_0'], scores_in['nyquist_factor'], scores_in['score'], '.')
 
 #
 def bunch_o_metric_1(nyquist_factor=0.425556):
@@ -599,10 +711,7 @@ def bunch_o_metric_1(nyquist_factor=0.425556):
 			#if all_the_data.has_key(key) == False: all_the_data[key] = {'prams':[], 'data':[]}
 			#
 			all_the_data[key]+=[[data['total_alert_time']/data['total_time'] ,float(data['n_predicted'])/(data['n_predicted'] + float(data['n_missed'])), data['b'], data['m0'], data['nyquist_factor']]]
-			#all_the_data[key]['data']+=[[data['total_alert_time']/data['total_time'] ,float(data['n_predicted'])/(data['n_predicted'] + float(data['n_missed']))
-			#all_the_data[key]['prams'] += [data['b'], data['m0'], data['nyquist_factor']]
-		
-		#XY = [[x['total_alert_time']/x['total_time'] ,float(x['n_predicted'])/(x['n_predicted'] + float(x['n_missed']))] for x in datas]
+			
 		my_b-=.02
 	#
 	# wrap these up into recarrays:
@@ -660,11 +769,8 @@ def bunch_o_metric_nyquist(b_0=0.009333, d_nyq = .05):
 			if all_the_data.has_key(key) == False: all_the_data[key] = []
 			#if all_the_data.has_key(key) == False: all_the_data[key] = {'prams':[], 'data':[]}
 			#
-			all_the_data[key]+=[[data['total_alert_time']/data['total_time'] ,float(data['n_predicted'])/(data['n_predicted'] + float(data['n_missed'])), data['b'], data['m0'], data['nyquist_factor']]]
-			#all_the_data[key]['data']+=[[data['total_alert_time']/data['total_time'] ,float(data['n_predicted'])/(data['n_predicted'] + float(data['n_missed']))
-			#all_the_data[key]['prams'] += [data['b'], data['m0'], data['nyquist_factor']]
-		
-		#XY = [[x['total_alert_time']/x['total_time'] ,float(x['n_predicted'])/(x['n_predicted'] + float(x['n_missed']))] for x in datas]
+			all_the_data[key]+=[[data['total_alert_time']/data['total_time'] ,float(data['n_predicted'])/(float(data['n_predicted']) + float(data['n_missed'])), data['b'], data['m0'], data['nyquist_factor']]]
+			
 		my_nyq+=d_nyq
 	#
 	# wrap these up into recarrays:

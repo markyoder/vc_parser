@@ -870,9 +870,6 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquis
 		for i, y in enumerate(Y0):
 			Y += [Y0[i]]
 			Y += [Y_final[i]]
-		
-		print len(X), len(X_finals)
-		print len(Y)
 		#
 		# use "peak" values to cut through some noise.
 		peaks = get_peaks(zip(*[X,Y]), col=1, peak_type='upper')
@@ -882,8 +879,12 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquis
 		#ax = plt.gca()
 		ax_CFF.set_xscale('linear')
 		ax_CFF.set_yscale('log')
+<<<<<<< HEAD
+		ax_CFF.set_ylabel('CFF')
+=======
 		ax_dCFF.set_xscale('linear')
 		ax_dCFF.set_yscale('log')
+>>>>>>> 2f7d3756bc5e5071e157b3f4bf6c882c88d00c7e
 		# first, raw CFF (initial):
 		ax_CFF.plot(X, Y, '.-', color='b', alpha=.2, zorder=4)
 		ax_CFF.fill_between(X, Y, y2=min(Y), color='b', alpha=.2, zorder=4)
@@ -893,6 +894,12 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquis
 		# Magnitude plot (by itself):
 		ax_mag.set_xscale('linear')
 		ax_mag.set_yscale('linear')
+<<<<<<< HEAD
+		ax_mag.set_ylabel('event magnitude $m$')
+		ax_mag.set_xlabel('event year $t$')
+		min_mag = min(CFF['event_mag']) - .5
+		ax_mag.vlines(CFF['event_year'], [min_mag for x in CFF['event_mag']], CFF['event_mag'], color='b', alpha=.9)
+=======
 		min_mag = min(CFF['event_magnitude']) - .5
 		ax_mag.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='b', alpha=.9)
 		ax_mag.set_ylabel('magnitude $m$')
@@ -910,6 +917,7 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquis
 		#ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b'] / x['interval_rate_ratio'] for x in trend_data], y2=[0.0 for x in trend_data], where=[(x['lin_fit_b'] / x['interval_rate_ratio'])<0. for x in trend_data], color='m', zorder=1, alpha=.5)
 		
 		ax_trend2.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
+>>>>>>> 2f7d3756bc5e5071e157b3f4bf6c882c88d00c7e
 		#
 		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['rb_ratio'] for x in trend_data], 'c--')
 		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] + x['rb_ratio'] for x in trend_data], 'c-')
@@ -918,6 +926,7 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquis
 		# Interval Plots:
 		ax_ints.set_xscale('linear')
 		ax_ints.set_yscale('log')
+		ax_ints.set_ylabel('intervals $\\Delta t$')
 		ax_ints.plot(X_init[1:], intervals, '.-', alpha=.9)
 		ax_mag2.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='g', alpha=.9, lw=2)
 		ax_mag2.vlines(big_mags[0], [min_mag for x in big_mags[1]], big_mags[1], color='r', lw=2.5, alpha=.9)

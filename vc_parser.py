@@ -580,6 +580,7 @@ def optimize_metric_1(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=
 		#
 		total_scores += [[this_b, this_nyq, mean_score, score_stdev]]
 		#
+	total_scores.sort(key = lambda x: x[2])
 	#
 	return total_scores
 

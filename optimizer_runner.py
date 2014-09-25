@@ -1,7 +1,7 @@
 import vc_parser
 import numpy
 
-datas = optimize_metric_1(b_min=-.15, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=3000)
+datas = vc_parser.optimize_metric_1(b_min=-.15, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=3000)
 
 # [b, nyq, mean, stdev]
 

@@ -367,7 +367,7 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	CFF = numpy.load(ary_in)
 	#
 	recurrence_data = mean_recurrence(ary_in=CFF, m0=m0)
-	nyquist_len = int(nyquist_factor*recurrence_data['mean_dN_fault'])
+	nyquist_len = max(int(nyquist_factor*recurrence_data['mean_dN_fault']), 2)
 	nyquist_time = nyquist_factor*recurrence_data['mean_dT']
 	#
 	trend_data = get_trend_analysis(ary_in=CFF, nyquist_len = nyquist_len, nyquist_time=nyquist_time)
@@ -482,7 +482,7 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	#
 	#return alert_segments
 	# , 'alert_segments':alert_segments
-	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
+	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 #
 def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None):
 	'''
@@ -505,13 +505,14 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 		# use MPP:
 		if n_cpus==None: n_cpus = mpp.cpu_count()
 		pool = mpp.Pool(n_cpus)
-		if (m0, b_0, nyquist_factor)==forecast_metric_1.__defaults__[1:4] and False:
+		if (m0, b_0, nyquist_factor)==forecast_metric_1.__defaults__[1:4]:
 			print "defaults. use map_async()"
 			# i'm guessing this is faster...
 			result_set = pool.map_async(forecast_metric_1, G)
 			pool.close()
 			pool.join()
 			#
+			#print result_set
 			resultses = result_set.get()	# will be a list of dictionary objects
 			
 		else:
@@ -521,6 +522,8 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 			pool.close()
 			pool.join()
 			#
+			#print "these prams: ", b_0, nyquist_factor
+			#return result_set_list
 			resultses = [x.get() for x in result_set_list]	# each entry in result_set_list is a dict; now we have a list of dicts.
 			
 		#
@@ -545,7 +548,7 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 	if resultses[0].has_key('alert_segments'): [x.pop('alert_segments') for x in resultses]
 	return resultses
 #
-def optimize_metric_1(b_min=-.15, b_max=.15, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None):
+def optimize_metric_1(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None):
 	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
 	#
 	R_b   = random.Random()
@@ -560,7 +563,12 @@ def optimize_metric_1(b_min=-.15, b_max=.15, d_b=.01, nyquist_min=.2, nyquist_ma
 	for i in xrange(nits):
 		this_b   = b_min       + delta_b*R_b.random()
 		this_nyq = nyquist_min + delta_nyq*R_nyq.random()
-		datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=this_b, nyquist_factor=this_nyq, do_spp=False, do_plot=False, n_cpus=None)	# note: this will fully multiprocess.
+		print "************\n*************\n***************\n*************\n"
+		
+		try:
+			datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=this_b, nyquist_factor=this_nyq, do_spp=False, do_plot=False, n_cpus=None)	# note: this will fully multiprocess.
+		except:
+			print "ERROR!!! datas would not assimilate. probably bogus prams: b=%f, nq_fact=%f" % (this_b, this_nyq)
 		#
 		# now, aggregate for this pram-set.
 		# datas is a list of dictionary objects like: {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}

@@ -382,6 +382,7 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	# first, just get the total time under alert:
 	alert_time = 0.0
 	alert_segments = [[]]		# a collection of lists...
+	running_b_sequence = []
 	#
 	for i, rw in enumerate(trend_data):
 		# when we find b<b_0, we issue an alert until the next earthquake -- unless this one was 'big',
@@ -389,7 +390,21 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 		#
 		if i>=(max_n-1): break
 		#
-		if rw['lin_fit_b']>=b_0:
+		# note the comment evidence of variations on this metric, primarily involving some sort of mean-slope averaging.
+		# a more exhaustive, automated MC approach, analysis is necessary to be certain, but preliminary analysis suggests that
+		# we don't gain anything from the averaging... in fact, we tend to loose measurable, at least on fault 16, where most
+		# of the prelim examination was done.
+		#
+		#mean_b = numpy.mean(trend_data['lin_fit_b'][max(0, i-nyquist_len) : i+1])
+		#
+		this_b = rw['lin_fit_b']
+		#
+		#this_b = mean_b
+		#running_b_sequence = (running_b_sequence + [this_b])[max(0, len(running_b_sequence)-nyquist_len):]
+		#mean_b = numpy.mean(running_b_sequence)
+		#this_b = mean_b
+		#
+		if this_b >= b_0:
 			# null case
 			# if we've been collecting "alert" events, stop. if not, just troll along...
 			if len(alert_segments[-1])>0:
@@ -403,13 +418,20 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 			#
 			if len(alert_segments[-1])==0:
 				alert_segments[-1]+=[[trend_data[i]['event_year'], trend_data[i]['lin_fit_b']]]
+			#
 			if this_mag<m0:
 				# add the next event as the alert (aka, issue an alert until we have new data).
 				#print "len alert_seg: %d" % len(alert_segments[-1])
-				alert_segments[-1]+=[[trend_data[i+1]['event_year'], trend_data[i+1]['lin_fit_b']]]
+				#
+				# generalize language a bit:
+				alert_segments[-1]+=[[trend_data[i+1]['event_year'], this_b]]
+				pass
+				#
 			if this_mag>=m0:
 				# this is "the" earthquake. add this entry (it's probably already there) from the previous entry.
-				alert_segments[-1]+=[[trend_data[i]['event_year'], trend_data[i]['lin_fit_b']]]
+				#alert_segments[-1]+=[[trend_data[i]['event_year'], trend_data[i]['lin_fit_b']]]
+				alert_segments[-1]+=[[trend_data[i]['event_year'], this_b]]
+				#running_b_sequence=[]
 			#
 		#
 	#
@@ -446,7 +468,8 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 		CFF_index = rw['event_number']
 		prev_year = CFF[i-1]['event_year']
 		#if alert_dict.has_key(rw['event_year']):
-		if alert_dict.has_key(rw['event_year']) and alert_dict.has_key(prev_year):			
+		#if alert_dict.has_key(rw['event_year']) and alert_dict.has_key(prev_year):
+		if alert_dict.has_key(rw['event_year']):						
 			n_predicted += 1
 		else:
 			n_missed += 1
@@ -478,6 +501,7 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	print "preliminary report:"
 	print "alert time: %f / %f :: %f " % (total_alert_time, total_total_time, total_alert_time/total_total_time)
 	print "n_predicted: %d, n_missed: %d (%f )" % (n_predicted, n_missed, float(n_predicted)/(float(n_predicted)+n_missed))
+	print "total: %f " % (float(n_predicted)/(float(n_predicted)+n_missed) - total_alert_time/total_total_time)
 		
 	
 	#
@@ -572,6 +596,7 @@ def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2,
 			datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=this_b, nyquist_factor=this_nyq, do_spp=False, do_plot=False, n_cpus=None)	# note: this will fully multiprocess.
 		except:
 			print "ERROR!!! datas would not assimilate. probably bogus prams: b=%f, nq_fact=%f" % (this_b, this_nyq)
+			continue
 		#
 		# now, aggregate for this pram-set.
 		# datas is a list of dictionary objects like: {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
@@ -583,9 +608,31 @@ def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2,
 		#
 		total_scores += [[this_b, this_nyq, mean_score, score_stdev]]
 		#
+		if i%100==0:
+			# intermediate dump...
+			dump_object = numpy.core.records.fromarrays(zip(*total_scores), names=['b_0', 'nyquist_factor', 'score', 'stdev'], formats = [type(x).__name__ for x in total_scores[0]])
+			try:
+				dump_object.dump('dumps/aggregate_optimize_n_%d.npy' % nits)
+			except:
+				print "failed to dump array..."
+		#
 	total_scores.sort(key = lambda x: x[2])
 	#
-	total_scores = numpy.core.records.fromarrays(zip(*total_scores), names=['b_0', 'nyquist_factor', 'score', 'stdev'], formats = [type(x).__name__ for x in total_scores[key][0]])
+	total_scores = numpy.core.records.fromarrays(zip(*total_scores), names=['b_0', 'nyquist_factor', 'score', 'stdev'], formats = [type(x).__name__ for x in total_scores[0]])
+	#
+	try:
+		total_scores.dump('dumps/aggregate_optimize_n_%d.npy' % nits)
+	except:
+		print "failed to dump array..."
+	#
+	A=total_scores	# for shorthand...
+	best_fit_row = A[A['score'].tolist().index(max(A['score']))]
+	print best_fit_row
+	if do_plot:
+		plt.ion()
+		f=plt.figure()
+		ax3d = f.add_subplot(111, projection='3d')
+		ax3d.plot(A['b_0'], A['nyquist_factor'], A['score'], '.')
 	#
 	return total_scores
 #
@@ -684,7 +731,10 @@ def plot_best_opt_prams(scores_in):
 	ax.set_xlabel('b_0')
 	ax.set_ylabel('score')
 	#
-	ax2 = ax.twiny()
+	#ax2 = ax.twiny()
+	plt.figure(2)
+	plt.clf()
+	ax2=plt.gca()
 	XY = zip(*[scores_in['nyquist_factor'].copy(), scores_in['score'].copy()])
 	XY.sort(key=lambda x: x[0])
 	X,Y = zip(*XY)
@@ -692,10 +742,19 @@ def plot_best_opt_prams(scores_in):
 	#ax2.plot(scores_in['nyquist_factor'], scores_in['score'], 'g.-')
 	ax2.set_xlabel('nyquist factor')
 	#
-	f2 = plt.figure(2)
+	f2 = plt.figure(3)
 	f2.clf()
 	ax3d = f2.add_subplot(111, projection='3d')
 	ax3d.plot(scores_in['b_0'], scores_in['nyquist_factor'], scores_in['score'], '.')
+	#
+	mean_b = numpy.mean(scores_in['b_0'])
+	std_b  = numpy.std(scores_in['score'])
+	#
+	mean_nf = numpy.mean(scores_in['nyquist_factor'])
+	std_nf = numpy.std(scores_in['nyquist_factor'])
+	#
+	print "mean_b: %f +/- %f" % (mean_b, std_b)
+	print "mean_nf:    %f +/- %f" % (mean_nf, std_nf)
 
 #
 def bunch_o_metric_1(nyquist_factor=0.425556):
@@ -1009,11 +1068,8 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquis
 		ax_mag.set_yscale('linear')
 		ax_mag.set_ylabel('event magnitude $m$')
 		ax_mag.set_xlabel('event year $t$')
-		min_mag = min(CFF['event_mag']) - .5
-		ax_mag.vlines(CFF['event_year'], [min_mag for x in CFF['event_mag']], CFF['event_mag'], color='b', alpha=.9)
 		min_mag = min(CFF['event_magnitude']) - .5
 		ax_mag.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='b', alpha=.9)
-		ax_mag.set_ylabel('magnitude $m$')
 		#
 		ax_trend.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], 'r-', zorder=5, alpha=.8)
 		ax_trend.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='r', zorder=2, alpha=.8)

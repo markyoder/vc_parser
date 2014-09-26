@@ -594,10 +594,12 @@ def plot_aggregate_metric(scores_in):
 	print best_row
 	return scores_in
 #
-def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None):
+def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None, do_plot=False, n_cpus=None, data_in=None):
 	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
 	# this runs a fully composite optimization, which produces some not super believable... or optimal
 	# results. it seems that we would do better to optimize each fault independently.
+	# data_in: start with, and append, an existing data file.	
+
 	#
 	R_b   = random.Random()
 	R_nyq = random.Random()
@@ -607,14 +609,25 @@ def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2,
 	if nits==None: nits = 1 + int(abs((delta_b/d_b)*((delta_nyq)/d_nyquist)))	# safe-guard for n->0
 	#
 	total_scores = []	# cumulative total score, like [[b_0, nyquist_factor, mean_score, score_stdev]]
+	if data_in!=None: 
+		if isinstance(data_in, str):
+			total_scores = numpy.load(data_in).tolist()
+		else:
+			total_scores = data_in
 	#
 	for i in xrange(nits):
 		this_b   = b_min       + delta_b*R_b.random()
 		this_nyq = nyquist_min + delta_nyq*R_nyq.random()
+		#
+		# quick mod to remove the apparent "fobidden" zone:
+		while this_b < (-.3143 + .2286*this_nyq):
+			# we've determined that we don't get valid results from this domain.
+			this_b   = b_min       + delta_b*R_b.random()
+			this_nyq = nyquist_min + delta_nyq*R_nyq.random()
 		print "************\n*************\n***************\n*************\n"
 		
 		try:
-			datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=this_b, nyquist_factor=this_nyq, do_spp=False, do_plot=False, n_cpus=None)	# note: this will fully multiprocess.
+			datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=this_b, nyquist_factor=this_nyq, do_spp=False, do_plot=False, n_cpus=n_cpus)	# note: this will fully multiprocess.
 		except:
 			print "ERROR!!! datas would not assimilate. probably bogus prams: b=%f, nq_fact=%f" % (this_b, this_nyq)
 			continue

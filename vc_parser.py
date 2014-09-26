@@ -394,7 +394,7 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 		# a more exhaustive, automated MC approach, analysis is necessary to be certain, but preliminary analysis suggests that
 		# we don't gain anything from the averaging... in fact, we tend to loose measurable, at least on fault 16, where most
 		# of the prelim examination was done.
-		#
+		
 		#mean_b = numpy.mean(trend_data['lin_fit_b'][max(0, i-nyquist_len) : i+1])
 		#
 		this_b = rw['lin_fit_b']
@@ -573,6 +573,27 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 	if resultses[0].has_key('alert_segments'): [x.pop('alert_segments') for x in resultses]
 	return resultses
 #
+def plot_aggregate_metric(scores_in):
+	# make a pretty (3d) plot of the aggregate type optimizer solutions.
+	if isinstance(scores_in, str):
+		scores_in = numpy.load(scores_in)
+	#scores_in.sort(order=('b_0', 'nyquist_factor'))
+	#
+	f2 = plt.figure(3)
+	f2.clf()
+	ax3d = f2.add_subplot(111, projection='3d')
+	ax3d.plot(scores_in['b_0'], scores_in['nyquist_factor'], scores_in['score'], '.')
+	#
+	#scores_in.sort(order=('nyquist_factor', 'b_0'))
+	#ax3d.plot(scores_in['b_0'], scores_in['nyquist_factor'], scores_in['score'], '.')
+	#
+	# best score?
+	best_row = scores_in[scores_in['score'].tolist().index(max(scores_in['score']))]
+	#
+	print scores_in.dtype.names
+	print best_row
+	return scores_in
+#
 def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None):
 	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
 	# this runs a fully composite optimization, which produces some not super believable... or optimal
@@ -635,6 +656,7 @@ def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2,
 		ax3d.plot(A['b_0'], A['nyquist_factor'], A['score'], '.')
 	#
 	return total_scores
+
 #
 def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None, dump_file='dumps/optimize_faultwise'):
 	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
@@ -900,12 +922,14 @@ def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_
 	Ns, Js, Ts, Ms = zip(*[[x['event_number'], j, x['event_year'], x['event_magnitude']] for j, x in enumerate(ary_in) if float(x['event_magnitude'])>m0])
 	Ns_total, Js_total, Ts_total = zip(*[[x['event_number'], j, x['event_year']] for j, x in enumerate(ary_in) ])
 	#
-	dNs = [Ns[i]-Ns[i-1] for i, n in enumerate(Ns[1:])][1:]
-	dJs = [Js[i]-Js[i-1] for i, n in enumerate(Js[1:])][1:]
-	dTs = [(Ts[i]-Ts[i-1])*10.**(4.5-m0) for i, t in enumerate(Ts[1:])][1:]
+	dNs = [Ns[i]-Ns[i-1] for i, n in enumerate(Ns[1:])][1:]	# total event numbers (of the simulation, including other faults)
+	dJs = [Js[i]-Js[i-1] for i, n in enumerate(Js[1:])][1:]	# sequence number along this fault.
+	#dTs = [(Ts[i]-Ts[i-1])*10.**(4.5-m0) for i, t in enumerate(Ts[1:])][1:]
+	dTs = [Ts[i]-Ts[i-1] for i, t in enumerate(Ts[1:])][1:]		# at some point, we were correcting this for magnitude...
+																# but i don't recall why.
 	
 	stress_drop_total = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:]]
-	stress_drop = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:] if float(x['event_magnitude'])>m0]
+	stress_drop = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:] if float(x['event_magnitude'])>m0]	# large m stress-drop
 	dNs_total = [Ns_total[i]-Ns_total[i-1] for i, n in enumerate(Ns_total[1:])][1:]
 	dJs_total = [Js_total[i]-Js_total[i-1] for i, n in enumerate(Js_total[1:])][1:]
 	dTs_total = [Ts_total[i]-Ts_total[i-1] for i, t in enumerate(Ts_total[1:])][1:]

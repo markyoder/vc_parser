@@ -735,7 +735,10 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 	return scores_out
 
 def plot_best_opt_prams(scores_in):
+	'''
+	# plots from faultwise optimization
 	#
+	'''
 	if isinstance(scores_in, str):
 		scores_in = numpy.load(scores_in)
 	#

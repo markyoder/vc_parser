@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import matplotlib as mpl
+import itertools
 plt.ion()
 #
 import math
@@ -913,7 +915,7 @@ def plot_bunch_o_metric_nyquist(all_the_data=None):
 	#
 	return all_the_data
 #
-def mean_recurrenceses(section_ids=[], m0=7.0):
+def mean_recurrenceses(section_ids=[], m0=7.0, file_path_format='data/VC_CFF_timeseries_section_%d.npy'):
 	# wrapper script to plot a whole bunch of mean_recurrence data onto a single figure.
 	if section_ids == None or (hasattr(section_ids, '__len__' and len(section_ids)==0)):
 		section_ids = emc_section_filter['filter']
@@ -923,11 +925,74 @@ def mean_recurrenceses(section_ids=[], m0=7.0):
 		if sec_id==section_ids[0]:
 			do_clf=True
 		#
-		z=mean_recurrence(ary_in='data/VC_CFF_timeseries_section_%d.npy' % sec_id, m0=m0, do_plots=True, do_clf=do_clf)
+		z=mean_recurrence(ary_in=file_path_format % sec_id, m0=m0, do_plots=True, do_clf=do_clf)
 	#
 	return None
-		
-		
+#
+def f_weibull(x=None, chi=1.0, beta=1.0, x0=None):
+	'''
+	# weibull distribution (for fitting).
+	'''
+	if x0==None: x0=0.0		# ... but we give it None so the fitting algorithm does not try to fit...
+	#
+	return 1.0 - numpy.exp(((x0/chi)**beta) - ((x/chi)**beta))
+#
+def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0):
+	'''
+	# for each section_id, fetch the mean_recurrence data.
+	# 1) plot each cumulative probability
+	# 2) including a weibull fit.
+	# 3) plot each cum. prob onto a single figure
+	# 4) a cumulative figure
+	'''
+	#
+	if section_ids in (None, [], ()): section_ids = emc_section_filter['filter']
+	plt.ion()
+	#
+	for i in xrange(len(section_ids)+1):
+		f=plt.figure(i)
+		f.clf()
+		if i>0: plt.close()
+	#
+	# control color cycling:
+	colors_ =  mpl.rcParams['axes.color_cycle']
+	sections ={'all_cdf':{'fig':0}}
+	for j, sec_id in enumerate(section_ids):
+		this_color = colors_[j%len(colors_)]
+		i=j+1
+		sections[sec_id] = {'fig':i}
+		plt.figure(i)
+		#
+		mean_rec_data = mean_recurrence(ary_in=file_path_pattern % sec_id, m0=m0)
+		N=float(len(mean_rec_data['dists']['dT']))
+		X=[x for x in mean_rec_data['dists']['dT']]
+		X.sort()
+		Y = [x/N for x in range(1, len(X)+1)]
+		mean_dT = mean_rec_data['mean_dT']
+		#
+		# get a fit:
+		fit_prams = scipy.optimize.curve_fit(f_weibull, xdata=numpy.array(X), ydata=numpy.array(Y), p0=numpy.array([mean_dT, 1.5]))[0]
+		print "fit_prams(%d): %s" % (sec_id, str(fit_prams))
+		X_fit = numpy.arange(min(X), max(X)*1.5, (max(X)-min(X))/500.)
+		#
+		#ax=figs['all_cdf'].gca()
+		f = plt.figure(0)
+		plt.plot(X,Y, '-.', color=this_color)
+		plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '-', color=this_color)
+		f = plt.figure(i)
+		plt.plot(X,Y, '-.', color=this_color)
+		plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '-', color=this_color, label='$\\beta=%.3f, \\tau=%.3f$' % (fit_prams[1], fit_prams[0]))
+		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$' % m0)
+		plt.ylabel('Probability $P(t)')
+		plt.legend(loc=0, numpoints=1)
+		plt.savefig('CDF_figs/VC_CDF_m%s_section_%d.png' % (str(m0).replace('.', ''), sec_id))
+	#
+	plt.figure(0)
+	plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$' % m0)
+	plt.ylabel('Probability $P(t)')
+	plt.savefig('CDF_figs/VC_CDF_m%s_section_composite.png' % (str(m0).replace('.', '')))
+
+#		
 def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
 	# find mean, stdev Delta_t, N between m>m0 events in ary_in.
 	# for now, assume ary_in is a structured array, h5, or name of a structured array file.
@@ -938,19 +1003,23 @@ def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_
 	Ns, Js, Ts, Ms = zip(*[[x['event_number'], j, x['event_year'], x['event_magnitude']] for j, x in enumerate(ary_in) if float(x['event_magnitude'])>m0])
 	Ns_total, Js_total, Ts_total = zip(*[[x['event_number'], j, x['event_year']] for j, x in enumerate(ary_in) ])
 	#
+	# just large events:
 	dNs = [Ns[i]-Ns[i-1] for i, n in enumerate(Ns[1:])][1:]	# total event numbers (of the simulation, including other faults)
 	dJs = [Js[i]-Js[i-1] for i, n in enumerate(Js[1:])][1:]	# sequence number along this fault.
 	#dTs = [(Ts[i]-Ts[i-1])*10.**(4.5-m0) for i, t in enumerate(Ts[1:])][1:]
 	dTs = [Ts[i]-Ts[i-1] for i, t in enumerate(Ts[1:])][1:]		# at some point, we were correcting this for magnitude...
-																# but i don't recall why.
-	
+	#															# but i don't recall why... so let's not...
+	#
+	# all events:
 	stress_drop_total = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:]]
 	stress_drop = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:] if float(x['event_magnitude'])>m0]	# large m stress-drop
 	dNs_total = [Ns_total[i]-Ns_total[i-1] for i, n in enumerate(Ns_total[1:])][1:]
 	dJs_total = [Js_total[i]-Js_total[i-1] for i, n in enumerate(Js_total[1:])][1:]
 	dTs_total = [Ts_total[i]-Ts_total[i-1] for i, t in enumerate(Ts_total[1:])][1:]
 	#
-	r_dict = {'mean_dN': numpy.mean(dNs), 'stdev_dN':numpy.std(dNs), 'mean_dT':numpy.mean(dTs), 'stdev_dT':numpy.std(dTs), 'mean_dN_fault':numpy.mean(dJs), 'stdev_dN_fault':numpy.std(dJs)}
+	recurrence_dist_array = numpy.array(zip(*[dJs, dTs]), dtype = [('dN', int), ('dT', float)])
+	#
+	r_dict = {'mean_dN': numpy.mean(dNs), 'stdev_dN':numpy.std(dNs), 'mean_dT':numpy.mean(dTs), 'stdev_dT':numpy.std(dTs), 'mean_dN_fault':numpy.mean(dJs), 'stdev_dN_fault':numpy.std(dJs), 'dists':recurrence_dist_array}
 	#
 	#
 	if do_plots:

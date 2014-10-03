@@ -8,6 +8,7 @@ import math
 import h5py
 import numpy
 import scipy
+import scipy.optimize as spo
 import operator
 import glob
 import random
@@ -929,6 +930,10 @@ def mean_recurrenceses(section_ids=[], m0=7.0, file_path_format='data/VC_CFF_tim
 	#
 	return None
 #
+def f_weibull2(x=None, x0=None, chi=1.1, beta=1.0):
+	# prams re-ordered for different fitting algorithms.
+	return f_weibull(x=x, x0=x0, chi=chi, beta=beta)
+#
 def f_weibull(x=None, chi=1.0, beta=1.0, x0=None):
 	'''
 	# weibull distribution (for fitting).
@@ -937,7 +942,7 @@ def f_weibull(x=None, chi=1.0, beta=1.0, x0=None):
 	#
 	return 1.0 - numpy.exp(((x0/chi)**beta) - ((x/chi)**beta))
 #
-def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0):
+def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, keep_figs=False):
 	'''
 	# for each section_id, fetch the mean_recurrence data.
 	# 1) plot each cumulative probability
@@ -946,52 +951,309 @@ def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_se
 	# 4) a cumulative figure
 	'''
 	#
-	if section_ids in (None, [], ()): section_ids = emc_section_filter['filter']
+	if section_ids in (None, [], ()): section_ids = list(emc_section_filter['filter'])
 	plt.ion()
+	#if (-1) not in section_ids: section_ids+=[-1]		# add this special case which we will use for a composite mean fit.
+	if section_ids[-1]!=-1: section_ids+=[-1]		# ... and it needs to be the final entry.
 	#
 	for i in xrange(len(section_ids)+1):
-		f=plt.figure(i)
-		f.clf()
+		# clean up a bit:
+		#
+		#f=plt.figure(i)
+		#f.clf()
+		if i==0:
+			plt.figure(i)
+			plt.clf()
+		#
 		if i>0: plt.close()
 	#
+	plt.figure(0)
+	max_x = 0.
+	min_x = 0.
+	dT_composite = []
 	# control color cycling:
 	colors_ =  mpl.rcParams['axes.color_cycle']
 	sections ={'all_cdf':{'fig':0}}
+	best_fit_array = []		# ...and we'll cast this as a recarray later.
 	for j, sec_id in enumerate(section_ids):
 		this_color = colors_[j%len(colors_)]
 		i=j+1
 		sections[sec_id] = {'fig':i}
 		plt.figure(i)
 		#
-		mean_rec_data = mean_recurrence(ary_in=file_path_pattern % sec_id, m0=m0)
-		N=float(len(mean_rec_data['dists']['dT']))
-		X=[x for x in mean_rec_data['dists']['dT']]
+		if sec_id != -1:
+			mean_rec_data = mean_recurrence(ary_in=file_path_pattern % sec_id, m0=m0)
+			#N=float(len(mean_rec_data['dists']['dT']))
+			#X=[x for x in mean_rec_data['dists']['dT']]
+			X = mean_rec_data['dists']['dT'].tolist()
+			dT_composite += X
+		else:
+			X=dT_composite
+		N = float(len(X))	
 		X.sort()
+		#
+		# keep track of min/max X values for later global plot... or we could use them here as well.
+		max_x = max(max_x, max(X))
+		min_x = min(min_x, min(X))
+		#
 		Y = [x/N for x in range(1, len(X)+1)]
-		mean_dT = mean_rec_data['mean_dT']
+		#mean_dT = mean_rec_data['mean_dT']
+		mean_dT = numpy.mean(X)
 		#
 		# get a fit:
-		fit_prams = scipy.optimize.curve_fit(f_weibull, xdata=numpy.array(X), ydata=numpy.array(Y), p0=numpy.array([mean_dT, 1.5]))[0]
-		print "fit_prams(%d): %s" % (sec_id, str(fit_prams))
+		#. and it looks like this, by default, multiprocesses; we get all cpus to about 50% without doing any native mpp.
+		fit_prams, fit_cov = spo.curve_fit(f_weibull, xdata=numpy.array(X), ydata=numpy.array(Y), p0=numpy.array([mean_dT, 1.5]))
+		pram_sigmas = numpy.sqrt(numpy.diag(fit_cov))
+		mean_chi_sqr = numpy.mean([(f_weibull(x=X[k], chi=fit_prams[0], beta=fit_prams[1], x0=0.0)-Y[k])**2. for k, xx in enumerate(X)]) # in xrange(len(X))])
+		#
+		print fit_cov
+		print "fit_prams(%d/%d): %s" % (i, sec_id, str(fit_prams))
+		best_fit_array += [[sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]]
 		X_fit = numpy.arange(min(X), max(X)*1.5, (max(X)-min(X))/500.)
+		#
+		lw=2.5
+		ms=5.
+		this_lbl = 'section %d' % sec_id
+		this_lbl_composite = None
+		if sec_id==-1:
+			this_lbl = '(composite mean)'
+			this_lbl_composite = 'all faults'
+			lw=5
+			ms=10
 		#
 		#ax=figs['all_cdf'].gca()
 		f = plt.figure(0)
-		plt.plot(X,Y, '-.', color=this_color)
-		plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '-', color=this_color)
+		plt.plot(X,Y, '.-', color=this_color)
+		plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl_composite)
+		#
 		f = plt.figure(i)
-		plt.plot(X,Y, '-.', color=this_color)
-		plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '-', color=this_color, label='$\\beta=%.3f, \\tau=%.3f$' % (fit_prams[1], fit_prams[0]))
-		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$' % m0)
-		plt.ylabel('Probability $P(t)')
+		plt.plot(X,Y, '.-', color=this_color, label=this_lbl)
+		plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '--', color=this_color, label='$\\beta=%.3f, \\tau=%.3f$' % (fit_prams[1], fit_prams[0]), lw=lw, ms=ms)
+		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$ (years)' % m0)
+		plt.ylabel('Probability $P(t)$')
+		
+		sec_name = str(sec_id)
+		if sec_id==-1:
+			sec_name = '(mean composite)'
+			plt.gca().set_xlim([0., 4500.])
+			plt.show()
+		plt.gca().set_ylim([0., 1.1])
+		plt.title('CDF for m>7 on fault section %s' % sec_name)
 		plt.legend(loc=0, numpoints=1)
 		plt.savefig('CDF_figs/VC_CDF_m%s_section_%d.png' % (str(m0).replace('.', ''), sec_id))
+		if keep_figs==False: plt.close(i)
 	#
-	plt.figure(0)
+	# composite/mean fits. instead of recoding all of this, maybe use a special section_id=-1, which we add to the section_id list
+	# above and do "if" on the fetch-data part...
+	'''
+	dT_composite.sort()
+	N=float(len(dT_composite))
+	Y_composite = [x/N for x in range(1, int(N)+1)]
+	fit_prams, fit_cov = spo.curve_fit(f_weibull, xdata=numpy.array(dT_composite), ydata=numpy.array(Y_composite), p0=numpy.array([mean_dT, 1.5]))
+	plt.figure()
+	plt.plot(dT_composite, Y_composite, '.-', color='b')
+	X_fit = numpy.arange(min(dT_composite), 1.2*max(dT_composite), (min(dT_composite)-1.2*max(dT_composite))/500.)
+	plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '-', color='b', label='$\\beta=%.3f, \\tau=%.3f$' % (fit_prams[1], fit_prams[0]))
+	plt.legend(loc=0, numpoints=1)
 	plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$' % m0)
 	plt.ylabel('Probability $P(t)')
+	plt.savefig('CDF_figs/VC_CDF_m%s_section_mean_composite.png' % (str(m0).replace('.', '')))
+	best_fit_array += [[-1, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]]
+	#
+	'''
+	#
+	plt.figure(0)
+	#X_fit = numpy.arange(min_x, max_x*1.2, (max_x-min_x)/500.)
+	#plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '-', lw=5, alpha=.7, zorder=7, label='mean best fit')
+	#mean_tau = numpy.mean([x[1] for x in best_fit_array])
+	#mean_beta = numpy.mean([x[2] for x in best_fit_array])
+	#
+	plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$ (years)' % m0)
+	plt.ylabel('Probability $P(t)$')
+	plt.gca().set_xlim([0., 5000.])
+	plt.legend(loc=0, numpoints=1)
+	plt.gca().set_xscale('linear')
+	plt.gca().set_yscale('linear')
+	plt.gca().set_ylim([0., 1.1])
+	plt.show()
 	plt.savefig('CDF_figs/VC_CDF_m%s_section_composite.png' % (str(m0).replace('.', '')))
-
+	#
+	best_fit_array = numpy.core.records.fromarrays(zip(*best_fit_array), names = ['section_id', 'tau', 'beta', 'sigma_tau', 'sigma_beta', 'mean_chi_sqr'], formats = [type(x).__name__ for x in best_fit_array[0]])
+	best_fit_array.dump('CDF_figs/VC_CDF_Weibull_fits_dump.npy')
+	#
+	# and some interesting weibull pram plots are like:
+	# (obviously other scalings are relevant; this seems to be the most linear)
+	#plt.loglog(best_fit_array['beta'], best_fit_array['tau'], '.')
+	# and of course, the distributions of beta, tau (dists. of beta are not terribly interesting,
+	# but the relationship between beta and tau might be).
+	'''
+	plt.figure()
+	ax1 = plt.gca()
+	Xbeta = best_fit_array['beta'].tolist()
+	Xbeta.sort()
+	ax1.plot(Xbeta, range(len(best_fit_array['beta'])), 'g.-')
+	ax2 = plt.gca().twiny()
+	Xtau = best_fit_array['tau'].tolist()
+	Xtau.sort()
+	ax2.plot(Xtau, range(len(best_fit_array['tau'])), 'r.-')
+	'''
+	#
+	return best_fit_array
+#
+def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False):
+	'''
+	# for each section_id, fetch the mean_recurrence data.
+	# 1) plot each cumulative probability
+	# 2) including a weibull fit.
+	# 3) do this for a set of waiting times:0, <t>/2, <t>, 1.5<t>, 2<t>, 2.5<t>
+	# 4) a cumulative figure
+	'''
+	#
+	if section_ids in (None, [], ()): section_ids = list(emc_section_filter['filter'])
+	plt.ion()
+	#if (-1) not in section_ids: section_ids+=[-1]		# add this special case which we will use for a composite mean fit.
+	if section_ids[-1]!=-1: section_ids+=[-1]		# ... and it needs to be the final entry.
+	#
+	for i in xrange(len(section_ids)+1):
+		# clean up a bit:
+		#
+		#f=plt.figure(i)
+		#f.clf()
+		if i==0:
+			plt.figure(i)
+			plt.clf()
+		#
+		if i>0: plt.close()
+	#
+	plt.figure(0)
+	max_x = 0.
+	min_x = 0.
+	dT_composite = []
+	# control color cycling:
+	colors_ =  mpl.rcParams['axes.color_cycle']
+	sections ={'all_cdf':{'fig':0}}
+	best_fit_array = []		# ...and we'll cast this as a recarray later.
+	for j, sec_id in enumerate(section_ids):
+		this_color = colors_[j%len(colors_)]
+		i=j+1
+		sections[sec_id] = {'fig':i}
+		plt.figure(i)
+		#
+		if sec_id != -1:
+			mean_rec_data = mean_recurrence(ary_in=file_path_pattern % sec_id, m0=m0)
+			#N=float(len(mean_rec_data['dists']['dT']))
+			#X=[x for x in mean_rec_data['dists']['dT']]
+			X = mean_rec_data['dists']['dT'].tolist()
+			dT_composite += X
+		else:
+			continue		# we'll get to the composite plot(s) later...
+			X=dT_composite
+		N = float(len(X))	
+		X.sort()
+		#
+		# keep track of min/max X values for later global plot... or we could use them here as well.
+		max_x = max(max_x, max(X))
+		min_x = min(min_x, min(X))
+		#
+		Y = [x/N for x in range(1, len(X)+1)]
+		#mean_dT = mean_rec_data['mean_dT']
+		mean_dT = numpy.mean(X)
+		this_t0s = [mean_dT * x for x in t0_factors]
+		#
+		for t0 in this_t0s:
+			max_x = 0.
+			min_x = 0.
+			this_X = [x-t0 for x in X if (x-t0)>=0.]
+			N = float(len(this_X))
+			this_X.sort()
+			Y = [j/N for j in range(1, len(this_X)+1)]
+			max_x = max(max_x, max(X))
+			min_x = min(min_x, min(X))
+			fit_prams, fit_cov = spo.curve_fit(f_weibull2, xdata=[numpy.array(this_X), [t0 for x in this_X]], ydata=numpy.array(Y), p0=numpy.array([mean_dT, 1.5]))
+			mean_chi_sqr = numpy.mean([(f_weibull(x=X[k], chi=fit_prams[0], beta=fit_prams[1], x0=t0)-Y[k])**2. for k, xx in enumerate(X)])
+			print fit_cov
+			print "fit_prams(%d/%d): %s" % (i, sec_id, str(fit_prams))
+		# ... and this is as far as we got...
+		#
+		#
+		print fit_cov
+		print "fit_prams(%d/%d): %s" % (i, sec_id, str(fit_prams))
+		best_fit_array += [[sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]]
+		X_fit = numpy.arange(min(X), max(X)*1.5, (max(X)-min(X))/500.)
+		#
+		lw=2.5
+		ms=5.
+		this_lbl = 'section %d' % sec_id
+		this_lbl_composite = None
+		if sec_id==-1:
+			this_lbl = '(composite mean)'
+			this_lbl_composite = 'all faults'
+			lw=5
+			ms=10
+		#
+		#ax=figs['all_cdf'].gca()
+		f = plt.figure(0)
+		plt.plot(X,Y, '.-', color=this_color)
+		plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl_composite)
+		#
+		f = plt.figure(i)
+		plt.plot(X,Y, '.-', color=this_color, label=this_lbl)
+		plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '--', color=this_color, label='$\\beta=%.3f, \\tau=%.3f$' % (fit_prams[1], fit_prams[0]), lw=lw, ms=ms)
+		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$ (years)' % m0)
+		plt.ylabel('Probability $P(t)$')
+		
+		sec_name = str(sec_id)
+		if sec_id==-1:
+			sec_name = '(mean composite)'
+			plt.gca().set_xlim([0., 4500.])
+			plt.show()
+		plt.gca().set_ylim([0., 1.1])
+		plt.title('CDF for m>7 on fault section %s' % sec_name)
+		plt.legend(loc=0, numpoints=1)
+		plt.savefig('VC_CDF_WT_figs/VC_CDF_WT_m%s_section_%d.png' % (str(m0).replace('.', ''), sec_id))
+		if keep_figs==False: plt.close(i)
+	#
+	# composite/mean fits. instead of recoding all of this, maybe use a special section_id=-1, which we add to the section_id list
+	# above and do "if" on the fetch-data part...
+	#
+	plt.figure(0)
+	#X_fit = numpy.arange(min_x, max_x*1.2, (max_x-min_x)/500.)
+	#plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '-', lw=5, alpha=.7, zorder=7, label='mean best fit')
+	#mean_tau = numpy.mean([x[1] for x in best_fit_array])
+	#mean_beta = numpy.mean([x[2] for x in best_fit_array])
+	#
+	plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$ (years)' % m0)
+	plt.ylabel('Probability $P(t)$')
+	plt.gca().set_xlim([0., 5000.])
+	plt.legend(loc=0, numpoints=1)
+	plt.gca().set_xscale('linear')
+	plt.gca().set_yscale('linear')
+	plt.gca().set_ylim([0., 1.1])
+	plt.show()
+	plt.savefig('VC_CDF_WT_figs/VC_CDF_WT_m%s_section_composite.png' % (str(m0).replace('.', '')))
+	#
+	best_fit_array = numpy.core.records.fromarrays(zip(*best_fit_array), names = ['section_id', 'tau', 'beta', 'sigma_tau', 'sigma_beta', 'mean_chi_sqr'], formats = [type(x).__name__ for x in best_fit_array[0]])
+	best_fit_array.dump('CDF_figs/VC_CDF_Weibull_fits_dump.npy')
+	#
+	# and some interesting weibull pram plots are like:
+	# (obviously other scalings are relevant; this seems to be the most linear)
+	#plt.loglog(best_fit_array['beta'], best_fit_array['tau'], '.')
+	# and of course, the distributions of beta, tau (dists. of beta are not terribly interesting,
+	# but the relationship between beta and tau might be).
+	'''
+	plt.figure()
+	ax1 = plt.gca()
+	Xbeta = best_fit_array['beta'].tolist()
+	Xbeta.sort()
+	ax1.plot(Xbeta, range(len(best_fit_array['beta'])), 'g.-')
+	ax2 = plt.gca().twiny()
+	Xtau = best_fit_array['tau'].tolist()
+	Xtau.sort()
+	ax2.plot(Xtau, range(len(best_fit_array['tau'])), 'r.-')
+	'''
+	#
+	return best_fit_array
+	
 #		
 def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
 	# find mean, stdev Delta_t, N between m>m0 events in ary_in.
@@ -1046,7 +1308,7 @@ def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_
 		plt.xlabel('event-interval, $\\Delta N$')
 		plt.ylabel('stress drop $(CFF_{final} - CFF_{initial})^2$')
 		#
-		print r_dict
+		#print r_dict
 	#
 	return r_dict
 #

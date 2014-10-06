@@ -577,7 +577,7 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 	if resultses[0].has_key('alert_segments'): [x.pop('alert_segments') for x in resultses]
 	return resultses
 #
-def plot_aggregate_metric(scores_in):
+def plot_aggregate_metric(scores_in, n_top=None):
 	# make a pretty (3d) plot of the aggregate type optimizer solutions.
 	if isinstance(scores_in, str):
 		scores_in = numpy.load(scores_in)
@@ -587,12 +587,25 @@ def plot_aggregate_metric(scores_in):
 	f2.clf()
 	ax3d = f2.add_subplot(111, projection='3d')
 	ax3d.plot(scores_in['b_0'], scores_in['nyquist_factor'], scores_in['score'], '.')
+	ax3d.set_xlabel('threshold slope, $b_0$')
+	ax3d.set_ylabel('nyquist_factor')
+	ax3d.set_zlabel('ROC metric, (Percent Predicted) - (False alarm rate)')
+	#
+	if n_top==None:
+		n_top = min(100, int(len(scores_in)/100))
+	#
+	# and plot the top n_top values separately:
+	scores_in.sort(order='score')
+	ax3d.plot(scores_in['b_0'][-n_top:], scores_in['nyquist_factor'][-n_top:], scores_in['score'][-n_top:], 'yo')
 	#
 	#scores_in.sort(order=('nyquist_factor', 'b_0'))
 	#ax3d.plot(scores_in['b_0'], scores_in['nyquist_factor'], scores_in['score'], '.')
 	#
 	# best score?
 	best_row = scores_in[scores_in['score'].tolist().index(max(scores_in['score']))]
+	ax3d.plot(scores_in['b_0'][-1:], scores_in['nyquist_factor'][-1:], scores_in['score'][-1:], 'r*', ms=15, label='best: $b_0 = %.3f, nf=%.3f, score=%.3f \pm %.3f$' % (best_row['b_0'], best_row['nyquist_factor'], best_row['score'], best_row['stdev']) )
+	#
+	plt.legend(loc=0, numpoints=1)
 	#
 	print scores_in.dtype.names
 	print best_row

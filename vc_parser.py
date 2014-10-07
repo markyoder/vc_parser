@@ -1302,29 +1302,35 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 			Y = [j/N for j in range(1, len(this_X)+1)]
 			max_x = max(max_x, max(X))
 			min_x = min(min_x, min(X))
-			#fit_prams, fit_cov = spo.curve_fit(f_weibull2, xdata=[numpy.array(this_X), numpy.array([t0 for x in this_X])], ydata=numpy.array(Y), p0=numpy.array([mean_dT, 1.5]))
 			#
 			plt.plot([t0 + x for x in this_X], Y, '.-', color = this_color)
 			# this tends to break:
-			try:
-				fit_prams, fit_cov = spo.curve_fit(f_weibull2, xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([mean_dT, 1.5]))
-				pram_sigmas = numpy.sqrt(numpy.diag(fit_cov))
-				mean_chi_sqr = numpy.mean([(f_weibull(x=X[k], chi=fit_prams[0], beta=fit_prams[1], x0=0.0)-Y[k])**2. for k, xx in enumerate(this_X)]) # in xrange(len(X))])
-				stdErr = mean_chi_sqr/math.sqrt(N)
-				print fit_cov
-				print "fit_prams(%d/%d): %s" % (i, sec_id, str(fit_prams))
-				#
-				best_fit_dict[sec_id][t0] = [sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]
-				X_fit = numpy.arange(min(this_X), max(this_X)*1.5, (max(this_X)-min(this_X))/500.)
+			#try:
+			#fit_prams, fit_cov = spo.curve_fit(f_weibull2, xdata=numpy.array([numpy.array(this_X), numpy.array([t0 for x in this_X])]), ydata=numpy.array(Y), p0=numpy.array([mean_dT, 1.5]))
+			#
+			# f_weibull(x=None, chi=1.0, beta=1.0, x0=None)
+			fit_prams, fit_cov = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=t0), xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([mean_dT, 1.5])) 
+			
+			#fit_prams, fit_cov = spo.curve_fit(f_weibull2, xdata=numpy.array([numpy.array(this_X), numpy.array([t0])]), ydata=numpy.array(Y), p0=numpy.array([mean_dT, 1.5]))
+			#fit_prams, fit_cov = spo.curve_fit(f_weibull2, xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([mean_dT, 1.5]))
+			pram_sigmas = numpy.sqrt(numpy.diag(fit_cov))
+			mean_chi_sqr = numpy.mean([(f_weibull(x=X[k], chi=fit_prams[0], beta=fit_prams[1], x0=0.0)-Y[k])**2. for k, xx in enumerate(this_X)]) # in xrange(len(X))])
+			stdErr = mean_chi_sqr/math.sqrt(N)
+			print fit_cov
+			print "fit_prams(%d/%d): %s" % (i, sec_id, str(fit_prams))
+			#
+			best_fit_dict[sec_id][t0] = [sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]
+			X_fit = numpy.arange(min(this_X), max(this_X)*1.5, (max(this_X)-min(this_X))/500.)
 			#
 			
-				plt.plot([t0 + x for x in X_fit], [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=t0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl)
-				this_chi_0  = best_fit_dict[sec_id][0.][1]
-				this_beta_0 =best_fit_dict[sec_id][0.][2]
-				plt.plot(X_fit, [f_weibull(x=x, chi=this_chi_0, beta=this_beta_0, x0=0.0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl + ' ($t_0 = 0$)')
+			plt.plot([t0 + x for x in X_fit], [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=t0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl)
+			this_chi_0  = best_fit_dict[sec_id][0.][1]
+			this_beta_0 =best_fit_dict[sec_id][0.][2]
+			plt.plot(X_fit, [f_weibull(x=x, chi=this_chi_0, beta=this_beta_0, x0=0.0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl + ' ($t_0 = 0$)')
 			#
-			except:
-				print "fit failed. move on..."
+			#except:
+			#	print "fit failed. move on..."
+			#	#print std.err
 		#
 		plt.savefig('%s/VC_CDF_WT_m%s_section_%d.png' % (output_dir, str(m0).replace('.', ''), sec_id))
 		#

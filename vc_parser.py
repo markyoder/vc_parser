@@ -955,7 +955,41 @@ def f_weibull(x=None, chi=1.0, beta=1.0, x0=None):
 	'''
 	if x0==None: x0=0.0		# ... but we give it None so the fitting algorithm does not try to fit...
 	#
-	return 1.0 - numpy.exp(((x0/chi)**beta) - ((x/chi)**beta))
+	return 1.0 - numpy.exp( ((x0/chi)**beta) - ((x/chi)**beta))
+#
+def mcfitter(func=f_weibull, X=None, Y=None, prams_dict=None, nits=10**6):
+	# quick mc fitter MC fitter for tough functions.
+	# func: function fitting to
+	# X,Y: X and Y data
+	# prams dict is like {'pram_name':[min, max], ...}
+	#
+	pram_handler = {}
+	for key in prams_dict.keys():
+		pram_handler[key] = {'min':prams_dict[key][0], 'delta':prams_dict[key][1]-prams_dict[key][0], 'rand':random.Random()}
+	#
+	this_prams = []
+	min_pramses = []	# list of min. parameters
+	pramses = []
+	N_x = len(X)
+	ndof = float(len(X) - len(prams_dict))
+	#
+	for i in xrange(nits):
+		this_prams_dict = {key:pram_handler[key]['min'] + pram_handler[key]['delta']*pram_handler[key]['rand'].random() for key in prams_dict.keys()}
+		#print this_prams_dict
+		chi_sqr = numpy.sum([(func(X[j], **this_prams_dict)-Y[j])**2. for j in xrange(N_x)])/ndof
+		#
+		#print chi_sqr, i
+		pramses += [[i] + [this_prams_dict[key] for key in this_prams_dict.keys()] + [chi_sqr]]
+		if i==0 or chi_sqr < min_pramses[-1][-1]:
+			min_pramses += [pramses[-1]]
+		#
+	# numpy.core.records.fromarrays(zip(*best_fit_array), names = ['section_id', 'tau', 'beta', 'sigma_tau', 'sigma_beta', 'mean_chi_sqr'], formats = [type(x).__name__ for x in best_fit_array[0]])
+	#
+	min_pramses = numpy.core.records.fromarrays(zip(*min_pramses), names = ['index'] + [key for key in prams_dict.keys()] + ['chi_sqr'], formats = [type(x).__name__ for x in min_pramses[0]])
+	pramses = numpy.core.records.fromarrays(zip(*pramses), names = ['index'] + [key for key in prams_dict.keys()] + ['chi_sqr'], formats = [type(x).__name__ for x in pramses[0]])
+		
+	#
+	return min_pramses, pramses	
 #
 def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, keep_figs=False, output_dir='CDF_figs'):
 	'''
@@ -1177,6 +1211,153 @@ def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_se
 	return best_fit_array
 	#return full_catalog
 #
+#
+def non_converging_weibul_example(fnum0=7, nits=100000, n_cpus=None):
+	'''
+	# some... many of the faultwise Weibull fits (aka, fits to "waiting time", or hazard function, for a single fault segment
+	# do not converge. an example is Section 25, t0=513.073 (t0 = <mean interval> * 2.0).
+	# basically, this nominally appears to be converging (in the MC method), but at tau and beta --> 0, which is sort of
+	# nonsensical.
+	'''
+	#
+	# first, get the data:
+	A=hazard_function_fitting_test(section_id=25)
+	# times:
+	t0=513.07251464973058
+	T=A[t0]	# we should index these differently, but for now it works well enough.
+	T.sort()
+	Y=[float(k)/len(T) for k in xrange(len(T))]
+	#
+	plt.figure(fnum0)
+	plt.clf()
+	plt.plot(T, Y, '.-')
+	#
+	# and if you like, you can adjust the starting points, etc., but this probably blows up.
+	try:
+		fit, cov = spo.curve_fit(lambda x, beta, chi: f_weibull(x=x, beta=beta, chi=chi, x0=513.073), xdata=T, ydata=Y, p0=[1.5, 500.])
+		print "converging fit worked! ", fit, cov
+	except:
+		print "fit broke, as expected..."
+	#
+	# now, try an MC method:
+	print "try MC method..."
+	prams_dict={'chi':[0., 650.], 'beta':[0.,6.], 'x0':[t0,t0]}
+	print "ncpus: ", n_cpus
+	if n_cpus==1:
+		# simple SPP method:
+		print "doing spp"
+		Zmin, Z=mcfitter(func=f_weibull, X=T, Y=Y, prams_dict=prams_dict, nits=nits)
+	else:
+		print "doing mpp"
+		if n_cpus==None: n_cpus = mpp.cpu_count()
+		#
+		# just use processes:
+		results=[]
+		pool = mpp.Pool(n_cpus)
+		for i in xrange(n_cpus):
+			results+=[pool.apply_async(mcfitter, kwds={'func':f_weibull, 'X':T, 'Y':Y, 'prams_dict':prams_dict, 'nits':nits})]
+		pool.close()
+		pool.join()
+		#
+		Zmin, Z=[], []
+		for result in results:
+			Amin, A = result.get()
+			Zmin += Amin.tolist()
+			Z += A.tolist()
+		#Amin.sort(key=lamda x: x[-1])
+		#A.sort(key=lambda x: x[-1])
+		#
+		Zmin = numpy.core.records.fromarrays(zip(*Zmin), dtype=A.dtype)
+		Z = numpy.core.records.fromarrays(zip(*Z), dtype=A.dtype)
+			
+		
+		
+	print "mins: ", Zmin[-1]
+	#
+	f=plt.figure(fnum0+1)
+	plt.clf()
+	f.add_axes([.1, .1, .8, .8], projection='3d')
+	plt.plot(Z['beta'][0:10000], Z['chi'][0:10000], Z['chi_sqr'][0:10000], 'b.', alpha=.7)
+	plt.plot(Zmin['beta'], Zmin['chi'], Zmin['chi_sqr'], 'r.', alpha=.7)
+	Zmin.sort(order=('beta', 'chi'))
+	plt.plot(Zmin['beta'], Zmin['chi'], 'r.-')
+	#
+	f=plt.figure(fnum0+2)
+	plt.clf()
+	Xbeta=Zmin['beta'].tolist()
+	Xbeta.sort()
+	plt.plot(Xbeta, Zmin['chi_sqr'], 'bo-')
+	ax2=plt.gca().twiny()
+	Xchi = Zmin['chi'].tolist()
+	Xchi.sort()
+	ax2.plot(Xchi, Zmin['chi_sqr'], 'rs-')
+	#
+	plt.figure(fnum0+3)
+	plt.clf()
+	plt.plot(T, Y, '.-')
+	Xfit = [min(T) + x*(max(T)-min(T))/500.0 for x in xrange(500)]
+	Yfit = [f_weibull(x=x, beta=Zmin[-1]['beta'], chi=Zmin[-1]['chi'], x0=t0) for x in Xfit]
+	plt.plot(Xfit, Yfit, '--')
+	#
+	return Zmin, Z
+#
+def hazard_function_fitting_test(section_id=16, file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5]):
+	'''
+	# we're getting some screwy behavior trying to fit the hazard functions (waiting times). let's spell it all out here
+	# and possibly introduce a MC fitting method.
+	'''
+	#
+	lw=2.5
+	ms=5.
+	max_x = 0.
+	min_x = 0.
+	dT_composite_faultwise = []
+	full_catalog = []
+	# control color cycling:
+	colors_ =  mpl.rcParams['axes.color_cycle']
+	#
+	ary_in = numpy.load(file_path_pattern % section_id)
+	ary_m0 = [rw for rw in ary_in if rw['event_magnitude']>m0]
+	ary_m0 = numpy.core.records.fromarrays(zip(*ary_m0), dtype=ary_in.dtype)
+	#
+	# first, get the recurrence intervals:
+	delta_Ts = ary_m0['event_year'][1:] - ary_m0['event_year'][0:-1]
+	mean_dt = numpy.mean(delta_Ts)
+	t0s = [mean_dt*x for x in [0., .5, 1.0, 1.5, 2.0, 2.5]]
+	print "t0s: ", t0s
+	#
+	time_serieses = {}
+	#
+	fnum=0
+	for t0 in t0s:
+		plt.figure(fnum)
+		plt.clf()
+		#
+		X = [t for t in delta_Ts if t>=t0]
+		X.sort()
+		Y = [(1.0+k)/float(len(X)) for k in xrange(len(X))]
+		#
+		print "t0=%f, len(X): %d" % (t0, len(X))
+		plt.plot(X, Y, '.-', label='$t_0=%.3f' % t0, ms=8, zorder=1)
+		#
+		try:
+			fit_prams, fit_cov = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=t0), xdata=numpy.array(X), ydata=numpy.array(Y), p0=numpy.array([mean_dt, 1.5]))
+			#
+			dx = (max(X)-min(X))/500.
+			fit_X = [min(X) + i*dx for i in xrange(500)]
+			fit_Y = [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=t0) for x in fit_X]
+			#	
+			plt.plot(fit_X, fit_Y, '--', label='$\\beta=%.3f, \\chi=%.3f$' % (fit_prams[1], fit_prams[0]), lw=2, zorder=4, alpha=.7)
+		except:
+			print "fit for t0 = %.3f failed." % t0
+		plt.legend(loc=0, numpoints=1)
+		#
+		fnum+=1
+		#
+		time_serieses[t0]=X
+	return time_serieses
+	
+#
 def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs'):
 	'''
 	# for each section_id, fetch the mean_recurrence data.
@@ -1228,7 +1409,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	#best_fit_array = []		# ...and we'll cast this as a recarray later.
 	best_fit_dict = {}
 	for j, sec_id in enumerate(section_ids):
-		this_color = colors_[j%len(colors_)]
+		#this_color = colors_[j%len(colors_)]
 		#i=j+1
 		i=j
 		sections[sec_id] = {'fig':i}
@@ -1290,55 +1471,68 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 		this_t0s = [mean_dT * x for x in t0_factors]
 		#
 		best_fit_dict[sec_id]={}
-		for t0 in this_t0s:
+		# do a preliminary fit for the whole set (should be equivalent to t0=0.0
+		print "preliminary fit for section_id=%d" % sec_id
+		fit_prams_0, fit_cov_0 = spo.curve_fit(f_weibull, xdata=numpy.array(X), ydata=numpy.array([j/float(len(X)) for j in numpy.arange(1., len(X)+1)]), p0=numpy.array([mean_dT, 1.5]))
+		print fit_prams_0
+		print "--------------"
+		for i_t, t0 in enumerate(this_t0s):
+			this_color = colors_[i_t%len(colors_)]
 			max_x = 0.
 			min_x = 0.
-			this_X = [x-t0 for x in X if (x-t0)>=0.]
+			#this_X = [x-t0 for x in X if (x-t0)>=0.]
+			this_X = [x for x in X if (x-t0)>=0.]
+			this_X.sort()
 			#
 			# skip it if there aren't very many data:
-			if len(this_X)<5: continue
+			#if len(this_X)<5: continue
 			#
 			N = float(len(this_X))
-			this_X.sort()
-			Y = [j/N for j in range(1, len(this_X)+1)]
+			Y = [float(j)/N for j in range(1, int(N)+1)]
 			max_x = max(max_x, max(X))
 			min_x = min(min_x, min(X))
 			#
-			plt.plot([t0 + x for x in this_X], Y, '.-', color = this_color)
+			plt.plot([x for x in this_X], Y, '.-', color = this_color, label='data, $t_0=%.3f$' % t0)
 			# this tends to break:
 			try:
 				# f_weibull(x=None, chi=1.0, beta=1.0, x0=None)
-				fit_prams, fit_cov = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=t0), xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([mean_dT, 1.5]))
-				if t0==0.:
-					fit_prams_0 = fit_prams
-					fit_cov_0   = fit_cov
-			#
+				print "these lens: ", len(this_X), len(Y)
+				fit_prams, fit_cov = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=t0), xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([max(1.0, mean_dT-t0), 1.5]))
+				#
+				print "fitted...", fit_cov
 				pram_sigmas = numpy.sqrt(numpy.diag(fit_cov))
-				mean_chi_sqr = numpy.mean([(f_weibull(x=X[k], chi=fit_prams[0], beta=fit_prams[1], x0=0.0)-Y[k])**2. for k, xx in enumerate(this_X)]) # in xrange(len(X))])
+				print "covarred..."
+				mean_chi_sqr = numpy.mean([(f_weibull(x=this_X[k], chi=fit_prams[0], beta=fit_prams[1], x0=t0)-Y[k])**2. for k, xx in enumerate(this_X)]) # in xrange(len(X))])
+				print "meanned..."
 				stdErr = mean_chi_sqr/math.sqrt(N)
 				print fit_cov
-				print "fit_prams(%d/%d): %s / %s" % (i, sec_id, str(fit_prams), str(fit_prams_0))
+				print "fit_prams(%d/%d)[t0 = %f]: %s / %s" % (i, sec_id, t0, str(fit_prams), str(fit_prams_0))
 				#
 				best_fit_dict[sec_id][t0] = [sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]
 				X_fit = numpy.arange(min(this_X), max(this_X)*1.5, (max(this_X)-min(this_X))/500.)
 				#
-				plt.plot([t0 + x for x in X_fit], [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=t0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl)
+				# plot local t0 fit:
+				plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=t0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label='$t_0=%.2f, \\beta=%.3f, \\chi=%.3f$' % (t0, fit_prams[1], fit_prams[0]))
+				#
+				# plot using t0=0 fit:
+				plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams_0[0], beta=fit_prams_0[1], x0=t0) for x in X_fit], '-.', color=this_color, lw=lw, ms=ms, label=None)
+				#
 				this_chi_0  = best_fit_dict[sec_id][0.][1]
 				this_beta_0 =best_fit_dict[sec_id][0.][2]
-				plt.plot(X_fit, [f_weibull(x=x, chi=this_chi_0, beta=this_beta_0, x0=0.0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl + ' ($t_0 = 0$)')
+				#plt.plot(X_fit, [f_weibull(x=x, chi=this_chi_0, beta=this_beta_0, x0=0.0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl + ' ($t_0 = 0$)')
 				#
 			except Exception as inst:
 				print "fit failed (%s)" % str(type(inst))
-				print "exception args: " inst.args
-				print "exception: " inst
+				print "exception args: ", inst.args
+				print "exception: ", inst
 		#
-		plt.savefig('%s/VC_CDF_WT_m%s_section_%d.png' % (output_dir, str(m0).replace('.', ''), sec_id))
-		#
+		plt.legend(loc=0, numpoints=1)
 		plt.gca().set_ylim([0., 1.1])
 		plt.title('CDF for m>7 on fault section %s' % sec_name)
 		plt.legend(loc=0, numpoints=1)
 		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$ (years)' % m0)
 		plt.ylabel('Probability $P(t)$')
+		plt.savefig('%s/VC_CDF_WT_m%s_section_%d.png' % (output_dir, str(m0).replace('.', ''), sec_id))
 		
 		if keep_figs==False: plt.close(i)
 	#

@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
+import matplotlib.tri as tri
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib as mpl
+from matplotlib import cm
 import itertools
 plt.ion()
 #
@@ -33,8 +35,28 @@ import multiprocessing as mpp
 
 # sections filter for EMC related queries. (should be the set of fault sections used in the socal/EMC simulations). we can use this filter to mine the full
 # AllCal data.
+napa_region_section_filter = {'filter':set([45, 50, 172, 171, 170, 169, 44, 168, 167, 139, 40, 142, 41, 46])}
+
 emc_section_filter = {'filter': (16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149)}
 allcal_full_mks = '../ALLCAL2_1-7-11_no-creep_dyn-05_st-20.h5'
+
+class getter(object):
+	# a simple container class to emulate objects that return values. for example,
+	# emulate Random.random() when a known value is always returned.
+	def __init__(self, rand_val=0.0, get_val=0.0):
+		self.rand_val = rand_val
+		self.get_val = get_val
+	#
+	def get(self, val=0.0):
+		if val==None: val=self.get_val
+		#
+		return val
+	#
+	def random(self, val=0.0):
+		if val==None: val=self.rand_val
+		#
+		return val
+		
 
 class io_capture_list(list):
 	# a little context handler to capture sdtout() 
@@ -957,39 +979,83 @@ def f_weibull(x=None, chi=1.0, beta=1.0, x0=None):
 	#
 	return 1.0 - numpy.exp( ((x0/chi)**beta) - ((x/chi)**beta))
 #
-def mcfitter(func=f_weibull, X=None, Y=None, prams_dict=None, nits=10**6):
+def mcfitter(func=f_weibull, X=None, Y=None, prams_dict=None, nits=10**6, n_cpus=None):
 	# quick mc fitter MC fitter for tough functions.
 	# func: function fitting to
 	# X,Y: X and Y data
 	# prams dict is like {'pram_name':[min, max], ...}
 	#
-	pram_handler = {}
-	for key in prams_dict.keys():
-		pram_handler[key] = {'min':prams_dict[key][0], 'delta':prams_dict[key][1]-prams_dict[key][0], 'rand':random.Random()}
+	if n_cpus==None:
+		try:
+			n_cpus = mpp.cpu_count()
+		except:
+			n_cpus = 1
 	#
-	this_prams = []
-	min_pramses = []	# list of min. parameters
-	pramses = []
-	N_x = len(X)
-	ndof = float(len(X) - len(prams_dict))
-	#
-	for i in xrange(nits):
-		this_prams_dict = {key:pram_handler[key]['min'] + pram_handler[key]['delta']*pram_handler[key]['rand'].random() for key in prams_dict.keys()}
-		#print this_prams_dict
-		chi_sqr = numpy.sum([(func(X[j], **this_prams_dict)-Y[j])**2. for j in xrange(N_x)])/ndof
+	if n_cpus>1:
+		# do MPP. parse into SPP jobs. call this function (quasi-recursively) with n_cpus = 1.
+		print "passing..."
 		#
-		#print chi_sqr, i
-		pramses += [[i] + [this_prams_dict[key] for key in this_prams_dict.keys()] + [chi_sqr]]
-		if i==0 or chi_sqr < min_pramses[-1][-1]:
-			min_pramses += [pramses[-1]]
+		print "doing mpp MC fit..."
+		if n_cpus==None: n_cpus = mpp.cpu_count()
 		#
-	# numpy.core.records.fromarrays(zip(*best_fit_array), names = ['section_id', 'tau', 'beta', 'sigma_tau', 'sigma_beta', 'mean_chi_sqr'], formats = [type(x).__name__ for x in best_fit_array[0]])
+		results=[]
+		pool = mpp.Pool(n_cpus)
+		for i in xrange(n_cpus):
+			results+=[pool.apply_async(mcfitter, kwds={'func':f_weibull, 'X':X, 'Y':Y, 'prams_dict':prams_dict, 'nits':nits/n_cpus, 'n_cpus':1})]
+		pool.close()
+		pool.join()
+		#
+		#Zmin, Z=[], []
+		Zmin, Z = results[0].get()
+		 
+		for j, result in enumerate(results):
+			if j==0: continue
+			#
+			a,b = result.get()
+			Zmin = numpy.append(Zmin, a)
+			Z    = numpy.append(Z, b)
+			#
+		Zmin.sort(order='chi_sqr')
+		#
+		return Zmin, Z
 	#
-	min_pramses = numpy.core.records.fromarrays(zip(*min_pramses), names = ['index'] + [key for key in prams_dict.keys()] + ['chi_sqr'], formats = [type(x).__name__ for x in min_pramses[0]])
-	pramses = numpy.core.records.fromarrays(zip(*pramses), names = ['index'] + [key for key in prams_dict.keys()] + ['chi_sqr'], formats = [type(x).__name__ for x in pramses[0]])
+	else:
+		#
+		# do SPP
+		pram_handler = {}
+		for key in prams_dict.keys():
+			pram_handler[key] = {'min':prams_dict[key][0], 'delta':prams_dict[key][1]-prams_dict[key][0]}
+			#
+			if pram_handler[key]['delta']==0: 
+				# choosing random numbers is expensive. if delta is zero, spoof random.Random() with "getter()" class
+				# that quickly return 0.
+				pram_handler[key]['rand']=getter(rand_val = 0.0)
+			else:
+				pram_handler[key]['rand']=random.Random()
+		#
+		this_prams = []
+		min_pramses = []	# list of min. parameters
+		pramses = []
+		N_x = len(X)
+		ndof = float(len(X) - len(prams_dict))
+		#
+		for i in xrange(nits):
+			this_prams_dict = {key:pram_handler[key]['min'] + pram_handler[key]['delta']*pram_handler[key]['rand'].random() for key in prams_dict.keys()}
+			#print this_prams_dict
+			chi_sqr = numpy.sum([(func(X[j], **this_prams_dict)-Y[j])**2. for j in xrange(N_x)])/ndof
+			#
+			#print chi_sqr, i
+			pramses += [[i] + [this_prams_dict[key] for key in this_prams_dict.keys()] + [chi_sqr]]
+			if i==0 or chi_sqr < min_pramses[-1][-1]:
+				min_pramses += [pramses[-1]]
+			#
+		# numpy.core.records.fromarrays(zip(*best_fit_array), names = ['section_id', 'tau', 'beta', 'sigma_tau', 'sigma_beta', 'mean_chi_sqr'], formats = [type(x).__name__ for x in best_fit_array[0]])
+		#
+		min_pramses = numpy.core.records.fromarrays(zip(*min_pramses), names = ['index'] + [key for key in prams_dict.keys()] + ['chi_sqr'], formats = [type(x).__name__ for x in min_pramses[0]])
+		pramses = numpy.core.records.fromarrays(zip(*pramses), names = ['index'] + [key for key in prams_dict.keys()] + ['chi_sqr'], formats = [type(x).__name__ for x in pramses[0]])
 		
-	#
-	return min_pramses, pramses	
+		#
+		return min_pramses, pramses	
 #
 def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, keep_figs=False, output_dir='CDF_figs'):
 	'''
@@ -1240,9 +1306,13 @@ def non_converging_weibul_example(fnum0=7, nits=100000, n_cpus=None):
 		print "fit broke, as expected..."
 	#
 	# now, try an MC method:
-	print "try MC method..."
-	prams_dict={'chi':[0., 650.], 'beta':[0.,6.], 'x0':[t0,t0]}
-	print "ncpus: ", n_cpus
+	print "try MC method... (%s)" % str(n_cpus)
+	prams_dict = {'chi':[0., 650.], 'beta':[0.,6.], 'x0':[t0,t0]}
+	#
+	Zmin, Z=mcfitter(func=f_weibull, X=T, Y=Y, prams_dict=prams_dict, nits=nits, n_cpus=n_cpus)
+	#
+	'''
+	# depricated: MPP functionality is now incorporated into mcfitter().
 	if n_cpus==1:
 		# simple SPP method:
 		print "doing spp"
@@ -1255,21 +1325,28 @@ def non_converging_weibul_example(fnum0=7, nits=100000, n_cpus=None):
 		results=[]
 		pool = mpp.Pool(n_cpus)
 		for i in xrange(n_cpus):
-			results+=[pool.apply_async(mcfitter, kwds={'func':f_weibull, 'X':T, 'Y':Y, 'prams_dict':prams_dict, 'nits':nits})]
+			results+=[pool.apply_async(mcfitter, kwds={'func':f_weibull, 'X':T, 'Y':Y, 'prams_dict':prams_dict, 'nits':nits/n_cpus, 'n_cpus':1})]
 		pool.close()
 		pool.join()
 		#
-		Zmin, Z=[], []
-		for result in results:
-			Amin, A = result.get()
-			Zmin += Amin.tolist()
-			Z += A.tolist()
-		#Amin.sort(key=lamda x: x[-1])
-		#A.sort(key=lambda x: x[-1])
-		#
-		Zmin = numpy.core.records.fromarrays(zip(*Zmin), dtype=A.dtype)
-		Z = numpy.core.records.fromarrays(zip(*Z), dtype=A.dtype)
+		#Zmin, Z=[], []
+		Zmin, Z = results[0].get()
+		 
+		for j, result in enumerate(results):
+			if j==0: continue
+			#
+			a,b = result.get()
+			Zmin = numpy.append(Zmin, a)
+			Z    = numpy.append(Z, b)
 			
+			#Amin, A = result.get()
+			#Zmin += Amin.tolist()
+			#Z += A.tolist()
+		#
+		#Zmin = numpy.core.records.fromarrays(zip(*Zmin), dtype=A.dtype)
+		#Z = numpy.core.records.fromarrays(zip(*Z), dtype=A.dtype)
+		Zmin.sort(order='chi_sqr')
+	'''
 		
 		
 	print "mins: ", Zmin[-1]
@@ -1277,10 +1354,38 @@ def non_converging_weibul_example(fnum0=7, nits=100000, n_cpus=None):
 	f=plt.figure(fnum0+1)
 	plt.clf()
 	f.add_axes([.1, .1, .8, .8], projection='3d')
-	plt.plot(Z['beta'][0:10000], Z['chi'][0:10000], Z['chi_sqr'][0:10000], 'b.', alpha=.7)
-	plt.plot(Zmin['beta'], Zmin['chi'], Zmin['chi_sqr'], 'r.', alpha=.7)
+	#
+	# some short-hand:
+	plot_len = min(10000, len(Z))
+	x = Z['beta'][0:plot_len]
+	y = Z['chi'][0:plot_len]
+	z = Z['chi_sqr'][0:plot_len]
+	#
+	ax3d = plt.gca()
+	ax3d.scatter(x,y,z, c=z, cmap=cm.jet, alpha=.4)
+	plt.plot(Zmin['beta'], Zmin['chi'], Zmin['chi_sqr'], 'r.-', alpha=.7)
+	#ax3d.plot_trisurf(x,y,z, cmap=cm.jet, linewidth=.1)
 	Zmin.sort(order=('beta', 'chi'))
-	plt.plot(Zmin['beta'], Zmin['chi'], 'r.-')
+	plt.plot(Zmin['beta'], Zmin['chi'], 'r.--', alpha=.7)
+	#
+	# contour plot?
+	#triang = tri.Triangulation(x, y)
+	triang = tri.Triangulation(Z['beta'], Z['chi'])
+	little_tri = tri.Triangulation(x,y)\
+	# ... and this does not appear to work in 3d; is tricontourf() supported by Axes3D?
+	# it looks like we'd need to grid these data to plot the contours "behind" the 3D plot (on the axes planar surfaces).
+	#ax3d.tricontourf(x, y, z, zdir='z', offset = 0., cmap=cm.jet)
+	#ax3d.tricontourf(x, y, z, zdir='x', offset = -2., cmap=cm.jet)
+	#ax3d.tricontourf(x, y, z, zdir='y', offset = -100., cmap=cm.jet)
+	
+	#plt.gca().set_aspect('equal')
+	plt.figure(fnum0+4)
+	plt.clf()
+	#plt.tricontourf(triang, z)
+	plt.tricontourf(triang, Z['chi_sqr'], 32)
+	plt.plot(Zmin['beta'], Zmin['chi'], 'r.--', alpha=.9)
+	plt.xlabel('$\\beta$')
+	plt.ylabel('nyquist factor')
 	#
 	f=plt.figure(fnum0+2)
 	plt.clf()
@@ -1358,8 +1463,11 @@ def hazard_function_fitting_test(section_id=16, file_path_pattern='data/VC_CFF_t
 	return time_serieses
 	
 #
-def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs'):
+def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None):
 	'''
+	# waiting time (or equivalently, "hazard function"?, plots. aka, probability of an earthquake given that one
+	# has not occured for t0. equivalently, probability of interval Delta t > t0.
+	#
 	# for each section_id, fetch the mean_recurrence data.
 	# 1) plot each cumulative probability
 	# 2) including a weibull fit.
@@ -1368,6 +1476,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	'''
 	#
 	if section_ids in (None, [], ()): section_ids = list(emc_section_filter['filter'])
+	section_ids = list(set(section_ids))
 	plt.ion()
 	section_ids+=[-1, -2]		# ... assume they're not there and put them at the end...
 	#							# (special cases for aggregate)
@@ -1413,7 +1522,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 		#i=j+1
 		i=j
 		sections[sec_id] = {'fig':i}
-		plt.figure(i)
+		plt.figure(i, figsize=(12,10))
 		plt.clf()
 		#
 		if sec_id == -1:
@@ -1482,6 +1591,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 			min_x = 0.
 			#this_X = [x-t0 for x in X if (x-t0)>=0.]
 			this_X = [x for x in X if (x-t0)>=0.]
+			if len(this_X)<5: continue
 			this_X.sort()
 			#
 			# skip it if there aren't very many data:
@@ -1493,38 +1603,49 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 			min_x = min(min_x, min(X))
 			#
 			plt.plot([x for x in this_X], Y, '.-', color = this_color, label='data, $t_0=%.3f$' % t0)
-			# this tends to break:
+			# curve_fit() tends to break -- aka, not converge. in that event, do an MC fit
+			print "these lens: ", len(this_X), len(Y)
 			try:
 				# f_weibull(x=None, chi=1.0, beta=1.0, x0=None)
-				print "these lens: ", len(this_X), len(Y)
 				fit_prams, fit_cov = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=t0), xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([max(1.0, mean_dT-t0), 1.5]))
-				#
-				print "fitted...", fit_cov
+				#			
+				print "fitted (converging)...", fit_cov
 				pram_sigmas = numpy.sqrt(numpy.diag(fit_cov))
-				print "covarred..."
 				mean_chi_sqr = numpy.mean([(f_weibull(x=this_X[k], chi=fit_prams[0], beta=fit_prams[1], x0=t0)-Y[k])**2. for k, xx in enumerate(this_X)]) # in xrange(len(X))])
-				print "meanned..."
 				stdErr = mean_chi_sqr/math.sqrt(N)
 				print fit_cov
 				print "fit_prams(%d/%d)[t0 = %f]: %s / %s" % (i, sec_id, t0, str(fit_prams), str(fit_prams_0))
 				#
 				best_fit_dict[sec_id][t0] = [sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]
-				X_fit = numpy.arange(min(this_X), max(this_X)*1.5, (max(this_X)-min(this_X))/500.)
+			except:
+				# converging fit failed. do an MC method:
+				print "converging fit failed. try an MC approach:"
+				prams_dict = {'chi':[0., 2.5*mean_dT], 'beta':[0.,6.], 'x0':[t0,t0]}	# can we automatedly guess at these prams?
+																					# maybe at some point, we should devise a quasi-
+																					# converging MC method.
+				Zmin, Z=mcfitter(func=f_weibull, X=this_X, Y=Y, prams_dict=prams_dict, nits=mc_nits, n_cpus=n_cpus)
+				Zmin.sort(order='chi_sqr')
+				best_fit = Zmin[0]
 				#
-				# plot local t0 fit:
-				plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=t0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label='$t_0=%.2f, \\beta=%.3f, \\chi=%.3f$' % (t0, fit_prams[1], fit_prams[0]))
+				fit_prams = [best_fit['chi'], best_fit['beta']]
+				sigma_chi  = (prams_dict['chi'][1]-prams_dict['chi'][0])/mc_nits
+				sigma_beta = (prams_dict['beta'][1]-prams_dict['beta'][0])/mc_nits
 				#
-				# plot using t0=0 fit:
-				plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams_0[0], beta=fit_prams_0[1], x0=t0) for x in X_fit], '-.', color=this_color, lw=lw, ms=ms, label=None)
-				#
-				this_chi_0  = best_fit_dict[sec_id][0.][1]
-				this_beta_0 =best_fit_dict[sec_id][0.][2]
-				#plt.plot(X_fit, [f_weibull(x=x, chi=this_chi_0, beta=this_beta_0, x0=0.0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl + ' ($t_0 = 0$)')
-				#
-			except Exception as inst:
-				print "fit failed (%s)" % str(type(inst))
-				print "exception args: ", inst.args
-				print "exception: ", inst
+				best_fit_dict[sec_id][t0] = [sec_id, best_fit['chi'], best_fit['beta'], sigma_chi, sigma_beta, best_fit['chi_sqr']]
+				
+				
+			X_fit = numpy.arange(min(this_X), max(this_X)*1.5, (max(this_X)-min(this_X))/500.)
+			#
+			# plot local t0 fit:
+			plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=t0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label='$t_0=%.2f, \\beta=%.3f, \\chi=%.3f$' % (t0, fit_prams[1], fit_prams[0]))
+			#
+			# plot using t0=0 fit:
+			plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams_0[0], beta=fit_prams_0[1], x0=t0) for x in X_fit], '-.', color=this_color, lw=lw, ms=ms, label=None)
+			#
+			this_chi_0  = best_fit_dict[sec_id][0.][1]
+			this_beta_0 =best_fit_dict[sec_id][0.][2]
+			#plt.plot(X_fit, [f_weibull(x=x, chi=this_chi_0, beta=this_beta_0, x0=0.0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl + ' ($t_0 = 0$)')
+			#		
 		#
 		plt.legend(loc=0, numpoints=1)
 		plt.gca().set_ylim([0., 1.1])
@@ -1823,7 +1944,7 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquis
 #
 # end CFF calculators and helpers...	
 #
-def get_EMC_CFF(sections=None):
+def get_EMC_CFF(sections=None, f_out_pattern='data/VC_CFF_timeseries_section_%d.npy'):
 	if sections==None: sections = [16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149]
 	#
 	event_sweeps_dict = None
@@ -1834,7 +1955,8 @@ def get_EMC_CFF(sections=None):
 	for section in sections:
 		X=get_CFF_on_section(section_id=section, event_sweeps_dict=event_sweeps_dict)
 		X=numpy.array(X)
-		X.dump('data/VC_CFF_timeseries_section_%d.npy' % section)
+		#X.dump('data/VC_CFF_timeseries_section_%d.npy' % section)
+		X.dump(f_out_pattern % section)
 		#
 		# ... and we may have redefined the offending variable types by using the structured
 		# numpy array, so let's have a go at json as well:

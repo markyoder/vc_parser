@@ -1461,6 +1461,107 @@ def hazard_function_fitting_test(section_id=16, file_path_pattern='data/VC_CFF_t
 		#
 		time_serieses[t0]=X
 	return time_serieses
+#
+def tau_t0_fig(section_ids=None, glob_pattern='VC_CDF_WT_figs/VC_CDF_WT_*.npy'):
+	# plot tau vs t0 and t0_index (which would be a fractional t0... how' bout vs t0 and ts t0/tau.
+	# basically, we expect a break where teh weibull distribution stops fitting. we will specifically
+	# be seeing the difference betewwn converging (n_max -> 600) and MC fits (in this case, 100000 iterations).
+	#
+	# general take-away talking points: we see a change (fits break, beta --> big, etc. for \tau_r>1 t_0r>1).
+	#
+	ary_files = glob.glob(glob_pattern)
+	#
+	# keep track of the chi_0 and beta_0 fits in a dict.
+	chi_beta_0s = {}
+	#
+	#full_array = numpy.load(ary_files[0])
+	for j, fl in enumerate(ary_files):
+		this_array = numpy.load(fl)
+		#
+		# it's possible we won't have a zero time point. just take the first one (but don't assume it's sorted):
+		this_array.sort(order='t0')
+		chi_beta_0s[this_array[0]['section_id']] = {'chi':this_array[0]['chi'], 'beta':this_array[0]['beta']}
+		#
+		# note "reduce()" syntax below.
+		#if j==0:
+		#	full_array = numpy.load(ary_files[0])
+		#	continue
+		#full_array = numpy.append(full_array, this_array)
+	full_array = reduce(numpy.append, [numpy.load(x) for x in ary_files])		# apply numpy.append recursively through the list.
+																				# short-hand for loop logic above.
+	#
+	#print len(full_array)
+	t0s = full_array['t0']
+	chis = full_array['chi']
+	r_chis = [rw['chi']/chi_beta_0s[rw['section_id']]['chi'] for rw in full_array]
+	r_t0s   = [rw['t0']/chi_beta_0s[rw['section_id']]['chi'] for rw in full_array]	# and these won't be exactly t0/2, t0, etc.
+																					# bc the original t0 values were determined from 
+																					# mean recurrence intervals, not chi/tau.
+	betas = full_array['beta']
+	#
+	# now, we want to separate the MC from the convergent fits:
+	MC_data = numpy.array([rw for rw in full_array if 'MC' in rw['fit_type']], dtype=full_array.dtype)
+	fit_data = numpy.array([rw for rw in full_array if 'spo.' in rw['fit_type']], dtype=full_array.dtype)
+	#
+	t0s_mc = MC_data['t0']
+	chis_mc = MC_data['chi']
+	r_chis_mc = [rw['chi']/chi_beta_0s[rw['section_id']]['chi'] for rw in MC_data]
+	r_t0s_mc   = [rw['t0']/chi_beta_0s[rw['section_id']]['chi'] for rw in MC_data]
+	betas_mc = MC_data['beta']
+	#
+	t0s_fit = fit_data['t0']
+	chis_fit = fit_data['chi']
+	r_chis_fit = [rw['chi']/chi_beta_0s[rw['section_id']]['chi'] for rw in fit_data]
+	r_t0s_fit   = [rw['t0']/chi_beta_0s[rw['section_id']]['chi'] for rw in fit_data]
+	betas_fit = fit_data['beta']
+	#
+	#print "lens: %d, %d" % (len(MC_data), len(fit_data))
+	#
+	#colors = [(1 if 'MC' in x else 0) for x in full_array['fit_type']]
+	
+	#
+	plt.figure(0)
+	plt.clf()
+	#
+	ax=plt.gca()
+	plt.plot(r_t0s_fit, chis_fit, 's', alpha=.5, zorder=1, color='b', label='spo.curve_fit')
+	plt.plot(r_t0s_mc, chis_mc, 's', alpha=.5, zorder=1, color='g', label='MC')
+	ax.legend(loc=0, numpoints=1)
+	#
+	plt.ylabel('$\\tau$')
+	plt.xlabel('reduced $t_0$, $t_{0r} = t_0/\\tau_0$')
+	ax = plt.gca().twinx()
+	#
+	ax.plot(r_t0s_fit, r_chis_fit, 'o', zorder=2, color='r', label='spo.curve_fit')
+	ax.plot(r_t0s_mc, r_chis_mc, 'o', zorder=2, color='y', label='MC')
+	ax.legend(loc=0, numpoints=1)
+	#
+	ax.set_ylabel('reduced $\\tau$, $\\tau_r = \\tau/\\tau_0$')
+	ax.set_xlabel('reduced $t_0$, $t_{0r} = t_0/\\tau_0$')
+	ax.legend(loc=0, numpoints=1)
+	#
+	#
+	plt.figure(1)
+	plt.clf()
+	plt.plot(r_t0s_fit, betas_fit, 'bo', label='spo.curve_fit')
+	plt.plot(r_t0s_mc, betas_mc, 'go', label='MC')
+	ax=plt.gca()
+	ax.set_xlabel('reduced $t_0$, $t_{0r} = t_0/\\tau_0$')
+	ax.set_ylabel('$\\beta$')
+	ax.legend(loc=0, numpoints=1)
+	#
+	plt.figure(2)
+	plt.clf()
+	plt.plot(r_chis_fit, betas_fit, 'bo', label='spo.curve_fit')
+	plt.plot(r_chis_mc, betas_mc, 'go', label='MC')
+	ax=plt.gca()
+	ax.set_xlabel('reduced $\\tau$, $\\tau_r = \\tau/\\tau_0$')
+	ax.set_ylabel('$\\beta$')
+	ax.legend(loc=0, numpoints=1)
+	#
+
+	#
+	return full_array
 	
 #
 def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None):
@@ -1517,6 +1618,9 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	sections ={'all_cdf':{'fig':0}}
 	#best_fit_array = []		# ...and we'll cast this as a recarray later.
 	best_fit_dict = {}
+	fit_columns = ['t0', 'section_id', 'chi', 'beta', 'sigma_chi', 'sigma_beta', 'chi_sqr', 'fit_type']	# fit variables; map to dict.
+	fit_type_str_len = 32
+	fit_columns_types = ['float', 'int', 'float', 'float', 'float', 'float', 'float', 'S%d' % fit_type_str_len]
 	for j, sec_id in enumerate(section_ids):
 		#this_color = colors_[j%len(colors_)]
 		#i=j+1
@@ -1524,6 +1628,8 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 		sections[sec_id] = {'fig':i}
 		plt.figure(i, figsize=(12,10))
 		plt.clf()
+		#
+		these_t0_factors = t0_factors		# default t0 factors, but we might change them for composite figures...
 		#
 		if sec_id == -1:
 			# use the full_catalog...
@@ -1543,6 +1649,8 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 			this_lbl = '(composite mean)'
 			this_lbl_composite = 'all faults (combined)'
 			sec_name = 'combined mean'
+			these_t0_factors = [0., 50., 100., 150., 200., 250.]		# these numbers are fine for large catalogs (CA, so-CA, etc.,
+																		# but might be problematic for some figures.
 		#
 		elif sec_id == -2:
 			# "faultwise" composite:
@@ -1552,6 +1660,8 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 			this_lbl = '(faultwise mean)'
 			this_lbl_composite = 'all faults (faultwise)'
 			sec_name = 'faultwise mean'
+			these_t0_factors = [0., 50., 100., 150., 200., 250.]		# these numbers are fine for large catalogs (CA, so-CA, etc.,
+																		# but might be problematic for some figures.
 		#
 		else:
 			ary_in = numpy.load(file_path_pattern % sec_id)
@@ -1579,11 +1689,15 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 		mean_dT = numpy.mean(X)
 		this_t0s = [mean_dT * x for x in t0_factors]
 		#
-		best_fit_dict[sec_id]={}
+		best_fit_dict[sec_id]=[]
+		#
 		# do a preliminary fit for the whole set (should be equivalent to t0=0.0
 		print "preliminary fit for section_id=%d" % sec_id
 		fit_prams_0, fit_cov_0 = spo.curve_fit(f_weibull, xdata=numpy.array(X), ydata=numpy.array([j/float(len(X)) for j in numpy.arange(1., len(X)+1)]), p0=numpy.array([mean_dT, 1.5]))
 		print fit_prams_0
+		this_chi_0 = fit_prams_0[0]
+		this_beta_0 = fit_prams_0[1]
+		#
 		print "--------------"
 		for i_t, t0 in enumerate(this_t0s):
 			this_color = colors_[i_t%len(colors_)]
@@ -1607,6 +1721,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 			print "these lens: ", len(this_X), len(Y)
 			try:
 				# f_weibull(x=None, chi=1.0, beta=1.0, x0=None)
+				fit_type = 'spo.curve_fit'
 				fit_prams, fit_cov = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=t0), xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([max(1.0, mean_dT-t0), 1.5]))
 				#			
 				print "fitted (converging)...", fit_cov
@@ -1616,8 +1731,10 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 				print fit_cov
 				print "fit_prams(%d/%d)[t0 = %f]: %s / %s" % (i, sec_id, t0, str(fit_prams), str(fit_prams_0))
 				#
-				best_fit_dict[sec_id][t0] = [sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]
+				#best_fit_dict[sec_id][t0] = [sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]
+				fit_vals = [t0, sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr, fit_type]
 			except:
+				fit_type = 'MC_%d' % nits
 				# converging fit failed. do an MC method:
 				print "converging fit failed. try an MC approach:"
 				prams_dict = {'chi':[0., 2.5*mean_dT], 'beta':[0.,6.], 'x0':[t0,t0]}	# can we automatedly guess at these prams?
@@ -1631,9 +1748,13 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 				sigma_chi  = (prams_dict['chi'][1]-prams_dict['chi'][0])/mc_nits
 				sigma_beta = (prams_dict['beta'][1]-prams_dict['beta'][0])/mc_nits
 				#
-				best_fit_dict[sec_id][t0] = [sec_id, best_fit['chi'], best_fit['beta'], sigma_chi, sigma_beta, best_fit['chi_sqr']]
-				
-				
+				#best_fit_dict[sec_id][t0] = [sec_id, best_fit['chi'], best_fit['beta'], sigma_chi, sigma_beta, best_fit['chi_sqr']]
+				fit_vals = [t0, sec_id, best_fit['chi'], best_fit['beta'], sigma_chi, sigma_beta, best_fit['chi_sqr'], fit_type]
+			#
+			fit_data = {col:val for col, val in zip(*[fit_columns, fit_vals])}
+			#best_fit_dict[sec_id] += {col:val for col, val in zip(*[fit_columns, fit_vals])}
+			best_fit_dict[sec_id] += [fit_vals]	# and we'll make a structured array at the end of it all.
+			#
 			X_fit = numpy.arange(min(this_X), max(this_X)*1.5, (max(this_X)-min(this_X))/500.)
 			#
 			# plot local t0 fit:
@@ -1642,10 +1763,20 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 			# plot using t0=0 fit:
 			plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams_0[0], beta=fit_prams_0[1], x0=t0) for x in X_fit], '-.', color=this_color, lw=lw, ms=ms, label=None)
 			#
-			this_chi_0  = best_fit_dict[sec_id][0.][1]
-			this_beta_0 =best_fit_dict[sec_id][0.][2]
+			# assign this at the begining of this sequence.
+			#this_chi_0  = best_fit_dict[sec_id][0.][1]
+			#this_beta_0 =best_fit_dict[sec_id][0.][2]
+			#
+			#this_chi_0  = best_fit_dict[sec_id][0]['chi']
+			#this_beta_0 =best_fit_dict[sec_id][0]['beta']
+			#
 			#plt.plot(X_fit, [f_weibull(x=x, chi=this_chi_0, beta=this_beta_0, x0=0.0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl + ' ($t_0 = 0$)')
-			#		
+			#
+		print best_fit_dict[sec_id]
+		#best_fit_dict[sec_id] = numpy.core.records.fromarrays(zip(*best_fit_dict[sec_id]), names=fit_columns, formats = [(type(x).__name__ for x in best_fit_dict[sec_id][0]])
+		best_fit_dict[sec_id] = numpy.core.records.fromarrays(zip(*best_fit_dict[sec_id]), names=fit_columns, formats = fit_columns_types)
+		#
+		best_fit_dict[sec_id].dump('%s/VC_CDF_WT_fits_m%s_section_%d.npy' % (output_dir, str(m0).replace('.', ''), sec_id))
 		#
 		plt.legend(loc=0, numpoints=1)
 		plt.gca().set_ylim([0., 1.1])
@@ -1944,7 +2075,7 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquis
 #
 # end CFF calculators and helpers...	
 #
-def get_EMC_CFF(sections=None, f_out_pattern='data/VC_CFF_timeseries_section_%d.npy'):
+def get_EMC_CFF(sections=None, file_out_root='data/VC_CFF_timeseries_section'):
 	if sections==None: sections = [16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149]
 	#
 	event_sweeps_dict = None
@@ -1956,7 +2087,7 @@ def get_EMC_CFF(sections=None, f_out_pattern='data/VC_CFF_timeseries_section_%d.
 		X=get_CFF_on_section(section_id=section, event_sweeps_dict=event_sweeps_dict)
 		X=numpy.array(X)
 		#X.dump('data/VC_CFF_timeseries_section_%d.npy' % section)
-		X.dump(f_out_pattern % section)
+		X.dump('%s_%d.npy' % (file_out_root, section))
 		#
 		# ... and we may have redefined the offending variable types by using the structured
 		# numpy array, so let's have a go at json as well:
@@ -2099,7 +2230,7 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 	print "finished CFF(t) for section: %d (%s: %f)" % (section_id, time.ctime(), time.time()-time_start)
 	#
 	# convert to structured array with named cols (note this syntax, because this is not as easy as it should be):
-	CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final', 'event_area'], formats=[type(x).__name__ for x in CFF[0]])
+	CFF = numpy.core.records.fromarrays(zip(*CFF), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final', 'event_area'], formats=[type(x).__name__ for x in CFF[0]])
 	#
 	return CFF
 #

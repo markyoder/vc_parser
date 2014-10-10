@@ -1808,8 +1808,27 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	#
 	#return best_fit_array
 	return best_fit_dict
-	
-#		
+#
+def get_fault_model_extents(section_ids=None, sim_file=allcal_full_mks):
+	section_ids = (section_ids or emc_section_filter['filter'])
+	print "section_ids: ", section_ids
+	#
+	with h5py.File(sim_file) as vc_data:
+		block_info = [rw for rw in vc_data['block_info_table'] if rw['section_id'] in section_ids]
+		#block_info = numpy.array([rw for rw in vc_data['block_info_table']], formats = [type(x).__name__ for x in vc_data['block_info_talbe'][0]])
+		
+		# names=output_names, formats = [type(x).__name__ for x in outputs[0]])
+		X = reduce(numpy.append, [block_info['m_x_pt1'],  block_info['m_x_pt2'],block_info['m_x_pt3'],  block_info['m_x_pt4']])
+		min_lon = min(X)
+		max_lon = max(X)
+		#
+		Y = reduce(numpy.append, [block_info['m_y_pt1'],  block_info['m_y_pt2'],block_info['m_y_pt3'],  block_info['m_y_pt4']])
+		min_lat = min(Y)
+		max_lat = max(Y)
+		#
+	#
+	return {'lat_min': min_lat, 'lat_max':max_lat, 'lon_min':min_lon, 'lon_max':max_lon}
+#	
 def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
 	# find mean, stdev Delta_t, N between m>m0 events in ary_in.
 	# for now, assume ary_in is a structured array, h5, or name of a structured array file.

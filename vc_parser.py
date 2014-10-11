@@ -25,6 +25,8 @@ import os
 import imp
 import inspect
 import multiprocessing as mpp
+#
+import ANSStools
 
 #pyvc = imp.load_source('pyvc', '../PyVC/pyvc')
 #import pyvc as pyvc
@@ -1809,26 +1811,201 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	#return best_fit_array
 	return best_fit_dict
 #
-def get_fault_model_extents(section_ids=None, sim_file=allcal_full_mks):
+def xy_to_lat_lon(x, y, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict'):
+	# for now, a simple x,y conversion. we should probably use at least a spherical distance formula.
+	# chi: degress to km conversion.
+	#
+	# we can build in conditionals later, but for now, assume we need y, chi, lon0, x, lat0
+	#
+	if lon0==None or lat0==None:
+		# get these from sim file:
+		if sim_file==None:
+			print "nothing to work with..."
+			return None
+		#
+		with h5py.File(sim_file) as vc_data:
+			lat0 = vc_data['base_lat_lon'][0]
+			lon0 = vc_data['base_lat_lon'][1]
+	#
+	deg2rad = 2*math.pi/360.
+	#
+	lat = lat0 + (y/1000.)/chi
+	lon = lon0 + (x/1000.)/(math.cos(deg2rad*lat)*chi)		# x,y standard in m?
+	#
+	if return_format=='tuple':
+		return lat, lon
+	elif return_format=='list':
+		return [lat, lon]
+	else:
+		return {'lat':lat, 'lon':lon}
+#
+def lat_lon_to_xy(lat, lon, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict'):
+	#
+	# these should probably also include a z component?
+	#
+	if lon0==None or lat0==None:
+		# get these from sim file:
+		if sim_file==None:
+			print "nothing to work with..."
+			return None
+		#
+		with h5py.File(sim_file) as vc_data:
+			lat0 = vc_data[base_lat_lon[0]]
+			lon0 = vc_dta[base_lat_lon[1]]
+		#
+	#
+	deg2rad = 2*math.pi/360.
+	#
+	y = (lat-lat0)*chi * 1000.
+	x = (lon-lon0)*math.cos(lat)*chi * 1000.		# xy, standard is in meters?
+	#
+	if return_format=='tuple':
+		return lat, lon
+	elif return_format=='list':
+		return [lat, lon]
+	else:
+		return {'x':x, 'y':y}
+#
+def in_rec_array(rec_array, col_name, in_list, pipe=None):
+	# wrapper for MPP finding sub-sets in list. note this requires more specialized preparation than a simple :in_row_list()
+	# type function (to which we can map), but by containing the list comprehension, this should be pretty fast.
+	# is this the same as find_in()? not quite. find_in() is designed to use a numerical index and use pipe() to
+	# communicate back to a Process()
+	#
+	if pipe==None:
+		return [rw for rw in rec_array if rw[col_name] in in_list]
+	else:
+		# you can use this with a Process() and communicate with Pipe()s, but it's pretty slow (same as
+		# list comprehension in-line). somehow, porting this to a Pool() and using apply_async() runs 100x faster...
+		# even with just the single cpu. in fact, the 1-cpu implementation appears to run faster than n_cpus.
+		#
+		pipe.send([rw for rw in rec_array if rw[col_name] in in_list])
+#
+def in_rec_test(section_ids=None, sim_file=allcal_full_mks, n_cpus=None):
+	# results summary:
+	# 1) filter(), with a lambda: function, is a little bit slower than the list comprehension
+	# 2) Process() and Pipe() is pretty slow -- about the same as the in-line list comprehsnsion (if i recall, it's
+	#    the Pipe() part that is really slow. might be able to improve this by using direct reference to a structured array.
+	# 3) the list-comprehension approach is pretty slow as well (all of these 9-10 seconds for EMC faults.
+	# 4) using Pool() and apply_async() is almost 10x faster (about 1.1 seconds).
+	if n_cpus==None: n_cpus = mpp.cpu_count()
+	#
 	section_ids = (section_ids or emc_section_filter['filter'])
 	print "section_ids: ", section_ids
 	#
 	with h5py.File(sim_file) as vc_data:
-		block_info = [rw for rw in vc_data['block_info_table'] if rw['section_id'] in section_ids]
-		#block_info = numpy.array([rw for rw in vc_data['block_info_table']], formats = [type(x).__name__ for x in vc_data['block_info_talbe'][0]])
-		
+		if True:
+			print "len_0: %d" % len(vc_data['block_info_table'])
+			t0=time.time()
+			print t0
+			block_info = numpy.array([rw for rw in vc_data['block_info_table'] if rw['section_id'] in section_ids], dtype=vc_data['block_info_table'].dtype)
+			print "bi_len: %d" % len(block_info)
+			#
+			print time.time(), " :: ", time.time()-t0
+			t0=time.time()
+			#
+			#pipe_in, pipe_out = mpp.Pipe()
+			#proc = mpp.Process(target=in_rec_array, kwargs={'rec_array':vc_data['block_info_table'], 'col_name':'section_id', 'in_list':section_ids, 'pipe':pipe_out})
+			#proc.start()
+			#proc.join()
+			#
+			#block_info = numpy.array(pipe_in.recv(), dtype=vc_data['block_info_table'].dtype)
+			block_info = numpy.array(filter(lambda rw: rw['section_id'] in section_ids, vc_data['block_info_table']), dtype=vc_data['block_info_table'].dtype) 
+			print "bi_len: %d" % len(block_info)
+			#
+			print time.time(), " :: ", time.time()-t0
+		if True:
+			t0=time.time()
+			print t0
+			pool = mpp.Pool(n_cpus)
+			results = []
+			tbl = vc_data['block_info_table']
+			N_len = len(tbl)
+			dN = int(N_len/n_cpus)
+			#for i in xrange(n_cpus):
+			#
+			for i in xrange(n_cpus):
+				#
+				N_term = (1+i)*dN
+				if i==N_len-1: N_term = N_len
+				results+=[pool.apply_async(in_rec_array, args=(), kwds={'rec_array':tbl[(i)*dN:N_term], 'col_name':'section_id', 'in_list':section_ids})]
+				#
+			pool.close()
+			pool.join()
+			#
+			if len(results)>1:
+				block_info2 = numpy.array(reduce(numpy.append, [x.get() for x in results]), dtype=tbl.dtype)
+			else:
+				# reduce() will throw an error if you give it only one value.
+				block_info2 = results[0].get()
+			#
+			print "bi_len: %d" % len(block_info)
+			print time.time(), " :: ", time.time()-t0
+	return block_info, block_info2
+#
+def get_fault_model_extents(section_ids=None, sim_file=allcal_full_mks, n_cpus=None):
+	# note: this, presently, is fully guessing at the (x,y) <--> (lon,lat) conversion.
+	if n_cpus==None: n_cpus = mpp.cpu_count()
+	#
+	section_ids = (section_ids or emc_section_filter['filter'])
+	print "section_ids: ", section_ids
+	#
+	with h5py.File(sim_file) as vc_data:
+		if n_cpus==1:
+			block_info = numpy.array([rw for rw in vc_data['block_info_table'] if rw['section_id'] in section_ids], dtype=vc_data['block_info_table'].dtype)
+		else:
+			pool = mpp.Pool(n_cpus)
+			results = []
+			tbl = vc_data['block_info_table']
+			N_len = len(tbl)
+			dN = int(N_len/n_cpus)
+			#
+			for i in xrange(n_cpus):
+				#
+				N_term = (1+i)*dN
+				if i==N_len-1: N_term = N_len
+				results+=[pool.apply_async(in_rec_array, args=(), kwds={'rec_array':tbl[(i)*dN:N_term], 'col_name':'section_id', 'in_list':section_ids})]
+				#
+			pool.close()
+			pool.join()
+			#
+			if len(results)>1:
+				block_info = numpy.array(reduce(numpy.append, [x.get() for x in results]), dtype=tbl.dtype)
+			else:
+				# reduce() will throw an error if you give it only one value.
+				block_info = results[0].get()
+				
+		#		
 		# names=output_names, formats = [type(x).__name__ for x in outputs[0]])
-		X = reduce(numpy.append, [block_info['m_x_pt1'],  block_info['m_x_pt2'],block_info['m_x_pt3'],  block_info['m_x_pt4']])
-		min_lon = min(X)
-		max_lon = max(X)
+		#t0=time.time()
+		#print "do reduce: %s", str(t0)
+		min_x = min([min(x) for x in [block_info['m_x_pt1'],  block_info['m_x_pt2'],block_info['m_x_pt3'],  block_info['m_x_pt4']]])
+		max_x = max([max(x) for x in [block_info['m_x_pt1'],  block_info['m_x_pt2'],block_info['m_x_pt3'],  block_info['m_x_pt4']]])
+		#print "finished reduce X: ", time.time(), time.time()-t0
+		
 		#
-		Y = reduce(numpy.append, [block_info['m_y_pt1'],  block_info['m_y_pt2'],block_info['m_y_pt3'],  block_info['m_y_pt4']])
-		min_lat = min(Y)
-		max_lat = max(Y)
+		#t0=time.time()
+		#print "do reduce Y: %s", str(t0)
+		min_y = min([min(x) for x in [block_info['m_y_pt1'],  block_info['m_y_pt2'],block_info['m_y_pt3'],  block_info['m_y_pt4']]])
+		max_y = max([max(x) for x in [block_info['m_y_pt1'],  block_info['m_y_pt2'],block_info['m_y_pt3'],  block_info['m_y_pt4']]])
+		#print "finished reduce Y: ", time.time(), time.time()-t0
 		#
 	#
+	min_lat, min_lon = xy_to_lat_lon(x=min_x, y=min_y, sim_file=sim_file, return_format='tuple')
+	max_lat, max_lon = xy_to_lat_lon(x=max_x, y=max_y, sim_file=sim_file, return_format='tuple')
+	#
 	return {'lat_min': min_lat, 'lat_max':max_lat, 'lon_min':min_lon, 'lon_max':max_lon}
-#	
+#
+def seismicity_map(section_ids=None, sim_file=allcal_full_mks, section_ids=None, n_cpus=None, start_date=None, end_date=None, n_cpus=None):
+	# make a map of real seismicity around our model area. use the fault model to determine extents.
+	#
+	# handle some default values and book-keeping:
+	# ...
+	#
+	#
+	ll_range = get_fault_model_extents(section_ids=section_ids, sim_file=sim_file, n_cpus=n_cpus)
+	#
+#
 def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
 	# find mean, stdev Delta_t, N between m>m0 events in ary_in.
 	# for now, assume ary_in is a structured array, h5, or name of a structured array file.

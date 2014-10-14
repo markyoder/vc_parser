@@ -1,6 +1,14 @@
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.font_manager as mfont
+import matplotlib.colors as mcolor
+import matplotlib.colorbar as mcolorbar
+import matplotlib.lines as mlines
+import matplotlib.patches as mpatches
+import mpl_toolkits.basemap as bmp
+#from mpl_toolkits.basemap import Basemap
+
 import matplotlib as mpl
 from matplotlib import cm
 import itertools
@@ -27,6 +35,7 @@ import inspect
 import multiprocessing as mpp
 #
 import ANSStools
+import BASScast
 
 #pyvc = imp.load_source('pyvc', '../PyVC/pyvc')
 #import pyvc as pyvc
@@ -41,6 +50,7 @@ napa_region_section_filter = {'filter':set([45, 50, 172, 171, 170, 169, 44, 168,
 
 emc_section_filter = {'filter': (16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149)}
 allcal_full_mks = '../ALLCAL2_1-7-11_no-creep_dyn-05_st-20.h5'
+
 
 class getter(object):
 	# a simple container class to emulate objects that return values. for example,
@@ -1996,7 +2006,113 @@ def get_fault_model_extents(section_ids=None, sim_file=allcal_full_mks, n_cpus=N
 	#
 	return {'lat_min': min_lat, 'lat_max':max_lat, 'lon_min':min_lon, 'lon_max':max_lon}
 #
-def seismicity_map(section_ids=None, sim_file=allcal_full_mks, section_ids=None, n_cpus=None, start_date=None, end_date=None, n_cpus=None):
+def vc_basemap(projection='cyl', resolution='i', **kwargs):
+	#
+	titlefont1 = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=12)
+	titlefont2 = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=14, weight='bold')
+	sectionkeyfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=7)
+	ticklabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9)
+	framelabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9)
+	legendfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9)
+	smtitlefont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9, weight='bold')
+	cbticklabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9)
+	#
+	water_color             = '#bed5ff'
+	land_color              = '#ffffff'
+	seq_land_color          = '#ffffff'
+	boundary_color          = '#000000'
+	coastline_color         = '#9a9a9a'
+	country_color           = '#9a9a9a'
+	state_color             = '#9a9a9a'
+	fault_color             = '#000000'
+	alt_fault_color         = '#737373'
+	selected_fault_color    = '#FFFFFF'
+	map_tick_color          = '#000000'
+	map_frame_color         = '#000000'
+	grid_color              = '#000000'
+	cb_fontcolor            = '#000000'
+	#
+	boundary_width          = 1.0
+	coastline_width         = 1.0
+	country_width           = 1.0
+	state_width             = 1.0
+	fault_width             = 0.5
+	forecast_fault_width    = 6.0
+	seq_fault_width_max     = 6.0
+	seq_fault_width_min     = 3.0
+	map_frame_width         = 1.0
+	grid_width              = 0.5
+	num_grid_lines          = 5
+	#
+	sp_line_color           = '#000000'
+	#sp_line_colormap        = sequence_cmap
+	sp_line_width           = 2.0
+	#
+	t0_dt_main_line_color   = '#000000'
+	t0_dt_sub_line_color    = '#737373'
+	t0_dt_main_line_width   = 2.0
+	t0_dt_sub_line_width    = 1.0
+	#t0_dt_range_color       = sequence_cmap(0.99)
+	#
+	# catch some defaults:
+	try:
+		projection
+	except:
+		projection = 'cyl'
+	llcrnrlon=kwargs['llcrnrlon']
+	llcrnrlat=kwargs['llcrnrlat']
+	urcrnrlon=kwargs['urcrnrlon']
+	urcrnrlat=kwargs['urcrnrlat']
+	#
+	lat_0 = llcrnrlat + (urcrnrlat - llcrnrlat)/2.
+	lon_0 = llcrnrlon + (urcrnrlon - llcrnrlon)/2.
+	#
+	bm = bmp.Basemap(projection=projection, **kwargs)
+	aspect = bm.aspect
+	#
+	bm.drawmapboundary(color=map_frame_color, linewidth=map_frame_width, fill_color=water_color)
+	
+	# Fill the continents and lakes.
+	bm.fillcontinents(color=land_color, lake_color=water_color)
+	
+	# draw coastlines, edge of map.
+	bm.drawcoastlines(color=coastline_color, linewidth=coastline_width)
+
+	# draw countries
+	bm.drawcountries(linewidth=country_width, color=country_color)
+
+	# draw states
+	bm.drawstates(linewidth=state_width, color=state_color)
+
+	# draw parallels.
+	parallels = numpy.linspace(llcrnrlat, urcrnrlat, num_grid_lines+1)
+	mm_parallels = bm.drawparallels(
+		parallels,
+		labels=[1,0,0,0],
+		color=grid_color,
+		fontproperties=ticklabelfont,
+		fmt='%.2f',
+		linewidth=grid_width,
+		dashes=[1, 10]
+	)
+	bm.drawrivers(color='b')
+
+	# draw meridians
+	meridians = numpy.linspace(llcrnrlon, urcrnrlon, num_grid_lines+1)
+	mm_meridians = bm.drawmeridians(
+		meridians,
+		labels=[0,0,1,0],
+		color=grid_color,
+		fontproperties=ticklabelfont,
+		fmt='%.2f',
+		linewidth=grid_width,
+		dashes=[1, 10]
+	)
+	
+	return bm
+	
+#
+def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], mc=3.0):
 	# make a map of real seismicity around our model area. use the fault model to determine extents.
 	#
 	# handle some default values and book-keeping:
@@ -2005,6 +2121,25 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, section_ids=None,
 	#
 	ll_range = get_fault_model_extents(section_ids=section_ids, sim_file=sim_file, n_cpus=n_cpus)
 	#
+	lon_0 = ll_range['lon_min'] + (ll_range['lon_max']-ll_range['lon_min'])/2.
+	lat_0 = ll_range['lat_min'] + (ll_range['lat_max']-ll_range['lat_min'])/2.
+	#
+	plt.figure(fignum, figsize=map_size)
+	#bm = vc_basemap(llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i', projection='cyl')
+	bm = vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i')
+	
+	# note: we could also specify lon_0, lat_0, width, height {in meters}.
+	#bm.drawcoastlines()
+	#bm.drawmapboundary()
+	#bm.drawlakes()
+	#bm.drawrivers()
+	plt.title('VC fault model map\n\n')
+	plt.show()
+	#
+	etas_catalog = BASScast.getMFETAScatFromANSS(lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], dates=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=500), dtm.datetime.now(pytz.timezone('UTC'))], mc=mc)
+	etas = BASScast.
+	#
+	return ll_range
 #
 def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
 	# find mean, stdev Delta_t, N between m>m0 events in ary_in.

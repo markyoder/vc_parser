@@ -52,7 +52,7 @@ napa_region_section_filter = {'filter':set([45, 50, 172, 171, 170, 169, 44, 168,
 
 emc_section_filter = {'filter': (16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149)}
 allcal_full_mks = '../ALLCAL2_1-7-11_no-creep_dyn-05_st-20.h5'
-
+emc_sections = emc_section_filter['filter']
 
 class getter(object):
 	# a simple container class to emulate objects that return values. for example,

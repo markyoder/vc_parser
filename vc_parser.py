@@ -29,6 +29,8 @@ import json
 import cPickle
 import time
 import os
+import datetime as dtm
+import pytz
 #
 import imp
 import inspect
@@ -2117,6 +2119,8 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	#
 	# handle some default values and book-keeping:
 	# ...
+	if end_date==None: end_date=dtm.datetime.now(pytz.timezone('UTC'))
+	if start_date==None: start_date = end_date-dtm.timedelta(days=500)
 	#
 	#
 	ll_range = get_fault_model_extents(section_ids=section_ids, sim_file=sim_file, n_cpus=n_cpus)
@@ -2137,9 +2141,17 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	plt.show()
 	#
 	etas_catalog = BASScast.getMFETAScatFromANSS(lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], dates=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=500), dtm.datetime.now(pytz.timezone('UTC'))], mc=mc)
-	etas = BASScast.
 	#
-	return ll_range
+	contour_intervals=24
+	gridsize=.1
+	mc=3.0
+	#
+	etas = BASScast.BASScast(incat=etas_catalog, fcdate=end_date, gridsize=gridsize, contres=contour_intervals, mc=mc, eqeps=None, eqtheta=None, fitfactor=5., contour_intervals=contour_intervals, lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], rtype='ssim', p_quakes=1.05, p_map=0.0)
+	#
+	conts = etas.getContourSet(X_i=None, Y_i=None, Z_ij=None, contres=contour_intervals, zorder=7, alpha=.15)
+	#conts2 = etas.BASScastContourMap(fignum=3, maxNquakes=10, alpha=.75)
+	#
+	return conts
 #
 def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
 	# find mean, stdev Delta_t, N between m>m0 events in ary_in.

@@ -2141,6 +2141,10 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	plt.show()
 	#
 	etas_catalog = BASScast.getMFETAScatFromANSS(lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], dates=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=500), dtm.datetime.now(pytz.timezone('UTC'))], mc=mc)
+<<<<<<< HEAD
+=======
+	#
+>>>>>>> c8757ec07948bdda43cf8c76eb93692d552a2e1c
 	#
 	contour_intervals=24
 	gridsize=.1

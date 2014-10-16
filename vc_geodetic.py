@@ -166,8 +166,34 @@ def get_blocks_dict(sim_file=default_sim_file, faults=None, sections=None, pipe=
 	else:
 		return block_dict
 #
+def blockwise_slip_mpp(sim_file=default_sim_file, faults=None, sections=None, pipe=None, n_cpus=None, chunk_size=None):
+	if n_cpus==None: n_cpus = mpp.cpu_count()
+	#
+	pool = mpp.Pool(n_cpus)
+	#
+	with h5py.File(sim_file, 'r') as vc_data:
+		
+		if chunk_size==None:
+			chunk_size=len(vc_data['event_sweep_table'])/n_cpus
+		#
+		print "map to pool..."
+		results = pool.map_async(get_block_slip, vc_data['event_sweep_table'], chunksize=chunk_size) # ... but i think this does not pickle
+																									# because of the hdf5 file reference?
+		pool.join()
+		#slip_data = []
+		#for rw in vc_data['event_sweep_table']:
+		#	slip_data += [get_block_slip(rw)]
+	#
+	slip_data = results.get()
+	slip_data.sort(key = lambda x: (x[0], x[1]))	# note: this should be smarter. maybe first transform to rec-array?
+	#
+	return slip_data
+#
 def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=None):
+	print "getting blocks_dict..."
 	block_info = get_blocks_dict(sim_file=sim_file, faults=faults, sections=sections)
+	#
+	print "block info fetched. assign mean values to blocks."
 	#
 	# add mean position to block_info:
 	for key in block_info.keys():
@@ -177,12 +203,63 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		mean_z = numpy.mean([rw['m_z_pt%d' % j] for j in [1,2,3,4]])
 		#
 		block_info[key].update({'mean_x':mean_x, 'mean_y':mean_y, 'mean_z':mean_z})
+		block_info[key]['slip_phi'] = 0.
+		block_info[key]['slip_theta'] = math.pi/2.
+		#
+		# and set a field for a slip-sequence.
+		block_info[key]['positions'] = [[0.0, mean_x, mean_y, mean_z]]
 	#
 	# so now, we can spin through the event_sweep and generate positional vectors. how do we get directon?
 	# use neighboring elements? this will be a bit tricky since elements may be stacked on top of one another.
 	# note, however, fault/section/block do contain rake/strike, etc. info...
 	#
+	# now, spin through event_sweep_table and add to the slip-sequence.
+	# note: we'll use the event_sweep_table and the event_table. nominally (see discussion of blocks_dict)
+	# we should use a dict (or similar structure) to explicitly index event_table. however, event_table SHOULD
+	# be pseudo indexed simply by order -- event_number is sequential and unique; the table is ordered by
+	# event_number.
+	#
+	print "block info ready. now sweep events."
+	#
+	with h5py.File(sim_file, 'r') as vc_data:
+		for rw in vc_data['event_sweep_table']:
+			#
+			# we'll need to get the direction of motion... which nominally will need to be encoded into block_info.
+			# for now, assume everything moves in the same direction, phi=0., theta=pi/2. (see above)
+			block_id=rw['block_id']
+			event_number = rw['event_number']
+			event_time = vc_data['event_table'][event_number]['event_year']
+			slip = rw['slip']
+			#
+			theta = block_info[block_id]['slip_theta']
+			phi   = block_info[block_id]['slip_phi']
+			#
+			x0=block_info[key]['positions'][-1][1]
+			y0=block_info[key]['positions'][-1][2]
+			z0=block_info[key]['positions'][-1][3]
+			#
+			block_info[block_id]['positions'] += [[block_id, event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0]]
+		
+		#
 	return block_info
-
-
+#
+def get_block_slip(block_id_rw, sim_file=default_sim_file,):
+	# in particular, for use with mpp...
+	#
+	with h5py.File(sim_file, 'r') as vc_data:
+		block_id=block_id_rw['block_id']
+		event_number = block_id_rw['event_number']
+		event_time = vc_data['event_table'][event_number]['event_year']
+		slip = block_id_rw['slip']
+		#
+		theta = 0.0
+		phi   = math.pi/2.0
+		#
+		#x0=block_info[key]['positions'][-1][1]
+		#y0=block_info[key]['positions'][-1][2]
+		#z0=block_info[key]['positions'][-1][3]
+		#
+	#
+	return [block_id, event_time, slip*math.cos(theta)*math.cos(phi), slip*math.cos(theta)*math.sin(phi), slip*math.sin(theta)]
+		
 

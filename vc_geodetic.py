@@ -317,6 +317,9 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	t0=time.time()
 	print "getting blocks_dict...", t0
 	block_info = get_blocks_dict(sim_file=sim_file, faults=faults, sections=sections)
+	#with h5py.File(sim_file, 'r') as vc_data:
+	#	block_info=vc_data['block_info'].copy()
+	
 	print "block_dict fetched: %f/%f" % (time.time(), time.time()-t0)
 	#
 	t0=time.time()
@@ -381,9 +384,10 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 			#x0=block_info[key]['positions'][-1][1]
 			#y0=block_info[key]['positions'][-1][2]
 			#z0=block_info[key]['positions'][-1][3]
-			x0, y0, z0 = block_info[key]['positions'][-1][1:4]
+			x0, y0, z0 = block_info[block_id]['positions'][-1][1:4]
 			#
-			block_info[block_id]['positions'] += [[block_id, event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0]]
+			#block_info[block_id]['positions'] += [[block_id, event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0]]
+			block_info[block_id]['positions'] += [[event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0]]
 			#
 			if i_rw%10**5==0:
 				print 'rw: %d (dt=%f)' % (i_rw, time.time()-t0)
@@ -397,7 +401,9 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	# and for convenience, convert ['positions'] to a recarray:
 	for key in block_info.keys():
 		# outputs = numpy.core.records.fromarrays(zip(*outputs), names=output_names, formats = [type(x).__name__ for x in outputs[0]])
-		block_info[key]['positions'] = numpy.core.records.fromarrays(zip(*block_info[key]['positions']), names=['block_id', 'event_year', 'x', 'y', 'z'], formats = [type(x).__name__ for x in block_info[key]['positions'][0]] )
+		#block_info[key]['positions'] = numpy.core.records.fromarrays(zip(*block_info[key]['positions']), names=['block_id', 'event_year', 'x', 'y', 'z'], formats = [type(x).__name__ for x in block_info[key]['positions'][0]] )
+		pos_col_names = ['event_year', 'x', 'y', 'z']
+		block_info[key]['positions'] = numpy.core.records.fromarrays(zip(*block_info[key]['positions']), names=pos_col_names, formats = [type(x).__name__ for x in block_info[key]['positions'][0]] )
 	#
 	print "finished: %f" % (time.time()-t0)
 	#
@@ -410,5 +416,38 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		print "failed to pickle..."
 	
 	return block_info
+#
+def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=50):
+	# eventually, add section and faultwise filters...
+	#
+	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
+	if isinstance(blockwise_obj, str):
+		blockwise_obj = numpy.load(blockwise_obj)
+	#return blockwise_obj
+	#
+	if sections==None:
+		sections = blockwise_obj.keys()
+	#
+	plt.ion()
+	plt.figure(0)
+	plt.clf()
+	#
+	for key in sections:
+		posis = blockwise_obj[key]['positions']
+		plt.plot(posis['x'][i_start:], posis['y'][i_start:], '.-')
+		#
+	#
+	return blockwise_obj
+#
+def plot_initial_section_positions(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=50):
+	# eventually, add section and faultwise filters...
+	#
+	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
+	if isinstance(blockwise_obj, str):
+		blockwise_obj = numpy.load(blockwise_obj)
+	for i, rw in A.items():
+    	x,y = rw['positions'][0]['x'], rw['positions'][0]['y']
+    	plt.plot([x], [y], '.')
+	
 #
 

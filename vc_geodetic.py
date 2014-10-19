@@ -336,7 +336,8 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		#
 		block_info[key].update({'mean_x':mean_x, 'mean_y':mean_y, 'mean_z':mean_z})
 		block_info[key]['slip_phi'] = 0.
-		block_info[key]['slip_theta'] = math.pi/2.
+		#block_info[key]['slip_theta'] = math.pi/2.
+		block_info[key]['slip_theta'] = math.pi/4.
 		#
 		# and set a field for a slip-sequence.
 		block_info[key]['positions'] = [[0.0, mean_x, mean_y, mean_z]]
@@ -439,15 +440,24 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 	#
 	return blockwise_obj
 #
-def plot_initial_section_positions(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=50):
+def plot_initial_section_positions(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_range=[0,1], fignum=3):
 	# eventually, add section and faultwise filters...
+	blockwise_obj=('dumps/blockwise_slip.pkl' or blockwise_obj)
+	#
+	plt.figure(fignum)
+	plt.clf()
 	#
 	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
 	if isinstance(blockwise_obj, str):
 		blockwise_obj = numpy.load(blockwise_obj)
-	for i, rw in A.items():
-    	x,y = rw['positions'][0]['x'], rw['positions'][0]['y']
-    	plt.plot([x], [y], '.')
-	
+	#for i, rw in blockwise_obj.iteritems():
+	for key in blockwise_obj.iterkeys():
+		#rw = blockwise_obj[key]
+		#x,y = rw['positions'][i_range[0]:i_range[1]]['x'], rw['positions'][i_range[0]:i_range[1]]['y']]
+		#
+		#plt.plot([x], [y], '.')
+		plt.plot(blockwise_obj[key]['positions'][i_range[0]:i_range[1]]['x'], blockwise_obj[key]['positions'][i_range[0]:i_range[1]]['y'], '.-')
+	#
+	return blockwise_obj
 #
 

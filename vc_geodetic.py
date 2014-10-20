@@ -52,6 +52,8 @@ import os
 import datetime as dtm
 import pytz
 #
+import vc_parser
+#
 #import imp
 #import inspect		# use this module to determine a function's parameters and similar tasks.
 import multiprocessing as mpp
@@ -207,7 +209,7 @@ def blockwise_slip_mpp(sim_file=default_sim_file, faults=None, sections=None, pi
 	#
 	# add mean position to block_info:
 	#for key in block_info.keys():
-	for key, rw in block_info.items():
+	for key, rw in block_info.iteritems():
 		# items() should be faster than the keys() approach...
 		#rw=block_info[key]
 		mean_x = numpy.mean([rw['m_x_pt%d' % j] for j in [1,2,3,4]])
@@ -298,7 +300,7 @@ def blockwise_slip_mpp(sim_file=default_sim_file, faults=None, sections=None, pi
 	print "converting positions to recarrays."
 	#
 	# and for convenience, convert ['positions'] to a recarray:
-	for key in block_info.keys():
+	for key in block_info.iterkeys():
 		# outputs = numpy.core.records.fromarrays(zip(*outputs), names=output_names, formats = [type(x).__name__ for x in outputs[0]])
 		block_info[key]['positions'] = numpy.core.records.fromarrays(zip(*block_info[key]['positions']), names=['block_id', 'event_year', 'x', 'y', 'z'], formats = [type(x).__name__ for x in block_info[key]['positions'][0]] )
 	#
@@ -370,7 +372,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		# vc_data['event_table'][event_number]['event_year']
 		print "events are indexed: %f" % (time.time()-t0)
 		t0-time.time()
-	
+		#
 		for i_rw, rw in enumerate(vc_data['event_sweep_table']):
 			#
 			# we'll need to get the direction of motion... which nominally will need to be encoded into block_info.
@@ -421,29 +423,43 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	
 	return block_info
 #
-def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0):
+def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.]):
 	# eventually, add section and faultwise filters...
+	#
+	#
+	n_cpus=None
+	plt.ion()
+	plt.figure(fnum)
+	plt.clf()
 	#
 	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
 	if isinstance(blockwise_obj, str):
 		blockwise_obj = numpy.load(blockwise_obj)
 	#return blockwise_obj
-	#
 	if sections==None:
 		sections = blockwise_obj.keys()
-	
 	#
-	plt.ion()
-	plt.figure(fnum)
-	plt.clf()
+	# draw a map:
+	ll_range = vc_parser.get_fault_model_extents(section_ids=sections, sim_file=sim_file, n_cpus=n_cpus)
 	#
+	lon_0 = ll_range['lon_min'] + (ll_range['lon_max']-ll_range['lon_min'])/2.
+	lat_0 = ll_range['lat_min'] + (ll_range['lat_max']-ll_range['lat_min'])/2.
+	#
+	print "make map..."
+	plt.figure(fnum, figsize=map_size)
+	#bm = vc_basemap(llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i', projection='cyl')
+	#bm = vc_parser.vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='l')
+	#
+	print "map drawn. now, plot fault positions..."
 	#plot_initial_section_positions(blockwise_obj=blockwise_obj, sections=sections, faults=faults, i_range=[i_start, i_start+1], fignum=fnum)
 	#
 	for j, key in enumerate(sections):
 		posis = blockwise_obj[key]['positions']
 		this_color = colors_[j%len(colors_)]
-		plt.plot(posis['x'][0:1], posis['y'][0:1], '.', alpha=.6, color=this_color)
-		plt.plot(posis['x'][i_start:(len(posis) or i_stop)], posis['y'][i_start:(len(posis) or i_stop)], '-', alpha=.3, color=this_color)
+		#plt.plot(bm(posis['x'][0:1], posis['y'][0:1]), '.', alpha=.6, color=this_color, zorder=15)
+		#plt.plot(bm(posis['x'][i_start:(len(posis) or i_stop)], posis['y'][i_start:(len(posis) or i_stop)]), '-', alpha=.3, color=this_color, zorder=15)
+		plt.plot(posis['x'][0:1], posis['y'][0:1], '.', alpha=.6, color=this_color, zorder=15)
+		plt.plot(posis['x'][i_start:(len(posis) or i_stop)], posis['y'][i_start:(len(posis) or i_stop)], '-', alpha=.3, color=this_color, zorder=15)
 		#
 	#
 	if do_return: return blockwise_obj

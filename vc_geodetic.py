@@ -67,6 +67,7 @@ default_sim_file=allcal_full_mks
 #
 emc_sections = emc_section_filter['filter']
 napa_sections = napa_region_section_filter['filter']
+colors_ =  mpl.rcParams['axes.color_cycle']
 #
 def blocks_test(n_cycles=1):
 	#
@@ -420,7 +421,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	
 	return block_info
 #
-def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=50, i_stop=None, do_return=False):
+def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0):
 	# eventually, add section and faultwise filters...
 	#
 	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
@@ -433,18 +434,22 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 	
 	#
 	plt.ion()
-	plt.figure(0)
+	plt.figure(fnum)
 	plt.clf()
 	#
-	for key in sections:
+	#plot_initial_section_positions(blockwise_obj=blockwise_obj, sections=sections, faults=faults, i_range=[i_start, i_start+1], fignum=fnum)
+	#
+	for j, key in enumerate(sections):
 		posis = blockwise_obj[key]['positions']
-		plt.plot(posis['x'][i_start:(len(posis) or i_stop)], posis['y'][i_start:(len(posis) or i_stop)], '.-')
+		this_color = colors_[j%len(colors_)]
+		plt.plot(posis['x'][0:1], posis['y'][0:1], '.', alpha=.6, color=this_color)
+		plt.plot(posis['x'][i_start:(len(posis) or i_stop)], posis['y'][i_start:(len(posis) or i_stop)], '-', alpha=.3, color=this_color)
 		#
 	#
 	if do_return: return blockwise_obj
 #
 def plot_initial_section_positions(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_range=[0,1], fignum=3):
-	# eventually, add section and faultwise filters...
+	# vceventually, add section and faultwise filters...
 	blockwise_obj=('dumps/blockwise_slip.pkl' or blockwise_obj)
 	#
 	plt.figure(fignum)

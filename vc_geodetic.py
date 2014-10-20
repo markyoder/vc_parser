@@ -337,8 +337,8 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		mean_z = numpy.mean([rw['m_z_pt%d' % j] for j in [1,2,3,4]])
 		#
 		block_info[key].update({'mean_x':mean_x, 'mean_y':mean_y, 'mean_z':mean_z})
-		block_info[key]['slip_phi'] = math.pi/2.
-		block_info[key]['slip_theta'] = math.pi/2.
+		block_info[key]['slip_phi'] = math.pi/4.
+		block_info[key]['slip_theta'] = 0.
 		#block_info[key]['slip_theta'] = math.pi/4.
 		#
 		# and set a field for a slip-sequence.
@@ -430,6 +430,7 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 	#
 	if sections==None:
 		sections = blockwise_obj.keys()
+	
 	#
 	plt.ion()
 	plt.figure(0)
@@ -437,7 +438,7 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 	#
 	for key in sections:
 		posis = blockwise_obj[key]['positions']
-		plt.plot(posis['x'][i_start:i_stop], posis['y'][i_start:i_stop], '.-')
+		plt.plot(posis['x'][i_start:(len(posis) or i_stop)], posis['y'][i_start:(len(posis) or i_stop)], '.-')
 		#
 	#
 	if do_return: return blockwise_obj

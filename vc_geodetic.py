@@ -313,7 +313,7 @@ def blockwise_slip_mpp(sim_file=default_sim_file, faults=None, sections=None, pi
 	
 	return block_info
 #
-def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=None, f_pickle_out='dumps/blocwise_slip.pkl'):
+def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=None, f_pickle_out='dumps/blockwise_slip_0.pkl', plot_factor=1.0):
 	t0=time.time()
 	print "getting blocks_dict...", t0
 	block_info = get_blocks_dict(sim_file=sim_file, faults=faults, sections=sections)
@@ -327,7 +327,9 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	#
 	# add mean position to block_info:
 	#for key in block_info.keys():
-	for key, rw in block_info.items():
+	#for key, rw in block_info.items():
+	for key in block_info.iterkeys():
+		rw = block_info[key]
 		# items() should be faster than the keys() approach...
 		#rw=block_info[key]
 		mean_x = numpy.mean([rw['m_x_pt%d' % j] for j in [1,2,3,4]])
@@ -335,12 +337,12 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		mean_z = numpy.mean([rw['m_z_pt%d' % j] for j in [1,2,3,4]])
 		#
 		block_info[key].update({'mean_x':mean_x, 'mean_y':mean_y, 'mean_z':mean_z})
-		block_info[key]['slip_phi'] = 0.
-		#block_info[key]['slip_theta'] = math.pi/2.
-		block_info[key]['slip_theta'] = math.pi/4.
+		block_info[key]['slip_phi'] = math.pi/2.
+		block_info[key]['slip_theta'] = math.pi/2.
+		#block_info[key]['slip_theta'] = math.pi/4.
 		#
 		# and set a field for a slip-sequence.
-		block_info[key]['positions'] = [[0.0, mean_x, mean_y, mean_z]]
+		block_info[key]['positions'] = [[0.0, mean_x, mean_y, mean_z, 0.]]	# [[time, x,y,z, slip]]
 	#
 	print 'blocks finished. index events', time.time()-t0
 	
@@ -377,7 +379,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 			#event_time = vc_data['event_table'][event_number]['event_year']
 			event_time = events_data[event_number]
 			
-			slip = rw['slip']
+			slip = rw['slip']*plot_factor
 			#
 			theta = block_info[block_id]['slip_theta']
 			phi   = block_info[block_id]['slip_phi']
@@ -388,7 +390,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 			x0, y0, z0 = block_info[block_id]['positions'][-1][1:4]
 			#
 			#block_info[block_id]['positions'] += [[block_id, event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0]]
-			block_info[block_id]['positions'] += [[event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0]]
+			block_info[block_id]['positions'] += [[event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0, slip]]
 			#
 			if i_rw%10**5==0:
 				print 'rw: %d (dt=%f)' % (i_rw, time.time()-t0)
@@ -400,10 +402,10 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	print "converting positions to recarrays."
 	#
 	# and for convenience, convert ['positions'] to a recarray:
-	for key in block_info.keys():
+	for key in block_info.iterkeys():
 		# outputs = numpy.core.records.fromarrays(zip(*outputs), names=output_names, formats = [type(x).__name__ for x in outputs[0]])
 		#block_info[key]['positions'] = numpy.core.records.fromarrays(zip(*block_info[key]['positions']), names=['block_id', 'event_year', 'x', 'y', 'z'], formats = [type(x).__name__ for x in block_info[key]['positions'][0]] )
-		pos_col_names = ['event_year', 'x', 'y', 'z']
+		pos_col_names = ['event_year', 'x', 'y', 'z', 'slip']
 		block_info[key]['positions'] = numpy.core.records.fromarrays(zip(*block_info[key]['positions']), names=pos_col_names, formats = [type(x).__name__ for x in block_info[key]['positions'][0]] )
 	#
 	print "finished: %f" % (time.time()-t0)
@@ -418,7 +420,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	
 	return block_info
 #
-def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=50):
+def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=50, i_stop=None):
 	# eventually, add section and faultwise filters...
 	#
 	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
@@ -435,7 +437,7 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 	#
 	for key in sections:
 		posis = blockwise_obj[key]['positions']
-		plt.plot(posis['x'][i_start:], posis['y'][i_start:], '.-')
+		plt.plot(posis['x'][i_start:i_stop], posis['y'][i_start:i_stop], '.-')
 		#
 	#
 	return blockwise_obj

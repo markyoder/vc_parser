@@ -331,8 +331,9 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	# add mean position to block_info:
 	#for key in block_info.keys():
 	#for key, rw in block_info.items():
-	for key in block_info.iterkeys():
-		rw = block_info[key]
+	#for key in block_info.iterkeys():
+	for key, rw in block_info.iteritems():
+		#rw = block_info[key]
 		# items() should be faster than the keys() approach...
 		#rw=block_info[key]
 		mean_x = numpy.mean([rw['m_x_pt%d' % j] for j in [1,2,3,4]])
@@ -340,9 +341,20 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		mean_z = numpy.mean([rw['m_z_pt%d' % j] for j in [1,2,3,4]])
 		#
 		block_info[key].update({'mean_x':mean_x, 'mean_y':mean_y, 'mean_z':mean_z})
-		block_info[key]['slip_phi'] = math.pi/4.
-		block_info[key]['slip_theta'] = 0.
-		#block_info[key]['slip_theta'] = math.pi/4.
+		#
+		# slip angles: we'll need to get actual geodetic information about the faults from here. the rake/dip angles appear
+		# to speak in terms of stress accumulation and are transformed "along the fault trace", or something like that. aka,
+		# a vertical strike/slip fault has phi=0. or pi, theta = pi/2 (where, of course, the angle=0 position can be defined
+		# arbitratily.
+		#
+		# for now, use holding values. going forward, we'll need to pull from elsewhere or do some fitting.
+		fault_phi   = - .75*math.pi
+		fault_theta = - .5*math.pi
+		#
+		#block_info[key]['slip_phi'] = math.pi/4.
+		#block_info[key]['slip_theta'] = 0.
+		block_info[key]['slip_theta'] = block_info[key]['dip_rad']  + fault_theta		# tpyically pi/2 for vertical strike/slip faults.
+		block_info[key]['slip_phi']   = block_info[key]['rake_rad'] + fault_phi			# typically pi for strike/slip along the fault.
 		#
 		# and set a field for a slip-sequence.
 		block_info[key]['positions'] = [[0.0, mean_x, mean_y, mean_z, 0.]]	# [[time, x,y,z, slip]]

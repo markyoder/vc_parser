@@ -367,8 +367,11 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		# and set a field for a slip-sequence.
 		block_info[key]['positions'] = [[0.0, mean_x, mean_y, mean_z, 0.]]	# [[time, x,y,z, slip]]
 	#
+	# so now, we need to assign geodetic slip directions to each block. we could do this from a source trace file, or we can
+	# determine it from the data. for simplicity (and high-resolution), assume each block slips to its neighbor according the
+	# relative rake/dip. find the rake between susequent m_trace_flac_ptx entries; find dip within these groups (right?).
+	#
 	print 'blocks finished. index events', time.time()-t0
-	
 	t0=time.time()
 	#
 	# so now, we can spin through the event_sweep and generate positional vectors. how do we get directon?

@@ -327,7 +327,6 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	#
 	t0=time.time()
 	print "block info fetched. assign mean values to blocks :: %f" % t0
-	trace_segment_id = 0
 	#
 	# add mean position to block_info:
 	#for key in block_info.keys():
@@ -351,10 +350,11 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		# for now, use holding values. going forward, we'll need to pull from elsewhere or do some fitting.
 		# note: there are "m_trace_flag_pt{x} == 1" valuse for _pt1 and _pt4, but none for _pt2, _pt3, specifically
 		# N=13482 N_1,4 = 2815 (about 1/4.7)... and i think the best thing to do is to pick this up in a second loop through the dict.
-		# maybe for now, assign a trace_segment_id ?
+		# note: the "depth_id" field indicates the depth of stacked elements. aka, at x,y, there area  bunch of z-varying elements
+		# with das_id={0,1,2,3..}, all with the same das_id. each (x,y) step along the segment is a unique das_id. so, what we'll want to do
+		# eventually is fit neighboring das_id elements to a line in x,y and like depth_id elements in a vertical plane (or connect
+		# explicity neighboring elements)
 		#
-		if block_info[key]['m_trace_flag_pt1'] == 1: trace_segment_id+=1
-		block_info[key]['trace_segment_id'] = trace_segment_id
 		#
 		fault_phi   = - .75*math.pi
 		fault_theta = - .5*math.pi

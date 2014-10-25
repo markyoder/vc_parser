@@ -372,14 +372,17 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		dx = -rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] + rw['m_x_pt2']
 		dy = -rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] + rw['m_y_pt2']
 		dz = -rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] + rw['m_z_pt2']
-		fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)
+		fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)	# this is (should be) the fault dip... right?
+		#														# but fault dip is a listed parameter (with rake).
 		#
 		#fault_phi   = - .75*math.pi
 		#fault_theta = - .5*math.pi
 		#
+		# ... actually, this is all wrong (the right approach to calculations, but not the right angles).
 		# now, these angles may need to be adjusted for direction and origin.
 		block_info[key]['slip_theta'] = block_info[key]['dip_rad']  + fault_theta		# tpyically pi/2 for vertical strike/slip faults.
 		block_info[key]['slip_phi']   = block_info[key]['rake_rad'] + fault_phi			# typically pi for strike/slip along the fault.
+		# now we need unit vectors for slip on this block (aka, combining strike, dip, rake):
 		#
 		# and set a field for a slip-sequence.
 		block_info[key]['positions'] = [[0.0, mean_x, mean_y, mean_z, 0.]]	# [[time, x,y,z, slip]]

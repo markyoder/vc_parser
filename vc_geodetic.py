@@ -336,9 +336,12 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		#rw = block_info[key]
 		# items() should be faster than the keys() approach...
 		#rw=block_info[key]
-		mean_x = numpy.mean([rw['m_x_pt%d' % j] for j in [1,2,3,4]])
-		mean_y = numpy.mean([rw['m_y_pt%d' % j] for j in [1,2,3,4]])
-		mean_z = numpy.mean([rw['m_z_pt%d' % j] for j in [1,2,3,4]])
+		#
+		#mean_x = numpy.mean([rw['m_x_pt%d' % j] for j in [1,2,3,4]])
+		#mean_y = numpy.mean([rw['m_y_pt%d' % j] for j in [1,2,3,4]])
+		#mean_z = numpy.mean([rw['m_z_pt%d' % j] for j in [1,2,3,4]])
+		# in a single list comprehension:
+		mean_x, mean_y, mean_z = [numpy.mean([rw['m_%s_pt%d' % (xyz, j)] for j in [1,2,3,4]]) for xyz in ('x', 'y', 'z')]
 		#
 		block_info[key].update({'mean_x':mean_x, 'mean_y':mean_y, 'mean_z':mean_z})
 		#
@@ -351,9 +354,17 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		# note: there are "m_trace_flag_pt{x} == 1" valuse for _pt1 and _pt4, but none for _pt2, _pt3, specifically
 		# N=13482 N_1,4 = 2815 (about 1/4.7)... and i think the best thing to do is to pick this up in a second loop through the dict.
 		# note: the "depth_id" field indicates the depth of stacked elements. aka, at x,y, there area  bunch of z-varying elements
-		# with das_id={0,1,2,3..}, all with the same das_id. each (x,y) step along the segment is a unique das_id. so, what we'll want to do
-		# eventually is fit neighboring das_id elements to a line in x,y and like depth_id elements in a vertical plane (or connect
-		# explicity neighboring elements)
+		# with das_id={0,1,2,3..}, all with the same das_id. each (x,y) step along the segment is a unique das_id.
+		#
+		# that said, each block consists of 4 (x,y,z) vertices. we can determine the strike and dip from this plane.
+		# it looks like a typical block is like {1:TL, 2:BL, 3:BR, 4:TR}. we can also solve this more generally via planar geometry,
+		# or we can use a little trick of mean \delta{x,y,z} to solve for directions which requires only that pt. 1 be
+		# considered the "origin".
+		#mean_dx = numpy.mean([rw['m_x_pt1']-rw['m_x_pt%d' % j] for j in [2,3,4]])
+		#mean_dy = numpy.mean([rw['m_y_pt1']-rw['m_y_pt%d' % j] for j in [2,3,4]])
+		#mean_dz = numpy.mean([rw['m_z_pt1']-rw['m_z_pt%d' % j)] for j in [2,3,4]])
+		# in a single list comprehension:
+		mean_dx, mean_dy, mean_dz = [numpy.mean([rw['m_%s_pt1' % xyz]-rw['m_%s_pt%d' % (xyz, j)] for j in [2,3,4]]) for xyz in ('x', 'y', 'z')]
 		#
 		#
 		fault_phi   = - .75*math.pi
@@ -366,10 +377,6 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		#
 		# and set a field for a slip-sequence.
 		block_info[key]['positions'] = [[0.0, mean_x, mean_y, mean_z, 0.]]	# [[time, x,y,z, slip]]
-	#
-	# so now, we need to assign geodetic slip directions to each block. we could do this from a source trace file, or we can
-	# determine it from the data. for simplicity (and high-resolution), assume each block slips to its neighbor according the
-	# relative rake/dip. find the rake between susequent m_trace_flac_ptx entries; find dip within these groups (right?).
 	#
 	print 'blocks finished. index events', time.time()-t0
 	t0=time.time()

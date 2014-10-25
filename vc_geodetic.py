@@ -358,20 +358,26 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		#
 		# that said, each block consists of 4 (x,y,z) vertices. we can determine the strike and dip from this plane.
 		# it looks like a typical block is like {1:TL, 2:BL, 3:BR, 4:TR}. we can also solve this more generally via planar geometry,
-		# or we can use a little trick of mean \delta{x,y,z} to solve for directions which requires only that pt. 1 be
-		# considered the "origin".
-		#mean_dx = numpy.mean([rw['m_x_pt1']-rw['m_x_pt%d' % j] for j in [2,3,4]])
-		#mean_dy = numpy.mean([rw['m_y_pt1']-rw['m_y_pt%d' % j] for j in [2,3,4]])
-		#mean_dz = numpy.mean([rw['m_z_pt1']-rw['m_z_pt%d' % j)] for j in [2,3,4]])
-		# in a single list comprehension:
-		mean_dx, mean_dy, mean_dz = [numpy.mean([rw['m_%s_pt1' % xyz]-rw['m_%s_pt%d' % (xyz, j)] for j in [2,3,4]]) for xyz in ('x', 'y', 'z')]
+		# or we could use a little trick of mean \delta{x,y,z} to solve for directions which requires only that pt. 1 be
+		# considered the "origin", but this can create weird artifacts when elements are tilted. for now, just assume geometry.
 		#
+		# strike is mean surface angle (spherical phi) between (1,4) and (2,3).
+		# dip is mean vertical angle (spherical theta) between (1,2) and (4,3) (or maybe opposite of that?)
+		# so, calc dx, dy, dz for both pairs and then spherical coords accordingly.
+		dx = rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] - rw['m_x_pt2']
+		dy = rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] - rw['m_y_pt2']
+		#dz = rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] - rw['m_z_pt2']
+		fault_phi = math.atan(dy/dx)
 		#
-		fault_phi   = - .75*math.pi
-		fault_theta = - .5*math.pi
+		dx = -rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] + rw['m_x_pt2']
+		dy = -rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] + rw['m_y_pt2']
+		dz = -rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] + rw['m_z_pt2']
+		fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)
 		#
-		#block_info[key]['slip_phi'] = math.pi/4.
-		#block_info[key]['slip_theta'] = 0.
+		#fault_phi   = - .75*math.pi
+		#fault_theta = - .5*math.pi
+		#
+		# now, these angles may need to be adjusted for direction and origin.
 		block_info[key]['slip_theta'] = block_info[key]['dip_rad']  + fault_theta		# tpyically pi/2 for vertical strike/slip faults.
 		block_info[key]['slip_phi']   = block_info[key]['rake_rad'] + fault_phi			# typically pi for strike/slip along the fault.
 		#

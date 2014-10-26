@@ -71,6 +71,13 @@ emc_sections = emc_section_filter['filter']
 napa_sections = napa_region_section_filter['filter']
 colors_ =  mpl.rcParams['axes.color_cycle']
 #
+M_z_rotation = numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 1., 0.]])
+#
+M_x_rotation = numpy.array([[1.0, 0., 0.], [0., math.cos(theta), -math.sin(theta)], [0., math.sin(theta), math.cos(theta)]])
+#
+M_y_rotation = numpy.array([[math.cos(theta), 0., math.sin(theta)], [0., 1., 0.], [-math.sin(theta), 0., math.cos(theta)]]
+
+#
 def blocks_test(n_cycles=1):
 	#
 	print "doing vanilla version:"
@@ -351,12 +358,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		# arbitratily.
 		#
 		# for now, use holding values. going forward, we'll need to pull from elsewhere or do some fitting.
-		# note: there are "m_trace_flag_pt{x} == 1" valuse for _pt1 and _pt4, but none for _pt2, _pt3, specifically
-		# N=13482 N_1,4 = 2815 (about 1/4.7)... and i think the best thing to do is to pick this up in a second loop through the dict.
-		# note: the "depth_id" field indicates the depth of stacked elements. aka, at x,y, there area  bunch of z-varying elements
-		# with das_id={0,1,2,3..}, all with the same das_id. each (x,y) step along the segment is a unique das_id.
-		#
-		# that said, each block consists of 4 (x,y,z) vertices. we can determine the strike and dip from this plane.
+		# each block consists of 4 (x,y,z) vertices. we can determine the strike and dip from this plane.
 		# it looks like a typical block is like {1:TL, 2:BL, 3:BR, 4:TR}. we can also solve this more generally via planar geometry,
 		# or we could use a little trick of mean \delta{x,y,z} to solve for directions which requires only that pt. 1 be
 		# considered the "origin", but this can create weird artifacts when elements are tilted. for now, just assume geometry.
@@ -367,12 +369,15 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		dx = (rw['m_x_pt4'] - rw['m_x_pt1']) + (rw['m_x_pt3'] - rw['m_x_pt2'])
 		dy = rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] - rw['m_y_pt2']
 		#dz = rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] - rw['m_z_pt2']
-		fault_phi = math.atan(dy/dx)
+		fault_phi = math.atan(dy/dx)		# strike angle...
 		#
 		dx = -rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] + rw['m_x_pt2']
 		dy = -rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] + rw['m_y_pt2']
 		dz = -rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] + rw['m_z_pt2']
-		fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)	# this is (should be) the fault dip... right?
+		fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)	
+		# this is (should be) the (transformed) fault dip... right? so we'll probably get rid of this because 
+		# we'll calculate it based on a rake, dip (which is also provided in fault block info), 
+		# and then strike rotation transformations.
 		#														# but fault dip is a listed parameter (with rake).
 		#
 		#fault_phi   = - .75*math.pi
@@ -543,6 +548,28 @@ def rotation_matrix_general(axis=None, theta=None):
 	return numpy.array([[aa+bb-cc-dd, 2.*(bc+ad), 2.*(bd-ac)],
 			[2.*(bc-ad), aa+cc-bb-dd, 2.*(cd+ab)],
 			[2.*(bd+ac), 2.*(cd-ab), aa+dd-bb-cc]])
-
+#
 def rotate_vector_general(vector=None, axis=None, theta=None):
 	return numpy.dot(rotation_matrix_general(axis, theta), vector)
+#
+def rotate_x(vector=None, theta=0.):
+	# probably ought to code these directly for speed. also, note the distinction between
+	# vector and coordinate rotations.
+	#M_x_rotation = numpy.array([[1.0, 0., 0.], [0., math.cos(theta), -math.sin(theta)], [0., math.sin(theta), math.cos(theta)]])
+	return numpy.dot(M_x_rotation, vector)
+	#return rotate_vector_general(vector=vector, axis=[1., 0., 0.], theta=theta)
+#
+def rotate_y(vector=None, theta=0.):
+	# rotate about y axis (again, should hard-code these for speed. is there a numpy implementation?)
+	#
+	#M_y_rotation = numpy.array([[math.cos(theta), 0., math.sin(theta)], [0., 1., 0.], [-math.sin(theta), 0., math.cos(theta)]]
+	#
+	return numpy.dot(M_y_rotation, vector)
+	#return rotate_vector_general(vector=vector, axis=[0., 1., 0.], theta=theta)
+#
+def rotate_z(vector=None, theta=0.):
+	# ... and we should probably pre-define these, for speed...
+	#M_z_rotation = numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 1., 0.]])
+	#
+	return numpy.dot(M_z_rotation, vector)
+	#return rotate_vector_general(vector=vector, axis=[0., 0., 1.], theta=theta)

@@ -375,10 +375,12 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		dy = -rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] + rw['m_y_pt2']
 		dz = -rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] + rw['m_z_pt2']
 		fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)	
-		# this is (should be) the (transformed) fault dip... right? so we'll probably get rid of this because 
-		# we'll calculate it based on a rake, dip (which is also provided in fault block info), 
-		# and then strike rotation transformations.
-		#														# but fault dip is a listed parameter (with rake).
+		# ... and now, we get (slip)*cos(rake) in the fault_phi direction
+		# and (slip)*sin(rake) i9n the fault_theta direction... or negative that 
+		# direcgtion.
+		# note that we can also calculate this from linear transformations:
+		# 1) assume slip in the y^ direction. 2) rotate theta_rake about x^,  then 3)
+		# theta_dip about y^, then theta_strike about z^ (rake, dip in block_info).
 		#
 		#fault_phi   = - .75*math.pi
 		#fault_theta = - .5*math.pi
@@ -426,7 +428,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 			event_number = rw['event_number']
 			#event_time = vc_data['event_table'][event_number]['event_year']
 			event_time = events_data[event_number]
-			
+			#
 			slip = rw['slip']*plot_factor
 			#
 			theta = block_info[block_id]['slip_theta']
@@ -438,7 +440,9 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 			x0, y0, z0 = block_info[block_id]['positions'][-1][1:4]
 			#
 			#block_info[block_id]['positions'] += [[block_id, event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0]]
-			block_info[block_id]['positions'] += [[event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0, slip]]
+			# ... no, this is not quite it either. we have to do the rotation transform
+			# properly.
+			block_info[block_id]['positions'] += [[event_time, slip*math.cos(block_info['rake_rad'])*math.cos(phi) + x0, slip*math.cos(block_info['rake_rad'])*math.sin(phi) + y0, slip*math.sin(theta) + z0, slip]]
 			#
 			if i_rw%10**5==0:
 				print 'rw: %d (dt=%f)' % (i_rw, time.time()-t0)

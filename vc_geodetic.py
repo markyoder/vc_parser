@@ -572,7 +572,7 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 		plt.plot(X,Y, '-', alpha=.3, color=this_color, zorder=15)
 		#
 		#
-		if j%10**5==0: print "plotted %d sections..." % j
+		#if j%100==0: print "plotted %d sections..." % j
 	#
 	if do_return: return blockwise_obj
 #

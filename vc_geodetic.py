@@ -500,9 +500,8 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	
 	return block_info
 #
-def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.], map_res='i'):
+def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7):
 	# eventually, add section and faultwise filters...
-	#
 	#
 	n_cpus=None
 	plt.ion()
@@ -514,7 +513,11 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 		blockwise_obj = numpy.load(blockwise_obj)
 	#return blockwise_obj
 	if sections==None:
-		sections = blockwise_obj.keys()
+		block_ids = blockwise_obj.keys()
+	else:
+		with h5py.File(sim_file, 'r') as vch5:
+			blocks = vch5['block_info_table']
+			block_ids = [rw['block_id'] for rw in blocks if rw['section_id'] in sections] 
 	#
 	# draw a map:
 	ll_range = vc_parser.get_fault_model_extents(section_ids=sections, sim_file=sim_file, n_cpus=n_cpus)
@@ -524,34 +527,36 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 	#
 	print "make map..."
 	plt.figure(fnum, figsize=map_size)
+	plt.clf()
 	#bm = vc_basemap(llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i', projection='cyl')
-	bm = lambda x,y: (x,y)	# use this if there is no map...
-	#bm = vc_parser.vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution=map_res)
+	#bm = lambda *args: args	# use this if there is no map...
+	#
+	bm = vc_parser.vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min']-map_padding, llcrnrlat=ll_range['lat_min']-map_padding, urcrnrlon=ll_range['lon_max']+map_padding, urcrnrlat=ll_range['lat_max']+map_padding, lon_0=lon_0, lat_0=lat_0, resolution=map_res)
 	#
 	print "map drawn. now, plot fault positions..."
 	#plot_initial_section_positions(blockwise_obj=blockwise_obj, sections=sections, faults=faults, i_range=[i_start, i_start+1], fignum=fnum)
 	#
-	for j, key in enumerate(sections):
+	for j, key in enumerate(block_ids):
 		#posis = blockwise_obj[key]['positions']
-		posis = blockwise_obj[key]['positions'][i_start]
-		posis = numpy.append(posis, blockwise_obj[key]['positions'][(len(posis)-1 or i_stop-1)])
+		posis = blockwise_obj[key]['positions'][(0 or i_start)]
+		posis = numpy.append(posis, blockwise_obj[key]['positions'][(len(blockwise_obj[key]['positions']) or i_stop)-1])
 		this_color = colors_[j%len(colors_)]
-		#plt.plot(bm(posis['x'][0:1], posis['y'][0:1]), '.', alpha=.6, color=this_color, zorder=15)
-		#plt.plot(bm(posis['x'][i_start:(len(posis) or i_stop)], posis['y'][i_start:(len(posis) or i_stop)]), '-', alpha=.3, color=this_color, zorder=15)
+		# 
+		#plt.plot(bm(posis['x'][0], posis['y'][0]), '.', alpha=.6, color=this_color, zorder=15)
+		#plt.plot(bm(posis['x'], posis['y']), '-', alpha=.3, color=this_color, zorder=15)
 		#
-		# with the map, this just explodes in memory. let's just use the start and finish.
-		#X,Y = bm([posis['x'][0]], [posis['y'][0]])
-		#plt.plot(X,Y, '.', alpha=.6, color=this_color, zorder=15)
+		# xy_to_lat_lon(x, y, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict')
+		X,Y = posis['x'][0], posis['y'][0]
+		Y,X = vc_parser.xy_to_lat_lon(X, Y, sim_file=default_sim_file, return_format='list')
+		X,Y = bm(X,Y)
+		plt.plot([X], [Y], '.', alpha=.6, color=this_color, zorder=15)
 		#
-		#X,Y = bm([posis['x'][i_start], posis['x'][(len(posis)-1 or i_stop-1)]], [posis['y'][i_start], posis['y'][(len(posis)-1 or i_stop-1)]])
-		#plt.plot(bm(posis['x'][i_start:(len(posis)-1 or i_stop-1)], posis['y'][i_start:(len(posis)-1 or i_stop-1)]), '-', alpha=.3, color=this_color, zorder=15)
+		#plt.plot(bm(posis['x'][0].tolist(), posis['y'][0].tolist()), '.', alpha=.6, color=this_color, zorder=15)
+		X,Y = posis['x'], posis['y']
+		Y,X = zip(*[vc_parser.xy_to_lat_lon(X[i],Y[i], sim_file=default_sim_file, return_format='list') for i in xrange(len(X))])
+		#plt.plot(bm(posis['x'], posis['y']), '-', alpha=.3, color=this_color, zorder=15)
+		plt.plot(X,Y, '-', alpha=.3, color=this_color, zorder=15)
 		#
-		#X,Y = 
-		plt.plot(bm(posis['x'][0], posis['y'][0]), '.', alpha=.6, color=this_color, zorder=15)
-		plt.plot(bm(posis['x'], posis['y']), '-', alpha=.3, color=this_color, zorder=15)
-		#
-		#plt.plot(posis['x'][0:1], posis['y'][0:1], '.', alpha=.6, color=this_color, zorder=15)
-		#plt.plot(posis['x'][i_start:(len(posis) or i_stop)], posis['y'][i_start:(len(posis) or i_stop)], '-', alpha=.3, color=this_color, zorder=15)
 		#
 		if j%10**5==0: print "plotted %d sections..." % j
 	#
@@ -576,6 +581,44 @@ def plot_initial_section_positions(blockwise_obj='dumps/blockwise_slip.pkl', sec
 		plt.plot(blockwise_obj[key]['positions'][i_range[0]:i_range[1]]['x'], blockwise_obj[key]['positions'][i_range[0]:i_range[1]]['y'], '.-')
 	#
 	return blockwise_obj
+#
+#
+def plot_blockwise_slip_3d(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, fig_size=(10., 8.)):
+	# eventually, add section and faultwise filters...
+	#
+	n_cpus=None
+	plt.ion()
+	f=plt.figure(fnum, figsize=fig_size)
+	plt.clf()
+	ax3d = f.add_subplot(111, projection='3d')
+	#
+	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
+	if isinstance(blockwise_obj, str):
+		blockwise_obj = numpy.load(blockwise_obj)
+	#return blockwise_obj
+	if sections==None:
+		block_ids = blockwise_obj.keys()
+	else:
+		with h5py.File(sim_file, 'r') as vch5:
+			blocks = vch5['block_info_table']
+			block_ids = [rw['block_id'] for rw in blocks if rw['section_id'] in sections] 
+	#
+	ax3d.set_xlabel('$x$')
+	ax3d.set_ylabel('$y$')
+	ax3d.set_zlabel('$z$')
+	for j, key in enumerate(block_ids):
+		#posis = blockwise_obj[key]['positions']
+		posis = blockwise_obj[key]['positions'][(0 or i_start)]
+		posis = numpy.append(posis, blockwise_obj[key]['positions'][(len(blockwise_obj[key]['positions']) or i_stop)-1])
+		this_color = colors_[j%len(colors_)]
+		#
+		ax3d.plot([posis['x'][0]], [posis['y'][0]], [posis['z'][0]], marker='.', alpha=.3, color=this_color)
+		ax3d.plot(posis['x'], posis['y'], posis['z'], linestyle='-', alpha=.3, color=this_color)
+		#
+		#if j%10**5==0: print "plotted %d sections..." % j
+	#
+	if do_return: return blockwise_obj
+
 #
 def rotation_matrix_general(axis=None, theta=None):
 	# generalize rotation matrix from:

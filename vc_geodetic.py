@@ -71,11 +71,7 @@ emc_sections = emc_section_filter['filter']
 napa_sections = napa_region_section_filter['filter']
 colors_ =  mpl.rcParams['axes.color_cycle']
 #
-M_z_rotation = numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 1., 0.]])
-#
-M_x_rotation = numpy.array([[1.0, 0., 0.], [0., math.cos(theta), -math.sin(theta)], [0., math.sin(theta), math.cos(theta)]])
-#
-M_y_rotation = numpy.array([[math.cos(theta), 0., math.sin(theta)], [0., 1., 0.], [-math.sin(theta), 0., math.cos(theta)]]
+
 
 #
 def blocks_test(n_cycles=1):
@@ -176,8 +172,8 @@ def get_blocks_dict(sim_file=default_sim_file, faults=None, sections=None, pipe=
 	else:
 		return block_dict
 #
-def block_slip_for_mpp(rws, block_info, events_data):
-	return_positions = {key:[key, 0., 0., 0., 0.] for key in block_info.keys()}
+def block_slip_for_mpp(rws, block_info, events_data, plot_factor=1.0):
+	return_positions = {key:[key, 0., 0., 0., 0., 0.] for key in block_info.keys()}
 	for i_rw, rw in enumerate(rws):
 		#
 		# we'll need to get the direction of motion... which nominally will need to be encoded into block_info.
@@ -187,15 +183,16 @@ def block_slip_for_mpp(rws, block_info, events_data):
 		#event_time = vc_data['event_table'][event_number]['event_year']
 		event_time = events_data[event_number]
 		#
-		slip = rw['slip']
+		slip = rw['slip']*plot_factor
 		#
 		theta = block_info[block_id]['slip_theta']
 		phi   = block_info[block_id]['slip_phi']
 		#
 		#x0, y0, z0 = block_info[key]['positions'][-1][1:4]
 		x0, y0, z0 = return_positions[key][-1][2:5]
+		slip_vector = [slip*x for x in block_info['block_id']['slip_vector']]	# this should be a numpy array, but [] will work with any iteratable obj.
 		#
-		return_positions[block_id] += [[block_id, event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0]]
+		return_positions[block_id] += [[block_id, event_time, x0 + slip_vector[0], y0 + slip_vector[1], z0 + slip_vector[2], slip]]
 		#
 		if i_rw%10**5==0:
 			print 'rw: %d (dt=%f)' % (i_rw, time.time()-t0)
@@ -224,8 +221,26 @@ def blockwise_slip_mpp(sim_file=default_sim_file, faults=None, sections=None, pi
 		mean_z = numpy.mean([rw['m_z_pt%d' % j] for j in [1,2,3,4]])
 		#
 		block_info[key].update({'mean_x':mean_x, 'mean_y':mean_y, 'mean_z':mean_z})
-		block_info[key]['slip_phi'] = 0.
-		block_info[key]['slip_theta'] = math.pi/2.
+		#block_info[key]['slip_phi'] = 0.
+		#block_info[key]['slip_theta'] = math.pi/2.
+		#
+		dx, dy, dz = [(rw['m_%s_pt4' % xyz] - rw['m_%s_pt1' % xyz] + rw['m_%s_pt3' % xyz] - rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
+		fault_phi = math.atan(dy/dx)		# strike angle...
+		vector_len = math.sqrt(dx*dx + dy*dy + dz*dz)		# ... though note that dz will always be zero, given the layout of the blocks.
+		slip_strike_vector = math.cos(block_info[key]['rake_rad'])*numpy.array([x/vector_len for x in (dx, dy, dz)])	# (aka, normal-vector compon. * strike_compon)
+		#
+		#dx = -rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] + rw['m_x_pt2']
+		#dy = -rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] + rw['m_y_pt2']
+		#dz = -rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] + rw['m_z_pt2']
+		dx, dy, dz = [(-rw['m_%s_pt4' % xyz] - rw['m_%s_pt1' % xyz] + rw['m_%s_pt3' % xyz] + rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
+		fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)		# and this should be equal to the dip angle (does not change when we rotate throught strike)
+		vector_len = math.sqrt(dx*dx + dy*dy + dz*dz)
+		slip_thrust_vector = math.sin(block_info[key]['rake_rad'])*numpy.array([x/vector_len for x in (dx, dy, dz)])	# len=1 vector in thrust direction * rake compon.
+		#
+		block_info[key]['slip_theta'] = fault_theta		# temporarily for diagnostics. dip angles should be equivalent... right?
+		block_info[key]['slip_phi']   = fault_phi
+		# ... and slip vector:
+		block_info[key]['slip_vector'] = slip_strike_vector + slip_thrust_vector
 		#
 		# and set a field for a slip-sequence.
 		block_info[key]['positions'] = [[0.0, mean_x, mean_y, mean_z]]
@@ -274,6 +289,8 @@ def blockwise_slip_mpp(sim_file=default_sim_file, faults=None, sections=None, pi
 					block_info[key]['positions'].update(R[key])
 				else:
 					block_info[key]['positions'] = R[key]
+				block_info[key]['positions'].sort(order='event_time')
+				
 		#
 		'''
 		for i_rw, rw in enumerate(vc_data['event_sweep_table']):
@@ -366,18 +383,24 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		# strike is mean surface angle (spherical phi) between (1,4) and (2,3).
 		# dip is mean vertical angle (spherical theta) between (1,2) and (4,3) (or maybe opposite of that?)
 		# so, calc dx, dy, dz for both pairs and then spherical coords accordingly.
-		dx = (rw['m_x_pt4'] - rw['m_x_pt1']) + (rw['m_x_pt3'] - rw['m_x_pt2'])
-		dy = rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] - rw['m_y_pt2']
+		#dx = rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] - rw['m_x_pt2']
+		#dy = rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] - rw['m_y_pt2']
 		#dz = rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] - rw['m_z_pt2']
+		dx, dy, dz = [(rw['m_%s_pt4' % xyz] - rw['m_%s_pt1' % xyz] + rw['m_%s_pt3' % xyz] - rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
 		fault_phi = math.atan(dy/dx)		# strike angle...
+		# strike normal vector. we could use this + a dot-product to get slip, or we can use the angle (above).
+		vector_len = math.sqrt(dx*dx + dy*dy + dz*dz)		# ... though note that dz will always be zero, given the layout of the blocks.
+		slip_strike_vector = math.cos(block_info[key]['rake_rad'])*numpy.array([x/vector_len for x in (dx, dy, dz)])	# (aka, normal-vector compon. * strike_compon)
 		#
-		dx = -rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] + rw['m_x_pt2']
-		dy = -rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] + rw['m_y_pt2']
-		dz = -rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] + rw['m_z_pt2']
-		fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)	
-		# ... and now, we get (slip)*cos(rake) in the fault_phi direction
-		# and (slip)*sin(rake) i9n the fault_theta direction... or negative that 
-		# direcgtion.
+		#dx = -rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] + rw['m_x_pt2']
+		#dy = -rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] + rw['m_y_pt2']
+		#dz = -rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] + rw['m_z_pt2']
+		dx, dy, dz = [(rw['m_%s_pt4' % xyz] + rw['m_%s_pt1' % xyz] - rw['m_%s_pt3' % xyz] - rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
+		fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)		# and this should be equal to the dip angle (does not change when we rotate throught strike)
+		# thrust normal vector. we could use this + a dot-product to get slip, or we can use the angle (above).
+		vector_len = math.sqrt(dx*dx + dy*dy + dz*dz)
+		slip_thrust_vector = math.sin(block_info[key]['rake_rad'])*numpy.array([x/vector_len for x in (dx, dy, dz)])	# len=1 vector in thrust direction * rake compon.
+		#		
 		# note that we can also calculate this from linear transformations:
 		# 1) assume slip in the y^ direction. 2) rotate theta_rake about x^,  then 3)
 		# theta_dip about y^, then theta_strike about z^ (rake, dip in block_info).
@@ -388,9 +411,12 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		# ... actually, this is all wrong (the right approach to calculations, but not the right angles).
 		# now, these angles may need to be adjusted for direction and origin.
 		# these should be the actual, spherical coords, direction of slip.
-		block_info[key]['slip_theta'] = block_info[key]['dip_rad']  + fault_theta		# tpyically pi/2 for vertical strike/slip faults.
-		block_info[key]['slip_phi']   = block_info[key]['rake_rad'] + fault_phi			# typically pi for strike/slip along the fault.
-		# now we need unit vectors for slip on this block (aka, combining strike, dip, rake):
+
+		block_info[key]['slip_theta'] = fault_theta		# temporarily for diagnostics. dip angles should be equivalent... right?
+		block_info[key]['slip_phi']   = fault_phi
+		# ... and slip vector:
+		block_info[key]['slip_vector'] = slip_strike_vector + slip_thrust_vector
+		
 		#
 		# and set a field for a slip-sequence.
 		block_info[key]['positions'] = [[0.0, mean_x, mean_y, mean_z, 0.]]	# [[time, x,y,z, slip]]
@@ -442,7 +468,9 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 			#block_info[block_id]['positions'] += [[block_id, event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0]]
 			# ... no, this is not quite it either. we have to do the rotation transform
 			# properly.
-			block_info[block_id]['positions'] += [[event_time, slip*math.cos(block_info['rake_rad'])*math.cos(phi) + x0, slip*math.cos(block_info['rake_rad'])*math.sin(phi) + y0, slip*math.sin(theta) + z0, slip]]
+			#block_info[block_id]['positions'] += [[event_time, slip*math.cos(block_info['rake_rad'])*math.cos(phi) + x0, slip*math.cos(block_info['rake_rad'])*math.sin(phi) + y0, slip*math.sin(theta) + z0, slip]]
+			slip_vector = [slip*x for x in block_info[block_id]['slip_vector']]	# this should be a numpy array, but [] will work with any iteratable obj.
+			block_info[block_id]['positions'] += [[event_time, x0 + slip_vector[0], y0 + slip_vector[1], z0 + slip_vector[2], slip]]
 			#
 			if i_rw%10**5==0:
 				print 'rw: %d (dt=%f)' % (i_rw, time.time()-t0)
@@ -472,7 +500,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	
 	return block_info
 #
-def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.]):
+def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.], map_res='i'):
 	# eventually, add section and faultwise filters...
 	#
 	#
@@ -497,19 +525,35 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 	print "make map..."
 	plt.figure(fnum, figsize=map_size)
 	#bm = vc_basemap(llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i', projection='cyl')
-	#bm = vc_parser.vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='l')
+	bm = lambda x,y: (x,y)	# use this if there is no map...
+	#bm = vc_parser.vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution=map_res)
 	#
 	print "map drawn. now, plot fault positions..."
 	#plot_initial_section_positions(blockwise_obj=blockwise_obj, sections=sections, faults=faults, i_range=[i_start, i_start+1], fignum=fnum)
 	#
 	for j, key in enumerate(sections):
-		posis = blockwise_obj[key]['positions']
+		#posis = blockwise_obj[key]['positions']
+		posis = blockwise_obj[key]['positions'][i_start]
+		posis = numpy.append(posis, blockwise_obj[key]['positions'][(len(posis)-1 or i_stop-1)])
 		this_color = colors_[j%len(colors_)]
 		#plt.plot(bm(posis['x'][0:1], posis['y'][0:1]), '.', alpha=.6, color=this_color, zorder=15)
 		#plt.plot(bm(posis['x'][i_start:(len(posis) or i_stop)], posis['y'][i_start:(len(posis) or i_stop)]), '-', alpha=.3, color=this_color, zorder=15)
-		plt.plot(posis['x'][0:1], posis['y'][0:1], '.', alpha=.6, color=this_color, zorder=15)
-		plt.plot(posis['x'][i_start:(len(posis) or i_stop)], posis['y'][i_start:(len(posis) or i_stop)], '-', alpha=.3, color=this_color, zorder=15)
 		#
+		# with the map, this just explodes in memory. let's just use the start and finish.
+		#X,Y = bm([posis['x'][0]], [posis['y'][0]])
+		#plt.plot(X,Y, '.', alpha=.6, color=this_color, zorder=15)
+		#
+		#X,Y = bm([posis['x'][i_start], posis['x'][(len(posis)-1 or i_stop-1)]], [posis['y'][i_start], posis['y'][(len(posis)-1 or i_stop-1)]])
+		#plt.plot(bm(posis['x'][i_start:(len(posis)-1 or i_stop-1)], posis['y'][i_start:(len(posis)-1 or i_stop-1)]), '-', alpha=.3, color=this_color, zorder=15)
+		#
+		#X,Y = 
+		plt.plot(bm(posis['x'][0], posis['y'][0]), '.', alpha=.6, color=this_color, zorder=15)
+		plt.plot(bm(posis['x'], posis['y']), '-', alpha=.3, color=this_color, zorder=15)
+		#
+		#plt.plot(posis['x'][0:1], posis['y'][0:1], '.', alpha=.6, color=this_color, zorder=15)
+		#plt.plot(posis['x'][i_start:(len(posis) or i_stop)], posis['y'][i_start:(len(posis) or i_stop)], '-', alpha=.3, color=this_color, zorder=15)
+		#
+		if j%10**5==0: print "plotted %d sections..." % j
 	#
 	if do_return: return blockwise_obj
 #
@@ -559,21 +603,23 @@ def rotate_vector_general(vector=None, axis=None, theta=None):
 def rotate_x(vector=None, theta=0.):
 	# probably ought to code these directly for speed. also, note the distinction between
 	# vector and coordinate rotations.
-	#M_x_rotation = numpy.array([[1.0, 0., 0.], [0., math.cos(theta), -math.sin(theta)], [0., math.sin(theta), math.cos(theta)]])
-	return numpy.dot(M_x_rotation, vector)
+	rotation_matrix_x = numpy.array([[1.0, 0., 0.], [0., math.cos(theta), -math.sin(theta)], [0., math.sin(theta), math.cos(theta)]])
+	#
+	return numpy.dot(rotation_matrix_x, vector)
 	#return rotate_vector_general(vector=vector, axis=[1., 0., 0.], theta=theta)
 #
 def rotate_y(vector=None, theta=0.):
 	# rotate about y axis (again, should hard-code these for speed. is there a numpy implementation?)
 	#
 	#M_y_rotation = numpy.array([[math.cos(theta), 0., math.sin(theta)], [0., 1., 0.], [-math.sin(theta), 0., math.cos(theta)]]
+	rotation_matrix_y = numpy.array([[math.cos(theta), 0., math.sin(theta)], [0., 1., 0.], [-math.sin(theta), 0., math.cos(theta)]])
 	#
-	return numpy.dot(M_y_rotation, vector)
+	return numpy.dot(rotation_matrix_y, vector)
 	#return rotate_vector_general(vector=vector, axis=[0., 1., 0.], theta=theta)
 #
 def rotate_z(vector=None, theta=0.):
 	# ... and we should probably pre-define these, for speed...
-	#M_z_rotation = numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 1., 0.]])
+	rotation_matrix_z = numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 1., 0.]])
 	#
-	return numpy.dot(M_z_rotation, vector)
+	return numpy.dot(rotation_matrix_z, vector)
 	#return rotate_vector_general(vector=vector, axis=[0., 0., 1.], theta=theta)

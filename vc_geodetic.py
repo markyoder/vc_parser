@@ -413,9 +413,9 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		slip_thrust_vector = rotate_y([1., 0., 0.], block_info[key]['rake_rad'])
 		slip_thrust_vector = rotate_x(slip_thrust_vector, block_info[key]['dip_rad'])
 		slip_thrust_vector = rotate_z(slip_thrust_vector, fault_phi)
-		dx = 1.0*math.cos(block_info[key]['dip_rad'])*math.cos(fault_phi)
-		dy = 1.0*math.cos(block_info[key]['dip_rad'])*math.sin(fault_phi)
-		dz = 1.0*math.sin(block_info[key]['dip_rad'])
+		dx = 1.0*math.cos(block_info[key]['dip_rad'] + math.pi/2.)*math.cos(fault_phi)
+		dy = 1.0*math.cos(block_info[key]['dip_rad'] + math.pi/2.)*math.sin(fault_phi)
+		dz = 1.0*math.sin(block_info[key]['dip_rad'] + math.pi/2.)
 		slip_thrust_vector = numpy.array([dx, dy, dz]) - numpy.array(slip_strike_vector)
 		#
 		#fault_phi   = - .75*math.pi

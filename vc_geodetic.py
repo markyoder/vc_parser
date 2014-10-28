@@ -395,15 +395,28 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		#dx = -rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] + rw['m_x_pt2']
 		#dy = -rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] + rw['m_y_pt2']
 		#dz = -rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] + rw['m_z_pt2']
-		dx, dy, dz = [(rw['m_%s_pt4' % xyz] + rw['m_%s_pt1' % xyz] - rw['m_%s_pt3' % xyz] - rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
-		fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)		# and this should be equal to the dip angle (does not change when we rotate throught strike)
+		
+		#dx, dy, dz = [(rw['m_%s_pt4' % xyz] + rw['m_%s_pt1' % xyz] - rw['m_%s_pt3' % xyz] - rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
+		#fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)		# and this should be equal to the dip angle (does not change when we rotate throught strike)
 		# thrust normal vector. we could use this + a dot-product to get slip, or we can use the angle (above).
-		vector_len = math.sqrt(dx*dx + dy*dy + dz*dz)
-		slip_thrust_vector = math.sin(block_info[key]['rake_rad'])*numpy.array([x/vector_len for x in (dx, dy, dz)])	# len=1 vector in thrust direction * rake compon.
+		#vector_len = math.sqrt(dx*dx + dy*dy + dz*dz)
+		#slip_thrust_vector = math.sin(block_info[key]['rake_rad'])*numpy.array([x/vector_len for x in (dx, dy, dz)])	# len=1 vector in thrust direction * rake component.
+		
+		# ... except, and crap, that in the model, the dip angle does not appear to be
+		# accurately portrayed by the segment blocks. we'll have to take it from the 
+		# dip_angle field value.
 		#		
 		# note that we can also calculate this from linear transformations:
 		# 1) assume slip in the y^ direction. 2) rotate theta_rake about x^,  then 3)
 		# theta_dip about y^, then theta_strike about z^ (rake, dip in block_info).
+		# of course, these will need to be phase adjusted, but this is the idea.
+		slip_thrust_vector = rotate_y([1., 0., 0.], block_info[key]['rake_rad'])
+		slip_thrust_vector = rotate_x(slip_thrust_vector, block_info[key]['dip_rad'])
+		slip_thrust_vector = rotate_z(slip_thrust_vector, fault_phi)
+		dx = 1.0*math.cos(block_info[key]['dip_rad'])*math.cos(fault_phi)
+		dy = 1.0*math.cos(block_info[key]['dip_rad'])*math.sin(fault_phi)
+		dz = 1.0*math.sin(block_info[key]['dip_rad'])
+		slip_thrust_vector = numpy.array([dx, dy, dz]) - numpy.array(slip_strike_vector)
 		#
 		#fault_phi   = - .75*math.pi
 		#fault_theta = - .5*math.pi
@@ -412,7 +425,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		# now, these angles may need to be adjusted for direction and origin.
 		# these should be the actual, spherical coords, direction of slip.
 
-		block_info[key]['slip_theta'] = fault_theta		# temporarily for diagnostics. dip angles should be equivalent... right?
+		#block_info[key]['slip_theta'] = fault_theta		# temporarily for diagnostics. dip angles should be equivalent... right?
 		block_info[key]['slip_phi']   = fault_phi
 		# ... and slip vector:
 		block_info[key]['slip_vector'] = slip_strike_vector + slip_thrust_vector

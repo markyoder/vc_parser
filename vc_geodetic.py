@@ -470,7 +470,8 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 			#
 			slip = rw['slip']*plot_factor
 			#
-			theta = block_info[block_id]['slip_theta']
+			#theta = block_info[block_id]['slip_theta']
+			theta = block_info[block_id]['dip_rad'] + math.pi/2.
 			phi   = block_info[block_id]['slip_phi']
 			#
 			#x0=block_info[key]['positions'][-1][1]

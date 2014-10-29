@@ -341,6 +341,7 @@ def blockwise_slip_mpp(sim_file=default_sim_file, faults=None, sections=None, pi
 	return block_info
 #
 def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=None, f_pickle_out='dumps/blockwise_slip_0.pkl', plot_factor=1.0):
+	# note: plot_factor is being (effectively) moved to the plotting routines, so should not typically be used here.
 	t0=time.time()
 	print "getting blocks_dict...", t0
 	block_info = get_blocks_dict(sim_file=sim_file, faults=faults, sections=sections)
@@ -352,14 +353,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	t0=time.time()
 	print "block info fetched. assign mean values to blocks :: %f" % t0
 	#
-	# add mean position to block_info:
-	#for key in block_info.keys():
-	#for key, rw in block_info.items():
-	#for key in block_info.iterkeys():
 	for key, rw in block_info.iteritems():
-		#rw = block_info[key]
-		# items() should be faster than the keys() approach...
-		#rw=block_info[key]
 		#
 		#mean_x = numpy.mean([rw['m_x_pt%d' % j] for j in [1,2,3,4]])
 		#mean_y = numpy.mean([rw['m_y_pt%d' % j] for j in [1,2,3,4]])
@@ -369,25 +363,24 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		#
 		block_info[key].update({'mean_x':mean_x, 'mean_y':mean_y, 'mean_z':mean_z})
 		#
-		# slip angles: we'll need to get actual geodetic information about the faults from here. the rake/dip angles appear
-		# to speak in terms of stress accumulation and are transformed "along the fault trace", or something like that. aka,
-		# a vertical strike/slip fault has phi=0. or pi, theta = pi/2 (where, of course, the angle=0 position can be defined
-		# arbitratily.
+		# slip angles: get geodetic information about the faults from here.
 		#
-		# for now, use holding values. going forward, we'll need to pull from elsewhere or do some fitting.
 		# each block consists of 4 (x,y,z) vertices. we can determine the strike and dip from this plane.
-		# it looks like a typical block is like {1:TL, 2:BL, 3:BR, 4:TR}. we can also solve this more generally via planar geometry,
-		# or we could use a little trick of mean \delta{x,y,z} to solve for directions which requires only that pt. 1 be
-		# considered the "origin", but this can create weird artifacts when elements are tilted. for now, just assume geometry.
+		# it looks like a typical block is like {1:TL, 2:BL, 3:BR, 4:TR}. because rake angle is (or should be) defined
+		# absolutely with respect to right-lateral or left-lateral faulting (so rake=0 is (say) "right" and rake=pi is "left"),
+		# it might be better to define the fault geometry axes absolutely (aka the strike vector is always positive towards east and
+		# the orthogonal thrust vector is always up.
 		#
 		# strike is mean surface angle (spherical phi) between (1,4) and (2,3).
 		# dip is mean vertical angle (spherical theta) between (1,2) and (4,3) (or maybe opposite of that?)
+		# ... but, it looks like the fault segments to not graphically represent dip, so we'll take that from block_info_table.
 		# so, calc dx, dy, dz for both pairs and then spherical coords accordingly.
 		#dx = rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] - rw['m_x_pt2']
 		#dy = rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] - rw['m_y_pt2']
 		#dz = rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] - rw['m_z_pt2']
 		dx, dy, dz = [(rw['m_%s_pt4' % xyz] - rw['m_%s_pt1' % xyz] + rw['m_%s_pt3' % xyz] - rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
-		fault_phi = math.atan(dy/dx)		# strike angle...
+		#fault_phi = math.atan(dy/dx)		# strike angle...
+		fault_phi = math.atan(dx/dy)
 		# strike normal vector. we could use this + a dot-product to get slip, or we can use the angle (above).
 		vector_len = math.sqrt(dx*dx + dy*dy + dz*dz)		# ... though note that dz will always be zero, given the layout of the blocks.
 		slip_strike_vector = math.cos(block_info[key]['rake_rad'])*numpy.array([x/vector_len for x in (dx, dy, dz)])	# (aka, normal-vector compon. * strike_compon)
@@ -395,36 +388,24 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		#dx = -rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] + rw['m_x_pt2']
 		#dy = -rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] + rw['m_y_pt2']
 		#dz = -rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] + rw['m_z_pt2']
-		
 		#dx, dy, dz = [(rw['m_%s_pt4' % xyz] + rw['m_%s_pt1' % xyz] - rw['m_%s_pt3' % xyz] - rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
+		#
 		#fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)		# and this should be equal to the dip angle (does not change when we rotate throught strike)
 		# thrust normal vector. we could use this + a dot-product to get slip, or we can use the angle (above).
 		#vector_len = math.sqrt(dx*dx + dy*dy + dz*dz)
 		#slip_thrust_vector = math.sin(block_info[key]['rake_rad'])*numpy.array([x/vector_len for x in (dx, dy, dz)])	# len=1 vector in thrust direction * rake component.
-		
-		# ... except, and crap, that in the model, the dip angle does not appear to be
-		# accurately portrayed by the segment blocks. we'll have to take it from the 
-		# dip_angle field value.
 		#		
-		# note that we can also calculate this from linear transformations:
-		# 1) assume slip in the y^ direction. 2) rotate theta_rake about x^,  then 3)
-		# theta_dip about y^, then theta_strike about z^ (rake, dip in block_info).
-		# of course, these will need to be phase adjusted, but this is the idea.
-		slip_thrust_vector = rotate_y([1., 0., 0.], block_info[key]['rake_rad'])
-		slip_thrust_vector = rotate_x(slip_thrust_vector, block_info[key]['dip_rad'])
+		# calculate thrust component from linear rotations:
+		slip_thrust_vector = rotate_x([0., 1., 0.], block_info[key]['rake_rad'])
+		slip_thrust_vector = rotate_y(slip_thrust_vector, (block_info[key]['dip_rad']-math.pi/2.))
 		slip_thrust_vector = rotate_z(slip_thrust_vector, fault_phi)
-		dx = 1.0*math.cos(block_info[key]['dip_rad'] + math.pi/2.)*math.cos(fault_phi)
-		dy = 1.0*math.cos(block_info[key]['dip_rad'] + math.pi/2.)*math.sin(fault_phi)
-		dz = 1.0*math.sin(block_info[key]['dip_rad'] + math.pi/2.)
+		#slip_thrust_vector = -slip_thrust_vector	# does this return the back-slip vector?
+		thrust_phase = +math.pi/2.
+		dx = 1.0*math.sin(block_info[key]['dip_rad'] + thrust_phase)*math.cos(fault_phi)
+		dy = 1.0*math.sin(block_info[key]['dip_rad'] + thrust_phase)*math.sin(fault_phi)
+		dz = 1.0*math.cos(block_info[key]['dip_rad'] + thrust_phase)
 		slip_thrust_vector = numpy.array([dx, dy, dz]) - numpy.array(slip_strike_vector)
 		#
-		#fault_phi   = - .75*math.pi
-		#fault_theta = - .5*math.pi
-		#
-		# ... actually, this is all wrong (the right approach to calculations, but not the right angles).
-		# now, these angles may need to be adjusted for direction and origin.
-		# these should be the actual, spherical coords, direction of slip.
-
 		#block_info[key]['slip_theta'] = fault_theta		# temporarily for diagnostics. dip angles should be equivalent... right?
 		block_info[key]['slip_phi']   = fault_phi
 		# ... and slip vector:
@@ -514,13 +495,20 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	
 	return block_info
 #
-def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7):
+def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, plot_factor=1.0):
+	# original "blockwise" map plotter. plots a 2D map; each block element is a separate plot (and so goes the color rotation).
+	# originally, this plotted the full slip time-series -- which is fine by itself, but when we add the map, it fully explodes, so we
+	# plot only the total slip vector (x[0], x[-1]).
+	#
 	# eventually, add section and faultwise filters...
 	#
 	n_cpus=None
 	plt.ion()
 	plt.figure(fnum)
 	plt.clf()
+	#
+	if plot_factor==None: plot_factor = 1.0
+	plot_factor = float(plot_factor)
 	#
 	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
 	if isinstance(blockwise_obj, str):
@@ -535,6 +523,7 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 	#
 	# draw a map:
 	ll_range = vc_parser.get_fault_model_extents(section_ids=sections, sim_file=sim_file, n_cpus=n_cpus)
+	print "ll_range: ", ll_range
 	#
 	lon_0 = ll_range['lon_min'] + (ll_range['lon_max']-ll_range['lon_min'])/2.
 	lat_0 = ll_range['lat_min'] + (ll_range['lat_max']-ll_range['lat_min'])/2.
@@ -566,15 +555,114 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 		plt.plot([X], [Y], '.', alpha=.6, color=this_color, zorder=15)
 		#
 		#plt.plot(bm(posis['x'][0].tolist(), posis['y'][0].tolist()), '.', alpha=.6, color=this_color, zorder=15)
+		#delta_X, delta_Y, delta_Z = [posis[xyz][-1]-posis[xyz][0] for xyz in ['x', 'y', 'z']]
 		X,Y = posis['x'], posis['y']
 		Y,X = zip(*[vc_parser.xy_to_lat_lon(X[i],Y[i], sim_file=default_sim_file, return_format='list') for i in xrange(len(X))])
+		delta_X = (X[-1] - X[0]) * plot_factor
+		delta_Y = (Y[-1] - Y[0]) * plot_factor
+		#delta_z = posis['z'][-1] - posis['z'][0]
 		#plt.plot(bm(posis['x'], posis['y']), '-', alpha=.3, color=this_color, zorder=15)
-		plt.plot(X,Y, '-', alpha=.3, color=this_color, zorder=15)
+		#plt.plot(bm(posis['x'], posis['y']), '-', alpha=.3, color=delta_z, cmap=cm.coolwarm, zorder=15)
+		#plt.plot(X,Y, '-', alpha=.3, color=this_color, zorder=15)
+		#
+		plt.arrow(X[0], Y[0], delta_X, delta_Y, head_width=.005, head_length=.01, fc=this_color, ec=this_color, zorder=15, alpha=.5)
 		#
 		#
 		#if j%100==0: print "plotted %d sections..." % j
 	#
 	if do_return: return blockwise_obj
+#
+#
+def plot_blockwise_slip_color_thrust(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, plot_factor=1.0):
+	# eventually, add section and faultwise filters...
+	#
+	n_cpus=None
+	
+	#
+	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
+	if isinstance(blockwise_obj, str):
+		blockwise_obj = numpy.load(blockwise_obj)
+	#return blockwise_obj
+	if sections==None:
+		block_ids = blockwise_obj.keys()
+	else:
+		with h5py.File(sim_file, 'r') as vch5:
+			blocks = vch5['block_info_table']
+			block_ids = [rw['block_id'] for rw in blocks if rw['section_id'] in sections] 
+	#
+	# draw a map:
+	ll_range = vc_parser.get_fault_model_extents(section_ids=sections, sim_file=sim_file, n_cpus=n_cpus)
+	print "ll_range: ", ll_range
+	#
+	lon_0 = ll_range['lon_min'] + (ll_range['lon_max']-ll_range['lon_min'])/2.
+	lat_0 = ll_range['lat_min'] + (ll_range['lat_max']-ll_range['lat_min'])/2.
+	#
+	print "make map..."
+	#set up the map:
+	#
+	plt.ion()
+	plt.figure(fnum, figsize=map_size)
+	plt.clf()
+	bm = vc_parser.vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min']-map_padding, llcrnrlat=ll_range['lat_min']-map_padding, urcrnrlon=ll_range['lon_max']+map_padding, urcrnrlat=ll_range['lat_max']+map_padding, lon_0=lon_0, lat_0=lat_0, resolution=map_res)
+	#
+	print "map drawn. now, plot fault positions..."
+	#plot_initial_section_positions(blockwise_obj=blockwise_obj, sections=sections, faults=faults, i_range=[i_start, i_start+1], fignum=fnum)
+	#
+	# we want the delta_z range, which means that ultimately we need two loops through the data. first, let's try looping once to collect all the plotting arrays,
+	# then a second loop to plot them. this may be memory problematic, particularly if we want to plot the full sequence as opposed to just the first and last points.
+	#
+	slip_vectors = []
+	#min_delta_z = None
+	#max_delta_z = None
+	#
+	for j, key in enumerate(block_ids):
+		#posis = blockwise_obj[key]['positions']
+		posis = blockwise_obj[key]['positions'][(0 or i_start)]
+		posis = numpy.append(posis, blockwise_obj[key]['positions'][(len(blockwise_obj[key]['positions']) or i_stop)-1])
+		#
+		k_start = (0 or i_start)
+		x0,y0,z0    = blockwise_obj[key]['positions'][k_start]['x'], blockwise_obj[key]['positions'][k_start]['y'], blockwise_obj[key]['positions'][k_start]['z']
+		y0, x0 = vc_parser.xy_to_lat_lon(x0,y0, sim_file=default_sim_file, return_format='list')
+		x0, y0 = bm(x0,y0)
+		k_stop = (len(blockwise_obj[key]['positions']) or i_stop)-1
+		x1,y1,z1    = blockwise_obj[key]['positions'][k_stop]['x'], blockwise_obj[key]['positions'][k_stop]['y'], blockwise_obj[key]['positions'][k_stop]['z']
+		y1, x1 = vc_parser.xy_to_lat_lon(x1,y1, sim_file=default_sim_file, return_format='list')
+		x1, y1 = bm(x1, y1)
+		#
+		#dx, dy dz = x1-x0, y1-y0, z1-z0
+		slip_vectors += [[x0,y0,z0, (x1-x0), (y1-y0), (z1-z0)]]
+		#min_delta_z = min(plot_arrays[-1][-1], (min_delta_z or plot_arrays[-1][-1]))
+		#max_delta_z = max(plot_arrays[-1][-1], (max_delta_z or plot_arrays[-1][-1]))
+		#
+	#
+	slip_vectors = numpy.core.records.fromarrays(zip(*slip_vectors), names=('x','y','z','dx', 'dy', 'dz'), formats=[type(x).__name__ for x in slip_vectors[0]])
+	#
+	# now, plot.
+	#	
+	min_delta_z = min(slip_vectors['dz'])
+	max_delta_z = max(slip_vectors['dz'])
+	#
+	# ... and eventually, split this up into two functions? sounds like a great idea, but since the coordinates are tied to the map projection, it might get
+	# a little messy or feel a little backwards. we may end up, basically, with some plotting functions that don't stand alone very well. in other words, 
+	# we'll pass a bunch of parameters through this funciton (plot_factor, etc.), and mabye pass a "plotter" function as a parameter?
+	#
+	# set up colors:
+	cmap_name = 'jet'		#'coolwarm'
+	my_colormap = plt.get_cmap(cmap_name)
+	cNorm = mcolor.Normalize(vmin=min_delta_z, vmax=max_delta_z)
+	scalar_map = cm.ScalarMappable(norm=cNorm, cmap=my_colormap)
+	#print "delta_z range: ", min_delta_z, max_delta_z
+	#print "scalar_map: ", scalar_map.get_clim()
+	#
+	if plot_factor==None: plot_factor = 1.0
+	plot_factor = float(plot_factor)
+	#
+	for j, rw in enumerate(slip_vectors):
+		plt.plot(rw['x'], rw['y'], color=scalar_map.to_rgba(rw['dz']), alpha=.5)
+		plt.arrow(rw['x'], rw['y'], rw['dx']*plot_factor, rw['dy']*plot_factor, color=scalar_map.to_rgba(rw['dz']), alpha=.5)
+	#
+	#if do_return: return blockwise_obj
+	if do_return: return slip_vectors
 #
 def plot_initial_section_positions(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_range=[0,1], fignum=3):
 	# vceventually, add section and faultwise filters...
@@ -597,7 +685,7 @@ def plot_initial_section_positions(blockwise_obj='dumps/blockwise_slip.pkl', sec
 	return blockwise_obj
 #
 #
-def plot_blockwise_slip_3d(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, fig_size=(10., 8.)):
+def plot_blockwise_slip_3d(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, fig_size=(10., 8.), plot_factor=1.0):
 	# eventually, add section and faultwise filters...
 	#
 	n_cpus=None
@@ -605,6 +693,9 @@ def plot_blockwise_slip_3d(blockwise_obj='dumps/blockwise_slip.pkl', sections=No
 	f=plt.figure(fnum, figsize=fig_size)
 	plt.clf()
 	ax3d = f.add_subplot(111, projection='3d')
+	#
+	if plot_factor==None: plot_factor = 1.0
+	plot_factor = float(plot_factor)
 	#
 	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
 	if isinstance(blockwise_obj, str):
@@ -627,7 +718,20 @@ def plot_blockwise_slip_3d(blockwise_obj='dumps/blockwise_slip.pkl', sections=No
 		this_color = colors_[j%len(colors_)]
 		#
 		ax3d.plot([posis['x'][0]], [posis['y'][0]], [posis['z'][0]], marker='.', alpha=.3, color=this_color)
-		ax3d.plot(posis['x'], posis['y'], posis['z'], linestyle='-', alpha=.3, color=this_color)
+		#ax3d.plot(posis['x'], posis['y'], posis['z'], linestyle='-', alpha=.3, color=this_color)
+		#
+		delta_X = (posis['x'][-1] - posis['x'][0]) * plot_factor
+		delta_Y = (posis['y'][-1] - posis['y'][0]) * plot_factor
+		delta_z = (posis['z'][-1] - posis['z'][0]) * plot_factor
+		
+		X = [posis['x'][0]+i*delta_X for i in xrange(2)]
+		Y = [posis['y'][0]+i*delta_Y for i in xrange(2)]
+		Z = [posis['z'][0]+i*delta_z for i in xrange(2)]
+			
+		#plt.plot(bm(posis['x'], posis['y']), '-', alpha=.3, color=this_color, zorder=15)
+		#plt.plot(X,Y, '-', alpha=.3, color=this_color, zorder=15)
+		#ax3d.arrow(posis['x'][0], posis['y'][0], posis['z'][0], delta_X, delta_Y, delta_z, head_width=.005, head_length=.01, fc=this_color, ec=this_color, zorder=15, alpha=.5)
+		ax3d.plot(X,Y,Z, color=this_color, zorder=15, alpha=.5)
 		#
 		#if j%10**5==0: print "plotted %d sections..." % j
 	#

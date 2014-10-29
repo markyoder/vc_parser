@@ -1957,12 +1957,16 @@ def in_rec_test(section_ids=None, sim_file=allcal_full_mks, n_cpus=None):
 #
 def get_fault_model_extents(section_ids=None, sim_file=allcal_full_mks, n_cpus=None):
 	# note: this, presently, is fully guessing at the (x,y) <--> (lon,lat) conversion.
+	# note also: this could probably be sped up considerably by shifting the min(), max() to the MPP process, the basic strategy
+	# to reduce the amount of data pickled back to the parent process.
 	if n_cpus==None: n_cpus = mpp.cpu_count()
 	#
-	section_ids = (section_ids or emc_section_filter['filter'])
+	if section_ids in ('emc', 'EMC'): section_ids = emc_section_filter['filter']
+	#section_ids = (section_ids or emc_section_filter['filter'])
 	#print "section_ids: ", section_ids
 	#
 	with h5py.File(sim_file) as vc_data:
+		section_ids = (section_ids or set(vc_data['block_info_table']['section_id'].tolist()))
 		if n_cpus==1:
 			block_info = numpy.array([rw for rw in vc_data['block_info_table'] if rw['section_id'] in section_ids], dtype=vc_data['block_info_table'].dtype)
 		else:
@@ -1980,14 +1984,29 @@ def get_fault_model_extents(section_ids=None, sim_file=allcal_full_mks, n_cpus=N
 				#
 			pool.close()
 			pool.join()
+			#for res in results: print "type: ", type(res)
 			#
 			if len(results)>1:
-				block_info = numpy.array(reduce(numpy.append, [x.get() for x in results]), dtype=tbl.dtype)
+				#
+				#block_info = numpy.array(reduce(numpy.append, [numpy.array(x.get()) for x in results]), dtype=tbl.dtype)
+				block_info = numpy.array([], dtype=tbl.dtype) # numpy.array(results[0].get(), dtype=tbl.dtype)
+				for res in results:
+					try:
+						x = res.get()
+						if len(x)>0:
+							#
+							block_info = numpy.append(block_info, x)
+							print "appending... ", len(x)
+						else:
+							print "len 0 return..."
+					except:
+						print "failing to append res: ", res, res.get()
+				#a=[numpy.append(block_info, x.get()) for x in results[1:]]
 			else:
 				# reduce() will throw an error if you give it only one value.
 				block_info = results[0].get()
 				
-		#		
+		#	
 		# names=output_names, formats = [type(x).__name__ for x in outputs[0]])
 		#t0=time.time()
 		#print "do reduce: %s", str(t0)

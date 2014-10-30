@@ -340,7 +340,7 @@ def blockwise_slip_mpp(sim_file=default_sim_file, faults=None, sections=None, pi
 	
 	return block_info
 #
-def plot_block_slip_vector(sim_file=default_sim_file, block_id=0):
+def plot_block_slip_vector(block_id=0, sim_file=default_sim_file):
 	#
 	# for development and testing: plot a single block and it's supposed slip direction(s).
 	#
@@ -458,14 +458,15 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	print "block info fetched. assign mean values to blocks :: %f" % t0
 	#
 	for key, rw in block_info.iteritems():
+		# this is probably a good candidate for MPP since we send over only one row (or a block of rows) and return a small dict.
+		# (note there is an MPP script that calls this function itself, which is an imperfect approach).
 		#
 		#mean_x = numpy.mean([rw['m_x_pt%d' % j] for j in [1,2,3,4]])
 		#mean_y = numpy.mean([rw['m_y_pt%d' % j] for j in [1,2,3,4]])
 		#mean_z = numpy.mean([rw['m_z_pt%d' % j] for j in [1,2,3,4]])
 		# in a single list comprehension:
+		
 		mean_x, mean_y, mean_z = [numpy.mean([rw['m_%s_pt%d' % (xyz, j)] for j in [1,2,3,4]]) for xyz in ('x', 'y', 'z')]
-		#
-		block_info[key].update({'mean_x':mean_x, 'mean_y':mean_y, 'mean_z':mean_z})
 		#
 		# slip angles: get geodetic information about the faults from here.
 		#
@@ -497,26 +498,17 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		thrust_vector = numpy.array(thrust_vector)/thrust_len
 		#
 		# actual slip in the strike and thrust directions:
-		strike_slip_vector = math.cos(block_info[key]['rake_rad'] + math.pi)*strike_vector
-		thrust_slip_vector = math.sin(block_info[key]['rake_rad'] + math.pi)*thrust_vector
-		#total_slip_vector = strike_slip_vector + thrust_slip_vector
-		#		
-		# calculate thrust component from linear rotations:
-		#slip_thrust_vector = rotate_x([1., 0., 0.], block_info[key]['rake_rad'])
-		#slip_thrust_vector = rotate_y(slip_thrust_vector, (block_info[key]['dip_rad']-math.pi/2.))
-		#slip_thrust_vector = rotate_z(slip_thrust_vector, fault_phi)
-		#slip_thrust_vector = -slip_thrust_vector	# does this return the back-slip vector?
-		#thrust_phase = +math.pi/2.
-		#dx = 1.0*math.sin(block_info[key]['dip_rad'] + thrust_phase)*math.cos(fault_phi)
-		#dy = 1.0*math.sin(block_info[key]['dip_rad'] + thrust_phase)*math.sin(fault_phi)
-		#dz = 1.0*math.cos(block_info[key]['dip_rad'] + thrust_phase)
-		#slip_thrust_vector = numpy.array([dx, dy, dz]) - numpy.array(slip_strike_vector)
 		#
-		#block_info[key]['slip_theta'] = fault_theta		# temporarily for diagnostics. dip angles should be equivalent... right?
+		
+		strike_slip_vector = math.cos(block_info[key]['rake_rad'])*strike_vector
+		thrust_slip_vector = math.sin(block_info[key]['rake_rad'])*thrust_vector
+		#total_slip_vector = strike_slip_vector + thrust_slip_vector
+		#
+		#block_info[key].update({'mean_x':mean_x, 'mean_y':mean_y, 'mean_z':mean_z})
 		block_info[key]['slip_phi']   = fault_phi
 		# ... and slip vector:
 		#block_info[key]['slip_vector'] = slip_strike_vector + slip_thrust_vector
-		block_info[key]['slip_vector'] = strike_slip_vector + thrust_slip_vector
+		block_info[key]['slip_vector'] = strike_slip_vector + thrust_slip_vector		# total slip vector
 		
 		#
 		# and set a field for a slip-sequence.
@@ -550,27 +542,20 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		for i_rw, rw in enumerate(vc_data['event_sweep_table']):
 			#
 			# we'll need to get the direction of motion... which nominally will need to be encoded into block_info.
-			# for now, assume everything moves in the same direction, phi=0., theta=pi/2. (see above)
 			block_id=rw['block_id']
 			event_number = rw['event_number']
-			#event_time = vc_data['event_table'][event_number]['event_year']
+			#
 			event_time = events_data[event_number]
 			#
 			slip = rw['slip']*plot_factor
 			#
-			#theta = block_info[block_id]['slip_theta']
-			theta = block_info[block_id]['dip_rad'] + math.pi/2.
-			phi   = block_info[block_id]['slip_phi']
+			phi   = block_info[block_id]['slip_phi']		# more or less strike angle (maybe exactly strike angle); angle on surface about z^.
 			#
 			#x0=block_info[key]['positions'][-1][1]
 			#y0=block_info[key]['positions'][-1][2]
 			#z0=block_info[key]['positions'][-1][3]
 			x0, y0, z0 = block_info[block_id]['positions'][-1][1:4]
 			#
-			#block_info[block_id]['positions'] += [[block_id, event_time, slip*math.cos(theta)*math.cos(phi) + x0, slip*math.cos(theta)*math.sin(phi) + y0, slip*math.sin(theta) + z0]]
-			# ... no, this is not quite it either. we have to do the rotation transform
-			# properly.
-			#block_info[block_id]['positions'] += [[event_time, slip*math.cos(block_info['rake_rad'])*math.cos(phi) + x0, slip*math.cos(block_info['rake_rad'])*math.sin(phi) + y0, slip*math.sin(theta) + z0, slip]]
 			slip_vector = [slip*x for x in block_info[block_id]['slip_vector']]	# this should be a numpy array, but [] will work with any iteratable obj.
 			block_info[block_id]['positions'] += [[event_time, x0 + slip_vector[0], y0 + slip_vector[1], z0 + slip_vector[2], slip]]
 			#
@@ -602,7 +587,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	
 	return block_info
 #
-def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, plot_factor=1.0):
+def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, plot_factor=100.0):
 	# original "blockwise" map plotter. plots a 2D map; each block element is a separate plot (and so goes the color rotation).
 	# originally, this plotted the full slip time-series -- which is fine by itself, but when we add the map, it fully explodes, so we
 	# plot only the total slip vector (x[0], x[-1]).

@@ -340,6 +340,110 @@ def blockwise_slip_mpp(sim_file=default_sim_file, faults=None, sections=None, pi
 	
 	return block_info
 #
+def plot_block_slip_vector(sim_file=default_sim_file, block_id=0):
+	#
+	# for development and testing: plot a single block and it's supposed slip direction(s).
+	#
+	with h5py.File(sim_file, 'r') as vc_data:
+		block=vc_data['block_info_table'][block_id]
+		#
+		block_vertices = [[block['m_%s_pt%d' % (xyz, 1+corner_index)] for xyz in ('x', 'y', 'z')] for corner_index in xrange(4)]
+		# get strike direction vector:
+		dx_ph, dy_ph, dz_ph = [(block['m_%s_pt4' % xyz] - block['m_%s_pt1' % xyz] + block['m_%s_pt3' % xyz] - block['m_%s_pt2' % xyz])*.5 for xyz in ('x', 'y', 'z')]
+		norm_len_strike = numpy.linalg.norm([dx_ph, dy_ph, dz_ph])
+		dx_ph, dy_ph, dz_ph = [x/norm_len_strike for x in [dx_ph, dy_ph, dz_ph]]
+		vec_len_strike = 1000.
+		#
+		# thrust direction vector:
+		dx_th, dy_th, dz_th = [(-block['m_%s_pt4' % xyz] - block['m_%s_pt1' % xyz] + block['m_%s_pt3' % xyz] + block['m_%s_pt2' % xyz])*.5 for xyz in ('x', 'y', 'z')]
+		norm_len_thrust = numpy.linalg.norm([dx_th, dy_th, dz_th])
+		dx_th, dy_th, dz_th = [x/norm_len_thrust for x in [dx_th, dy_th, dz_th]]
+		#vec_len_thrust = .5*norm_len_thrust
+		vec_len_thrust = 1000.
+		#vec_len = math.sqrt(dx*dx + dy*dy)
+		print "vec_len: ", norm_len_strike, norm_len_thrust
+		print "verts: ", dx_th, dy_th, dz_th
+		dx_strike, dy_strike, dz_strike = [x*norm_len_strike for x in [dx_ph, dy_ph, dz_ph]]
+		mean_x, mean_y, mean_z = [numpy.mean([block['m_%s_pt%d' % (xyz, j)] for j in [1,2,3,4]]) for xyz in ('x', 'y', 'z')]
+		theta_rake = block['rake_rad'] + math.pi 	# correct for "backslip" direction.
+		theta_dip = block['dip_rad']  -math.pi/2.
+		#
+	#
+	# calculate some geodetic bits:
+	fault_phi = math.atan(dy_ph/dx_ph)
+	fault_theta_0 = math.acos(dz_th/math.sqrt(dx_th*dx_th + dy_th*dy_th + dz_th*dz_th))
+	#
+	strike_vector = numpy.array([dx_ph, dy_ph, dz_ph])*math.cos(theta_rake)
+	thrust_vector = numpy.array([dx_th, dy_th, dz_th])*math.sin(theta_rake)
+	#
+	slip_vector_geom = strike_vector+thrust_vector
+	
+	print "prams: "
+	print "dip: %f/%f/%f", (theta_dip, fault_theta_0, 1.0*math.pi-fault_theta_0)
+	print "rake: ",theta_rake
+	print "strike(ish): ", fault_phi
+	#
+	# now, try creating a slip vector from scratch using the various known angles...
+	#v_len = vec_len
+	#slip_vector_0 = [v_len, 0, 0.]
+	#slip_vector = [v_len, 0, 0.]
+	#slip_vector = rotate_y(slip_vector, theta_rake)
+	#slip_vector_1 = slip_vector
+	#slip_vector = rotate_x(slip_vector, block['dip_rad'])
+	#slip_vector = rotate_z(slip_vector, fault_phi)
+	#
+	#thrust_phase=0.
+	#dx_slip = slip_vector[0]
+	#dy_slip = slip_vector[1]
+	#dz_slip = slip_vector[2]
+	#
+	#slip_thrust_vector = numpy.array([dx, dy, dz]) - numpy.array(slip_vector)	
+	#
+	block_vertices += [block_vertices[0]]
+	blocks_xyz = zip(*block_vertices)
+	figs = []
+	for i in xrange(4):
+		plt.ion()
+		figs+=[plt.figure(i)]
+		#ax=plt.gca()
+		figs[-1].clf()
+		if i<3:
+			plt.plot(blocks_xyz[i%3], blocks_xyz[(i+1)%3], 'o-')
+			plt.xlabel('%s' % ['x','y','z'][i%3])
+			plt.ylabel('%s' % ['x','y','z'][(i+1)%3])
+	#
+	mean_center = numpy.array([mean_x, mean_y, mean_z])
+	#
+	# and strike/thrust components:
+	#dx_strike, dy_strike, dz_strike = [math.cos(-theta_rake)
+	#
+	ax3d = figs[-1].add_subplot(111, projection='3d')
+	ax3d.set_xlabel('x')
+	ax3d.set_ylabel('y')
+	ax3d.set_zlabel('z')
+	ax3d.plot(blocks_xyz[0], blocks_xyz[1], blocks_xyz[2], 'o-')
+	mean_vector = numpy.array([mean_x, mean_y, mean_z])
+	ax3d.plot([mean_x], [mean_y], [mean_z], 'o')
+	#ax3d.plot([mean_x, mean_x+dx_strike], [mean_y, mean_y+dy_strike], [mean_z, mean_z+dz_strike], '-', lw=4)
+	#ax3d.plot([mean_x, mean_x+dx_slip], [mean_y, mean_y+dy_slip], [mean_z, mean_z+dz_slip], 'd-', lw=2)
+	
+	#ax3d.plot([mean_x, mean_x+slip_vector_0[0]], [mean_y, mean_y+slip_vector_0[1]], [mean_z, mean_z+slip_vector_0[2]], '--', lw=2)
+	#ax3d.plot([mean_x, mean_x+slip_vector_1[0]], [mean_y, mean_y+slip_vector_1[1]], [mean_z, mean_z+slip_vector_1[2]], '--', lw=2)
+	
+	X,Y,Z = zip(*[mean_vector, 1000.*numpy.array(strike_vector)+ mean_vector])
+	ax3d.plot(X,Y,Z, '-', lw=2)
+	X,Y,Z = zip(*[mean_vector, 1000.*numpy.array(thrust_vector)+ mean_vector])
+	ax3d.plot(X,Y,Z, '-', lw=2)
+	X,Y,Z = zip(*[mean_vector, 1000.*numpy.array(slip_vector_geom)+ mean_vector])
+	ax3d.plot(X,Y,Z, '*-', lw=2)
+	
+	
+	#
+	#figs[0].plot(blocks_xyz[0], blocks_xyz[1], 'o-')
+	#figs[1].plot(blocks_xyz[1], blocks_xyz[2], 'o-')
+	#figs[2].plot(blocks_xyz[2], blocks_xyz[0], 'o-')
+	
+#
 def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=None, f_pickle_out='dumps/blockwise_slip_0.pkl', plot_factor=1.0):
 	# note: plot_factor is being (effectively) moved to the plotting routines, so should not typically be used here.
 	t0=time.time()
@@ -378,38 +482,41 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 		#dx = rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] - rw['m_x_pt2']
 		#dy = rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] - rw['m_y_pt2']
 		#dz = rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] - rw['m_z_pt2']
-		dx, dy, dz = [(rw['m_%s_pt4' % xyz] - rw['m_%s_pt1' % xyz] + rw['m_%s_pt3' % xyz] - rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
-		#fault_phi = math.atan(dy/dx)		# strike angle...
-		fault_phi = math.atan(dx/dy)
-		# strike normal vector. we could use this + a dot-product to get slip, or we can use the angle (above).
-		vector_len = math.sqrt(dx*dx + dy*dy + dz*dz)		# ... though note that dz will always be zero, given the layout of the blocks.
-		slip_strike_vector = math.cos(block_info[key]['rake_rad'])*numpy.array([x/vector_len for x in (dx, dy, dz)])	# (aka, normal-vector compon. * strike_compon)
+		#dx, dy, dz 
+		strike_vector = [(rw['m_%s_pt4' % xyz] - rw['m_%s_pt1' % xyz] + rw['m_%s_pt3' % xyz] - rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
+		fault_phi = math.atan(strike_vector[1]/strike_vector[0])		# strike angle (plus phase)
+		strike_len = numpy.linalg.norm(strike_vector)
+		strike_vector=numpy.array(strike_vector)/strike_len	# direction of strike
 		#
-		#dx = -rw['m_x_pt4'] - rw['m_x_pt1'] + rw['m_x_pt3'] + rw['m_x_pt2']
-		#dy = -rw['m_y_pt4'] - rw['m_y_pt1'] + rw['m_y_pt3'] + rw['m_y_pt2']
-		#dz = -rw['m_z_pt4'] - rw['m_z_pt1'] + rw['m_z_pt3'] + rw['m_z_pt2']
-		#dx, dy, dz = [(rw['m_%s_pt4' % xyz] + rw['m_%s_pt1' % xyz] - rw['m_%s_pt3' % xyz] - rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
+		# get thrust vector:
+		#dx_th, dy_th, dz_th 
+		thrust_vector = [(-rw['m_%s_pt4' % xyz] - rw['m_%s_pt1' % xyz] + rw['m_%s_pt3' % xyz] + rw['m_%s_pt2' % xyz]) for xyz in ('x', 'y', 'z')]
+		dx_th, dy_th, dz_th = thrust_vector
+		fault_theta = math.acos(dz_th/math.sqrt(dx_th*dx_th + dy_th*dy_th + dz_th*dz_th))
+		thrust_len = numpy.linalg.norm(thrust_vector)
+		thrust_vector = numpy.array(thrust_vector)/thrust_len
 		#
-		#fault_theta = math.atan(math.sqrt(dx*dx + dy*dy)/dz)		# and this should be equal to the dip angle (does not change when we rotate throught strike)
-		# thrust normal vector. we could use this + a dot-product to get slip, or we can use the angle (above).
-		#vector_len = math.sqrt(dx*dx + dy*dy + dz*dz)
-		#slip_thrust_vector = math.sin(block_info[key]['rake_rad'])*numpy.array([x/vector_len for x in (dx, dy, dz)])	# len=1 vector in thrust direction * rake component.
+		# actual slip in the strike and thrust directions:
+		strike_slip_vector = math.cos(block_info[key]['rake_rad'] + math.pi)*strike_vector
+		thrust_slip_vector = math.sin(block_info[key]['rake_rad'] + math.pi)*thrust_vector
+		#total_slip_vector = strike_slip_vector + thrust_slip_vector
 		#		
 		# calculate thrust component from linear rotations:
-		slip_thrust_vector = rotate_x([0., 1., 0.], block_info[key]['rake_rad'])
-		slip_thrust_vector = rotate_y(slip_thrust_vector, (block_info[key]['dip_rad']-math.pi/2.))
-		slip_thrust_vector = rotate_z(slip_thrust_vector, fault_phi)
+		#slip_thrust_vector = rotate_x([1., 0., 0.], block_info[key]['rake_rad'])
+		#slip_thrust_vector = rotate_y(slip_thrust_vector, (block_info[key]['dip_rad']-math.pi/2.))
+		#slip_thrust_vector = rotate_z(slip_thrust_vector, fault_phi)
 		#slip_thrust_vector = -slip_thrust_vector	# does this return the back-slip vector?
-		thrust_phase = +math.pi/2.
-		dx = 1.0*math.sin(block_info[key]['dip_rad'] + thrust_phase)*math.cos(fault_phi)
-		dy = 1.0*math.sin(block_info[key]['dip_rad'] + thrust_phase)*math.sin(fault_phi)
-		dz = 1.0*math.cos(block_info[key]['dip_rad'] + thrust_phase)
-		slip_thrust_vector = numpy.array([dx, dy, dz]) - numpy.array(slip_strike_vector)
+		#thrust_phase = +math.pi/2.
+		#dx = 1.0*math.sin(block_info[key]['dip_rad'] + thrust_phase)*math.cos(fault_phi)
+		#dy = 1.0*math.sin(block_info[key]['dip_rad'] + thrust_phase)*math.sin(fault_phi)
+		#dz = 1.0*math.cos(block_info[key]['dip_rad'] + thrust_phase)
+		#slip_thrust_vector = numpy.array([dx, dy, dz]) - numpy.array(slip_strike_vector)
 		#
 		#block_info[key]['slip_theta'] = fault_theta		# temporarily for diagnostics. dip angles should be equivalent... right?
 		block_info[key]['slip_phi']   = fault_phi
 		# ... and slip vector:
-		block_info[key]['slip_vector'] = slip_strike_vector + slip_thrust_vector
+		#block_info[key]['slip_vector'] = slip_strike_vector + slip_thrust_vector
+		block_info[key]['slip_vector'] = strike_slip_vector + thrust_slip_vector
 		
 		#
 		# and set a field for a slip-sequence.
@@ -764,23 +871,24 @@ def rotate_vector_general(vector=None, axis=None, theta=None):
 def rotate_x(vector=None, theta=0.):
 	# probably ought to code these directly for speed. also, note the distinction between
 	# vector and coordinate rotations.
-	rotation_matrix_x = numpy.array([[1.0, 0., 0.], [0., math.cos(theta), -math.sin(theta)], [0., math.sin(theta), math.cos(theta)]])
+	#rotation_matrix_x = numpy.array([[1.0, 0., 0.], [0., math.cos(theta), -math.sin(theta)], [0., math.sin(theta), math.cos(theta)]])
 	#
-	return numpy.dot(rotation_matrix_x, vector)
+	#return numpy.dot(rotation_matrix_x, vector)
 	#return rotate_vector_general(vector=vector, axis=[1., 0., 0.], theta=theta)
+	return numpy.dot(numpy.array([[1.0, 0., 0.], [0., math.cos(theta), -math.sin(theta)], [0., math.sin(theta), math.cos(theta)]]), vector)
 #
 def rotate_y(vector=None, theta=0.):
 	# rotate about y axis (again, should hard-code these for speed. is there a numpy implementation?)
+	#theta = float(theta)%(math.pi*2.0)
 	#
-	#M_y_rotation = numpy.array([[math.cos(theta), 0., math.sin(theta)], [0., 1., 0.], [-math.sin(theta), 0., math.cos(theta)]]
 	rotation_matrix_y = numpy.array([[math.cos(theta), 0., math.sin(theta)], [0., 1., 0.], [-math.sin(theta), 0., math.cos(theta)]])
 	#
-	return numpy.dot(rotation_matrix_y, vector)
+	return numpy.dot(numpy.array([[math.cos(theta), 0., math.sin(theta)], [0., 1., 0.], [-math.sin(theta), 0., math.cos(theta)]]), vector)
 	#return rotate_vector_general(vector=vector, axis=[0., 1., 0.], theta=theta)
 #
 def rotate_z(vector=None, theta=0.):
 	# ... and we should probably pre-define these, for speed...
-	rotation_matrix_z = numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 1., 0.]])
+	#rotation_matrix_z = numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 0., 1.]])
 	#
-	return numpy.dot(rotation_matrix_z, vector)
+	return numpy.dot(numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 0., 1.]]), vector)
 	#return rotate_vector_general(vector=vector, axis=[0., 0., 1.], theta=theta)

@@ -828,7 +828,18 @@ def plot_blockwise_slip_3d(blockwise_obj='dumps/blockwise_slip.pkl', sections=No
 		#if j%10**5==0: print "plotted %d sections..." % j
 	#
 	if do_return: return blockwise_obj
-
+#
+def slip_field(blockwise_obj,lat_range, lon_range, d_lat, d_lon):
+	#+
+	# use:
+	# Vec<3> calc_displacement_vector(const Vec<3> location, const double c, const double dip, const double L, const double W, const double US, const double UD, const double UT, const double lambda, const double mu) throw(std::invalid_argument)
+	#
+	# args: blockwise_obj: a standard(ish) blockwise_obj (see blockwise_slip, etc.). trap it, however, so we can
+	# also take a list of dicts, list, or recarray. and extract the [[dx, dy, dz] ] lists there-from.
+	# can we/will we need to approximate from grid elements to full earthquake events. 
+	#
+	pass
+	
 #
 def rotation_matrix_general(axis=None, theta=None):
 	# generalize rotation matrix from:

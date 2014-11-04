@@ -2088,7 +2088,7 @@ def vc_basemap(projection='cyl', resolution='i', **kwargs):
 	lat_0 = llcrnrlat + (urcrnrlat - llcrnrlat)/2.
 	lon_0 = llcrnrlon + (urcrnrlon - llcrnrlon)/2.
 	#
-	bm = bmp.Basemap(projection=projection, **kwargs)
+	bm = bmp.Basemap(projection=projection, resolution=resolution, **kwargs)
 	aspect = bm.aspect
 	#
 	bm.drawmapboundary(color=map_frame_color, linewidth=map_frame_width, fill_color=water_color)

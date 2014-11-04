@@ -838,6 +838,8 @@ def slip_field(blockwise_obj,lat_range, lon_range, d_lat, d_lon):
 	# also take a list of dicts, list, or recarray. and extract the [[dx, dy, dz] ] lists there-from.
 	# can we/will we need to approximate from grid elements to full earthquake events. 
 	#
+	# ... basically, blockwise_obj should be a dictionary like {block_id:{...block info..., 'positions':[]}}
+	#
 	pass
 	
 #

@@ -53,6 +53,7 @@ import datetime as dtm
 import pytz
 #
 import vc_parser
+import quakelib
 #
 #import imp
 #import inspect		# use this module to determine a function's parameters and similar tasks.
@@ -829,7 +830,8 @@ def plot_blockwise_slip_3d(blockwise_obj='dumps/blockwise_slip.pkl', sections=No
 	#
 	if do_return: return blockwise_obj
 #
-def slip_field(blockwise_obj,lat_range, lon_range, d_lat, d_lon):
+#def slip_field(blockwise_obj,lat_range, lon_range, d_lat, d_lon, i_start=0, i_stop=-1):
+def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=None, slip_factor=10.):
 	#+
 	# use:
 	# Vec<3> calc_displacement_vector(const Vec<3> location, const double c, const double dip, const double L, const double W, const double US, const double UD, const double UT, const double lambda, const double mu) throw(std::invalid_argument)
@@ -840,7 +842,149 @@ def slip_field(blockwise_obj,lat_range, lon_range, d_lat, d_lon):
 	#
 	# ... basically, blockwise_obj should be a dictionary like {block_id:{...block info..., 'positions':[]}}
 	#
-	pass
+	#pass
+	# for our first iteration, (as per default values), assume we're plotting to total displacement of each block.
+	# copy from QuakeLibEvent::calc_displacement_vector() (which we'll eventually need to get working... maybe sooner than later,
+	# depending on speed) and QuakeLibOkada; then use quakelib.Okada.calc_displacement_vector() to do the Okada calculations.
+	#
+	# right now, positions are in x-y coordinates (meters?). in the next VC version, they'll be in lat/lon, so we'll need to sort that out.
+	#
+	i_start = (0 or i_start)
+	i_stop = (0 or i_stop)
+	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
+	if isinstance(blockwise_obj, str):
+		blockwise_obj = numpy.load(blockwise_obj)
+	#
+	'''
+	if sections==None:
+		block_ids = blockwise_obj.keys()
+	else:
+		#with h5py.File(sim_file, 'r') as vch5:
+		#	blocks = vch5['block_info_table']
+		#	block_ids = [rw['block_id'] for rw in blocks if rw['section_id'] in sections]
+		block_ids = [rw['block_id'] for rw in blockwise_obj.itervalues() if rw['section_id'] in sections]
+	'''
+	#
+	block_L = numpy.linalg.norm(numpy.array([blockwise_obj[0]['m_x_pt4'], blockwise_obj[0]['m_y_pt4'], blockwise_obj[0]['m_z_pt4']]) - numpy.array([blockwise_obj[0]['m_x_pt1'], blockwise_obj[0]['m_y_pt1'], blockwise_obj[0]['m_z_pt1']]))
+	block_W = numpy.linalg.norm(numpy.array([blockwise_obj[0]['m_x_pt4'], blockwise_obj[0]['m_y_pt4'], blockwise_obj[0]['m_z_pt4']]) - numpy.array([blockwise_obj[0]['m_x_pt3'], blockwise_obj[0]['m_y_pt3'], blockwise_obj[0]['m_z_pt3']]))
+	if dx == None:
+		dx = block_L
+	if dy==None:
+		dy=block_L
+	# if fractional values, assume we mean fraction of block size:
+	if dx>0. and dx<1.: dx = dx*block_L
+	if dy>0. and dy<1.: dy = dy*block_L
+	#
+	# for now, assume we're getting a proper "blockwise_obj"...
+	try:
+		# do we have a dict or recarray (aka, named columns)? we need to test more thoroughly, but this is a start.
+		blockwise_obj[0]['positions'].dtype
+		# and if this doesn't fail then...
+		#x_index = 'x'
+		#y_index = 'y'
+		#z_index = 'z'
+		#slip_index = 'slip'
+		xyz_indices = ['x', 'y', 'z']
+	except:
+		# then guess...
+		#x_index = 1
+		#y_index = 2
+		#z_index = 3
+		#slip_index = 4
+		xyz_indices = [1,2,3]
+	#
+	disp_field = {}		# index this dictionary like {(i_x, i_y):{'dx':dx, 'dy':dy, 'dz':dz}, ...}, and calculate the index based on... dunno,
+						# based on magnitude/L_r, but in this case, block-size, slip magnitude? use slip_factor...
+	Okada_obj = quakelib.Okada()
+	#
+	for block_id, block_data in blockwise_obj.iteritems():
+		#
+		# checking the shorter list...
+		if not (sections==None or block_data['section_id'] in sections): continue
+		#
+		#dip = block_data['dip_rad']
+		#strike = block_data['slip_phi']	# or some phase transformation of this...
+		#print "starting block_id: ", block_id
+		#
+		pos_0 = numpy.array([block_data['positions'][i_start][i_x] for i_x in xyz_indices])
+		pos_final = numpy.array([block_data['positions'][i_stop][i_x] for i_x in xyz_indices])
+		total_slip_vector = pos_final-pos_0			# note: 1) these simulated positions are compiled in blockwise_slip(), and 2) we cast as numpy.array() here
+													# becasue we'll probably want to dot-product this later (otherwise we'd use a light-n-fast list comprehension)
+													# we can get relative distance components for Okada by dotting with this vector.
+		slip_mag = numpy.linalg.norm(total_slip_vector)
+		slip_unit = block_data['slip_vector']
+		#
+		#
+		#
+		# calculate the field sites (and put them on a lattice):
+		#x0 = float(int((pos_0[0] - slip_mag*slip_factor)/dx))*dx
+		#y0 = float(int((pos_0[1] - slip_mag*slip_factor)/dy))*dy
+		x0 = float(int((pos_0[0] - block_L*slip_factor)/dx))*dx
+		y0 = float(int((pos_0[1] - block_L*slip_factor)/dy))*dy
+		#
+		x_max = x0 + 2.0*dx*slip_factor
+		y_max = y0 + 2.0*dy*slip_factor
+		#c = fabs(involved_elements[ele_id].vert(1)[2]);
+		c = abs(block_data['m_z_pt2'])
+		#
+		this_y = y0
+		while this_y<y_max:
+			this_x = x0
+			y_index = int(this_y/dy)
+			#
+			while this_x<x_max:
+				x_index = int(this_x/dx)
+				disp_vector = numpy.array(this_x, this_y) - pos_0[0:2]		# displacement vector (between a site and the epicenter).
+				disp_vector = numpy.array([x/1000. for x in disp_vector])
+				#
+				# get okada displacement for this location:
+				positon_vector = quakelib.Vec3(*rotate_z(disp_vector, -block_data['slip_phi']))
+				okada_disp = Okada_obj.calc_displacement_vector(positon_vector, c, block_data['dip_rad'], block_L, block_W, slip_mag*math.cos(block_data['rake_rad']), slip_mag*math.sin(block_data['rake_rad']), 0.0, block_data['lame_lambda'], block_data['lame_mu'])
+				okada_disp = rotate_z(okada_disp, block_data['slip_phi'])
+				#
+				# now, update disp_field values:
+				if not disp_field.has_key((x_index, y_index)): disp_field[(x_index, y_index)]={'xyz':[this_x, this_y, 0.], 'd_xyz':numpy.array([0., 0., 0.])}
+				disp_field[(x_index, y_index)]['d_xyz'] += numpy.array(okada_disp)
+				#
+				this_x += dx
+			this_y += dy
+		#
+	#
+	return disp_field
+	#
+def plot_disp_field(okada_disps):
+	# lots of details to be worked out here, not the least of which being the best return format. for slip_field(). for now, let's work with what we've got:
+	# dict of dicts: {(x_index, y_index):{'d_xyz':array([dx, dy, dz]), 'xyz':array([x,y,z])}}
+	#
+	# first, compile this into something we can plot:
+	field_data = []
+	for rw in okada_disps.itervalues():
+		field_data += [[x for x in rw['xyz']] + [x for x in rw['d_xyz']]]
+		field_data[-1] += [numpy.linalg.norm(field_data[-1][-3:])]
+	field_data = numpy.core.records.fromarrays(zip(*field_data), names=['x', 'y', 'z', 'dx', 'dy', 'dz', 'dxyz'], formats=[type(x).__name__ for x in field_data[0]])
+	#
+	#return field_data
+	#
+	# create triang for contouring:
+	#triang = tri.Triangulation(field_data['x'], field_data['y'])
+	my_colormap = plt.get_cmap('jet')
+	cNorm = mcolor.Normalize(vmin=min(field_data['dxyz']), vmax=max(field_data['dxyz']))
+	scalar_map = cm.ScalarMappable(norm=cNorm, cmap=my_colormap)
+	#
+	plt.figure(0)
+	plt.clf()
+	#plt.gca().set_aspect('equal')
+	#plt.tricontourf(triang, field_data['dxyz'])
+	#plt.colorbar()
+	#
+	plt.scatter(field_data['x'], field_data['y'], marker='.', color=scalar_map.to_rgba(field_data['dxyz']),alpha=.7)
+	try:
+		plt.colorbar()
+	except:
+		print "colorbar() failed..."
+	#
+	return field_data	
+		
 	
 #
 def rotation_matrix_general(axis=None, theta=None):
@@ -870,6 +1014,9 @@ def rotate_x(vector=None, theta=0.):
 	# probably ought to code these directly for speed. also, note the distinction between
 	# vector and coordinate rotations.
 	#rotation_matrix_x = numpy.array([[1.0, 0., 0.], [0., math.cos(theta), -math.sin(theta)], [0., math.sin(theta), math.cos(theta)]])
+	if len(vector)==2:
+		# forget about len()==1 for now...
+		vector = numpy.array([0.] + vector)
 	#
 	#return numpy.dot(rotation_matrix_x, vector)
 	#return rotate_vector_general(vector=vector, axis=[1., 0., 0.], theta=theta)
@@ -879,7 +1026,9 @@ def rotate_y(vector=None, theta=0.):
 	# rotate about y axis (again, should hard-code these for speed. is there a numpy implementation?)
 	#theta = float(theta)%(math.pi*2.0)
 	#
-	rotation_matrix_y = numpy.array([[math.cos(theta), 0., math.sin(theta)], [0., 1., 0.], [-math.sin(theta), 0., math.cos(theta)]])
+	#rotation_matrix_y = numpy.array([[math.cos(theta), 0., math.sin(theta)], [0., 1., 0.], [-math.sin(theta), 0., math.cos(theta)]])
+	if len(vector)==2:
+		vector = numpy.array([vector[0], 0., vector[1]])
 	#
 	return numpy.dot(numpy.array([[math.cos(theta), 0., math.sin(theta)], [0., 1., 0.], [-math.sin(theta), 0., math.cos(theta)]]), vector)
 	#return rotate_vector_general(vector=vector, axis=[0., 1., 0.], theta=theta)
@@ -887,6 +1036,7 @@ def rotate_y(vector=None, theta=0.):
 def rotate_z(vector=None, theta=0.):
 	# ... and we should probably pre-define these, for speed...
 	#rotation_matrix_z = numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 0., 1.]])
+	if len(vector)==2: vector = numpy.append(vector, [0.])
 	#
 	return numpy.dot(numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 0., 1.]]), vector)
 	#return rotate_vector_general(vector=vector, axis=[0., 0., 1.], theta=theta)

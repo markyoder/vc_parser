@@ -40,6 +40,7 @@ import numpy
 import scipy
 import scipy.optimize as spo
 import operator
+from operator import itemgetter
 import glob
 import random
 #
@@ -831,7 +832,7 @@ def plot_blockwise_slip_3d(blockwise_obj='dumps/blockwise_slip.pkl', sections=No
 	if do_return: return blockwise_obj
 #
 #def slip_field(blockwise_obj,lat_range, lon_range, d_lat, d_lon, i_start=0, i_stop=-1):
-def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=None, slip_factor=10.):
+def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=None, plot_factor=10., f_out=None):
 	#+
 	# use:
 	# Vec<3> calc_displacement_vector(const Vec<3> location, const double c, const double dip, const double L, const double W, const double US, const double UD, const double UT, const double lambda, const double mu) throw(std::invalid_argument)
@@ -868,12 +869,16 @@ def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=N
 	block_L = numpy.linalg.norm(numpy.array([blockwise_obj[0]['m_x_pt4'], blockwise_obj[0]['m_y_pt4'], blockwise_obj[0]['m_z_pt4']]) - numpy.array([blockwise_obj[0]['m_x_pt1'], blockwise_obj[0]['m_y_pt1'], blockwise_obj[0]['m_z_pt1']]))
 	block_W = numpy.linalg.norm(numpy.array([blockwise_obj[0]['m_x_pt4'], blockwise_obj[0]['m_y_pt4'], blockwise_obj[0]['m_z_pt4']]) - numpy.array([blockwise_obj[0]['m_x_pt3'], blockwise_obj[0]['m_y_pt3'], blockwise_obj[0]['m_z_pt3']]))
 	if dx == None:
-		dx = block_L
+		#dx = block_L
+		dx=1.0
 	if dy==None:
-		dy=block_L
+		#dy=block_L
+		dy=1.0
 	# if fractional values, assume we mean fraction of block size:
-	if dx>0. and dx<1.: dx = dx*block_L
-	if dy>0. and dy<1.: dy = dy*block_L
+	#if dx>0. and dx<1.: dx = dx*block_L
+	#if dy>0. and dy<1.: dy = dy*block_L
+	dx = dx*block_L
+	dy = dy*block_L
 	#
 	# for now, assume we're getting a proper "blockwise_obj"...
 	try:
@@ -894,7 +899,7 @@ def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=N
 		xyz_indices = [1,2,3]
 	#
 	disp_field = {}		# index this dictionary like {(i_x, i_y):{'dx':dx, 'dy':dy, 'dz':dz}, ...}, and calculate the index based on... dunno,
-						# based on magnitude/L_r, but in this case, block-size, slip magnitude? use slip_factor...
+						# based on magnitude/L_r, but in this case, block-size, slip magnitude? use plot_factor...
 	Okada_obj = quakelib.Okada()
 	#
 	for block_id, block_data in blockwise_obj.iteritems():
@@ -917,13 +922,13 @@ def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=N
 		#
 		#
 		# calculate the field sites (and put them on a lattice):
-		#x0 = float(int((pos_0[0] - slip_mag*slip_factor)/dx))*dx
-		#y0 = float(int((pos_0[1] - slip_mag*slip_factor)/dy))*dy
-		x0 = float(int((pos_0[0] - block_L*slip_factor)/dx))*dx
-		y0 = float(int((pos_0[1] - block_L*slip_factor)/dy))*dy
+		#x0 = float(int((pos_0[0] - slip_mag*plot_factor)/dx))*dx
+		#y0 = float(int((pos_0[1] - slip_mag*plot_factor)/dy))*dy
+		x0 = float(int((pos_0[0] - block_L*plot_factor)/dx))*dx
+		y0 = float(int((pos_0[1] - block_L*plot_factor)/dy))*dy
 		#
-		x_max = x0 + 2.0*dx*slip_factor
-		y_max = y0 + 2.0*dy*slip_factor
+		x_max = pos_0[0] + block_L*plot_factor
+		y_max = pos_0[1] + block_L*plot_factor
 		#c = fabs(involved_elements[ele_id].vert(1)[2]);
 		c = abs(block_data['m_z_pt2'])
 		#
@@ -935,7 +940,7 @@ def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=N
 			while this_x<x_max:
 				x_index = int(this_x/dx)
 				disp_vector = numpy.array(this_x, this_y) - pos_0[0:2]		# displacement vector (between a site and the epicenter).
-				disp_vector = numpy.array([x/1000. for x in disp_vector])
+				#disp_vector = numpy.array([x/1000. for x in disp_vector])	# meter/km conversion?
 				#
 				# get okada displacement for this location:
 				positon_vector = quakelib.Vec3(*rotate_z(disp_vector, -block_data['slip_phi']))
@@ -949,26 +954,40 @@ def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=N
 				this_x += dx
 			this_y += dy
 		#
+	if f_out!=None and isinstance(f_out, str):
+		print "cPickle.dump() to: %s" % f_out
+		with open(f_out, 'w') as fout:
+			cPickle.dump(disp_field, fout)
+		print "pickled..."
 	#
 	return disp_field
 	#
-def plot_disp_field(okada_disps):
+def plot_disp_field(okada_disps, plot_column = 'dxyz'):
 	# lots of details to be worked out here, not the least of which being the best return format. for slip_field(). for now, let's work with what we've got:
 	# dict of dicts: {(x_index, y_index):{'d_xyz':array([dx, dy, dz]), 'xyz':array([x,y,z])}}
+	# plot_column: 'dxyz', 'dx', 'dy', 'dz' are direct column plots. we'll add some code to permit other combinations like 'dxy'
 	#
 	# first, compile this into something we can plot:
 	field_data = []
 	for rw in okada_disps.itervalues():
 		field_data += [[x for x in rw['xyz']] + [x for x in rw['d_xyz']]]
 		field_data[-1] += [numpy.linalg.norm(field_data[-1][-3:])]
-	field_data = numpy.core.records.fromarrays(zip(*field_data), names=['x', 'y', 'z', 'dx', 'dy', 'dz', 'dxyz'], formats=[type(x).__name__ for x in field_data[0]])
+		field_data[-1] += [numpy.linalg.norm(field_data[-1][-2:])]
+		
+	field_data = numpy.core.records.fromarrays(zip(*field_data), names=['x', 'y', 'z', 'dx', 'dy', 'dz', 'dxyz', 'dxy'], formats=[type(x).__name__ for x in field_data[0]])
+	field_data_prime = [x for x in field_data if x[plot_column]>0.]
+	field_data_prime = numpy.core.records.fromarrays(zip(*field_data_prime), names=['x', 'y', 'z', 'dx', 'dy', 'dz', 'dxyz', 'dxy'], formats=[type(x).__name__ for x in field_data_prime[0]])
 	#
 	#return field_data
+	#if plot_column in ('dxy', 'dyx'):
+	#	z_vals = [math.sqrt(x['dx']**2. + x['dy']**2.) for x in field_data_prime]
+	#else:
+	z_vals = field_data_prime[plot_column]
 	#
 	# create triang for contouring:
 	#triang = tri.Triangulation(field_data['x'], field_data['y'])
 	my_colormap = plt.get_cmap('jet')
-	cNorm = mcolor.Normalize(vmin=min(field_data['dxyz']), vmax=max(field_data['dxyz']))
+	cNorm = mcolor.Normalize(vmin=min(z_vals), vmax=max(z_vals))
 	scalar_map = cm.ScalarMappable(norm=cNorm, cmap=my_colormap)
 	#
 	plt.figure(0)
@@ -977,12 +996,24 @@ def plot_disp_field(okada_disps):
 	#plt.tricontourf(triang, field_data['dxyz'])
 	#plt.colorbar()
 	#
-	plt.scatter(field_data['x'], field_data['y'], marker='.', color=scalar_map.to_rgba(field_data['dxyz']),alpha=.7)
+	plt.scatter(field_data_prime['x'], field_data_prime['y'], marker='.', color=scalar_map.to_rgba(z_vals),alpha=.7)
+	'''
 	try:
 		plt.colorbar()
 	except:
 		print "colorbar() failed..."
 	#
+	'''
+	#
+	# and log-transformed:
+	log_z_vals = [math.log10(x) for x in z_vals]
+	
+	my_colormap = plt.get_cmap('jet')
+	cNorm = mcolor.Normalize(vmin=min(log_z_vals), vmax=max(log_z_vals))
+	scalar_map = cm.ScalarMappable(norm=cNorm, cmap=my_colormap)
+	plt.figure(1)
+	plt.clf()
+	plt.scatter(field_data_prime['x'], field_data_prime['y'], marker='.', color=scalar_map.to_rgba(log_z_vals),alpha=.7)
 	return field_data	
 		
 	
@@ -1040,3 +1071,99 @@ def rotate_z(vector=None, theta=0.):
 	#
 	return numpy.dot(numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 0., 1.]]), vector)
 	#return rotate_vector_general(vector=vector, axis=[0., 0., 1.], theta=theta)
+
+#####
+# ripped off from pyvc (temporary...)
+#def plot_backslip(sim_file, duration, section_filter=None, field_type='gravity',cutoff=None,padding=0.08,tag=None,fringes=False):
+from pyvc import *
+from pyvc import vcutils
+from pyvc import vcplotutils
+from pyvc import vcexceptions
+from pyvc import vcanalysis
+def get_field_vals(sim_file, duration, section_filter=None, field_type='gravity',cutoff=None,padding=0.08,tag=None,fringes=False):
+	# just get the field values, using existing quakelib machinery.
+
+	#
+	output_directory       = 'backslip_only/'
+	field_values_directory = '{}field_values/'.format(output_directory)
+	
+	if not os.path.exists(output_directory):
+	    os.makedirs(output_directory)
+	    
+	if not os.path.exists(field_values_directory):
+	    os.makedirs(field_values_directory)
+	    
+	
+	
+	# ----------------------------- Initializing --------------------------
+	sys.stdout.write('Initializing plot :: ')
+	sys.stdout.flush()
+	    
+	#---------------------------------------------------------------------------
+	# Open the data file.
+	#---------------------------------------------------------------------------
+	with VCSimData() as sim_data:
+	    # open the simulation data file
+	    sim_data.open_file(sim_file)
+	    
+	    geometry    = VCGeometry(sim_data)
+	    events      = VCEvents(sim_data)
+	    
+	    # Get global information about the simulations geometry
+	    min_lat     = geometry.min_lat
+	    max_lat     = geometry.max_lat
+	    min_lon     = geometry.min_lon
+	    max_lon     = geometry.max_lon
+	    base_lat    = geometry.base_lat
+	    base_lon    = geometry.base_lon
+	    fault_traces= geometry.get_fault_traces()
+	
+	    # ------------------------------------------
+	    # The blocks in slip_rates define the elements that are used for the plotting
+	    slip_rates         = geometry.get_slip_rates(section_filter=section_filter,per_year=True)
+	    # Set up the elements to evaluate Green's functions
+	    ele_getter         = itemgetter(*slip_rates.keys())
+	    element_data       = ele_getter(geometry)
+	    
+	    # Get event information, filter by section if specified
+	    event_data = events.get_event_data(['event_magnitude', 'event_year', 'event_number'], section_filter=section_filter)
+
+	    
+	
+	# -------------------------------------------------------------
+	# Instantiate the field and the plotter
+	# -------------------------------------------------------------
+	if field_type == 'displacement':
+	    EF = vcutils.VCDisplacementField(min_lat, max_lat, min_lon, max_lon, base_lat, base_lon, padding=padding)
+	    #EFP = vcplotutils.VCDisplacementFieldPlotter(EF.min_lat, EF.max_lat, EF.min_lon, EF.max_lon)
+	    #EFP.calculate_look_angles(geometry[:])
+	elif field_type == 'gravity':
+	    EF = vcutils.VCGravityField(min_lat, max_lat, min_lon, max_lon, base_lat, base_lon, padding=padding)
+	    #EFP = vcplotutils.VCGravityFieldPlotter(EF.min_lat, EF.max_lat, EF.min_lon, EF.max_lon)
+	
+	
+	# Apply backslip
+	element_slips  = {bid:-1.0*duration*float(slip_rates[bid]) for bid in slip_rates.keys()}
+
+	PRE = '{}{}_'.format(field_values_directory, int(duration)) 
+
+	# Try and load the fields
+	field_values_loaded = EF.load_field_values(PRE)
+	if field_values_loaded:
+	    sys.stdout.write('\nloaded {} years of backslip'.format(int(duration)))
+	else:
+	    # If they havent been saved then we need to calculate them
+	    sys.stdout.write('\nprocessing {} elements :: '.format(len(element_slips.keys())))
+	    sys.stdout.flush()
+	        
+	    EF.calculate_field_values(
+	            element_data,
+	            element_slips,
+	            cutoff=cutoff,
+	            save_file_prefix=PRE)
+
+	# Make the plot and save it
+	#generate_map(EF,EFP,fault_traces,fringes,event_data,output_file,field_type='gravity')
+	
+	#generate_map(EF,EFP,fault_traces,fringes,event_data,output_file,field_type=field_type)
+	return EF

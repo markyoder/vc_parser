@@ -73,8 +73,25 @@ emc_sections = emc_section_filter['filter']
 napa_sections = napa_region_section_filter['filter']
 colors_ =  mpl.rcParams['axes.color_cycle']
 #
-
-
+class meta_dict(dict):
+	# a simple wrapper class to include some meta-data with a dictionary.
+	# aka, return a dictionary containing indices, coordinates, and values for a displacement field.
+	# also include the meta-data from which the data were generated. the object will, for most purposes,
+	# behave just like a dictionary, and with minimal allowances, a dict. object can be substituted.
+	#
+	def __init__(self, dict_in=None, **kwargs):
+		if dict_in==None: dict_in={}
+		super(meta_dict, self).__init__(dict_in)
+		#
+		# ultimately, meta-data can be defined dynamically (it does not need to be pre-defined here).
+		for key, val in kwargs.iteritems():
+			setattr(self, key, val)
+		
+	@property
+	def __doc__():
+		return "a simple wrapper class to include some meta-data with a dictionary. aka, return a dictionary containing indices, coordinates, and values for a displacement field. also include the meta-data from which the data were generated. the object will, for most purposes, 	# behave just like a dictionary, and with minimal allowances, a dict. object can be substituted."
+	#
+	
 #
 def blocks_test(n_cycles=1):
 	#
@@ -831,7 +848,6 @@ def plot_blockwise_slip_3d(blockwise_obj='dumps/blockwise_slip.pkl', sections=No
 	#
 	if do_return: return blockwise_obj
 #
-#def slip_field(blockwise_obj,lat_range, lon_range, d_lat, d_lon, i_start=0, i_stop=-1):
 def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=None, plot_factor=10., f_out=None):
 	#+
 	# use:
@@ -898,8 +914,17 @@ def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=N
 		#slip_index = 4
 		xyz_indices = [1,2,3]
 	#
-	disp_field = {}		# index this dictionary like {(i_x, i_y):{'dx':dx, 'dy':dy, 'dz':dz}, ...}, and calculate the index based on... dunno,
-						# based on magnitude/L_r, but in this case, block-size, slip magnitude? use plot_factor...
+	# try to use this derived dict. object instead (but note, you can use a regular dictionary object in place of meta_dict() ):
+	# dx=None, dy=None, i_start=0, i_stop=-1, sections=None, plot_factor=10., f_out=None
+	# (noting that the field_plot_prams dict. could alternatively be assigned as individual attributes: ...,dx=dx, dy=dy, ...
+	# index this dictionary like {(i_x, i_y):{'dx':dx, 'dy':dy, 'dz':dz}, ...}, and calculate the index based on... dunno,
+	# based on magnitude/L_r, but in this case, block-size, slip magnitude? use plot_factor...
+	#
+	try:
+		disp_field = meta_dict({}, field_plot_prams = {'dx':dx, 'dy':dy, 'i_start':i_start, 'i_stop':i_stop, 'plot_factor':plot_factor, 'file_out':f_out})
+	except:
+		disp_field = {}
+	#
 	Okada_obj = quakelib.Okada()
 	#
 	for block_id, block_data in blockwise_obj.iteritems():
@@ -1025,7 +1050,7 @@ def rotation_matrix_general(axis=None, theta=None):
 	"""
 	#Return the rotation matrix associated with counterclockwise rotation about
 	#the given axis by theta radians.
-    """
+	"""
 	axis = numpy.asarray(axis)
 	theta = numpy.asarray(theta)
 	axis = axis/math.sqrt(numpy.dot(axis, axis))
@@ -1071,7 +1096,194 @@ def rotate_z(vector=None, theta=0.):
 	#
 	return numpy.dot(numpy.array([[math.cos(theta), -math.sin(theta), 0.], [math.sin(theta), math.cos(theta), 0.], [0., 0., 1.]]), vector)
 	#return rotate_vector_general(vector=vector, axis=[0., 0., 1.], theta=theta)
-
+#
+def draw_block_data(block_dict, fignum=4):
+	plt.figure(fignum)
+	plt.clf()
+	plt.ion()
+	#
+	B=block_dict	# shorthand...
+	Xs = [[B['m_%s_pt%d' % (x,i)] for x in ['x','y','z']] for i in [1,2,3,4]]
+	#
+	zXs = zip(*Xs)
+	plt.plot(zXs[0], zXs[1], '.')
+	#
+	vW = numpy.array(Xs[1])-numpy.array(Xs[0]) 
+	vL = numpy.array(Xs[3]) - numpy.array(Xs[0])		# later versions of this will have only 3 points; this will be Xs[2] - Xs[0]
+	W = numpy.linalg.norm(vW)
+	L = numpy.linalg.norm(vL)
+	#
+	plt.arrow(Xs[0][0], Xs[0][1], vL[0], vL[1], ls='dashed', color='r', head_width=25., head_length=50.)
+	#
+	theta_strike = B['slip_phi']
+	x_prime = .5*L*math.cos(theta_strike)
+	y_prime = .5*L*math.sin(theta_strike)
+	#
+	plt.arrow(Xs[0][0], Xs[0][1], .5*vL[0], .5*vL[1], ls='dashed', color='m', head_width=25., head_length=50.)
+	plt.plot([Xs[0][0]+x_prime], [Xs[0][1]+y_prime], 'o')
+	#
+	x_pp, y_pp, z_pp = rotate_z([x_prime, y_prime], -theta_strike)
+	plt.arrow(Xs[0][0], Xs[0][1], .5*vL[0], .5*vL[1], ls='dashed', color='m', head_width=25., head_length=50.)
+	plt.arrow(Xs[0][0], Xs[0][1], x_pp, y_pp, ls='dashed', color='m', head_width=25., head_length=50.)
+	
+	x_r = min(zXs[0]) + (max(zXs[0])-min(zXs[0]))*random.random()
+	y_r = min(zXs[1]) + (max(zXs[1])-min(zXs[1]))*random.random()
+	dx_r = x_r - Xs[0][0]
+	dy_r = y_r - Xs[0][1]
+	#
+	plt.plot(x_r, y_r, 'rs')
+	plt.arrow(Xs[0][0], Xs[0][1], dx_r, dy_r, color='r', ls='dotted', head_width=25., head_length=50.)
+	#
+	# this rotates the vector to its position relative to the strike vector:
+	dx_r_prime, dy_r_prime, dz_r_prime = rotate_z([dx_r, dy_r], -theta_strike)
+	plt.arrow(Xs[0][0], Xs[0][1], dx_r_prime, dy_r_prime, color='c', ls='dotted', head_width=25., head_length=50.)
+	
+	print vW, vL, W, L
+	
+	return Xs
+	
+#
+def test_okada(blockwise_obj, block_ids=[], dx=None, dy=None, i_start=0, i_stop=-1, plot_factor=10., fnum=7):
+	# 
+	# some scripts to test our okada rotations, etc.
+	#
+	block_ids.sort()
+	#
+	i_start = (0 or i_start)
+	i_stop = (0 or i_stop)
+	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
+	if isinstance(blockwise_obj, str):
+		blockwise_obj = numpy.load(blockwise_obj)
+	#
+	block_L = numpy.linalg.norm(numpy.array([blockwise_obj[0]['m_x_pt4'], blockwise_obj[0]['m_y_pt4'], blockwise_obj[0]['m_z_pt4']]) - numpy.array([blockwise_obj[0]['m_x_pt1'], blockwise_obj[0]['m_y_pt1'], blockwise_obj[0]['m_z_pt1']]))
+	block_W = numpy.linalg.norm(numpy.array([blockwise_obj[0]['m_x_pt4'], blockwise_obj[0]['m_y_pt4'], blockwise_obj[0]['m_z_pt4']]) - numpy.array([blockwise_obj[0]['m_x_pt3'], blockwise_obj[0]['m_y_pt3'], blockwise_obj[0]['m_z_pt3']]))
+	#
+	if dx == None:
+		#dx = block_L
+		dx=1.0
+	if dy==None:
+		#dy=block_L
+		dy=1.0
+	# if fractional values, assume we mean fraction of block size:
+	#if dx>0. and dx<1.: dx = dx*block_L
+	#if dy>0. and dy<1.: dy = dy*block_L
+	dx = dx*block_L
+	dy = dy*block_L
+	#
+	#
+	print "block size: %f x %f" % (block_L, block_W)
+	print "dx = %f, dy = %f" % (dx, dy)
+	#
+	# for now, assume we're getting a proper "blockwise_obj"...
+	try:
+		# do we have a dict or recarray (aka, named columns)? we need to test more thoroughly, but this is a start.
+		blockwise_obj[0]['positions'].dtype
+		# and if this doesn't fail then...
+		#x_index = 'x'
+		#y_index = 'y'
+		#z_index = 'z'
+		#slip_index = 'slip'
+		xyz_indices = ['x', 'y', 'z']
+	except:
+		# then guess...
+		#x_index = 1
+		#y_index = 2
+		#z_index = 3
+		#slip_index = 4
+		xyz_indices = [1,2,3]
+	#
+	# try to use this derived dict. object instead (but note, you can use a regular dictionary object in place of meta_dict() ):
+	# dx=None, dy=None, i_start=0, i_stop=-1, sections=None, plot_factor=10., f_out=None
+	# (noting that the field_plot_prams dict. could alternatively be assigned as individual attributes: ...,dx=dx, dy=dy, ...
+	# index this dictionary like {(i_x, i_y):{'dx':dx, 'dy':dy, 'dz':dz}, ...}, and calculate the index based on... dunno,
+	# based on magnitude/L_r, but in this case, block-size, slip magnitude? use plot_factor...
+	#
+	try:
+		disp_field = meta_dict({}, field_plot_prams = {'dx':dx, 'dy':dy, 'i_start':i_start, 'i_stop':i_stop, 'plot_factor':plot_factor, 'file_out':f_out})
+	except:
+		disp_field = {}
+	#
+	Okada_obj = quakelib.Okada()
+	plt.figure(fnum)
+	plt.clf()
+	ax = plt.gca()
+	#
+	#for block_id, block_data in blockwise_obj.iteritems():
+	for j, block_id in enumerate(block_ids):
+		block_data = blockwise_obj[block_id]
+		#
+		# checking the shorter list...
+		#if not (sections==None or block_data['section_id'] in sections): continue
+		#
+		#dip = block_data['dip_rad']
+		#strike = block_data['slip_phi']	# or some phase transformation of this...
+		#print "starting block_id: ", block_id
+		#
+		pos_0 = numpy.array([block_data['positions'][i_start][i_x] for i_x in xyz_indices])
+		pos_final = numpy.array([block_data['positions'][i_stop][i_x] for i_x in xyz_indices])
+		total_slip_vector = pos_final-pos_0			# note: 1) these simulated positions are compiled in blockwise_slip(), and 2) we cast as numpy.array() here
+													# becasue we'll probably want to dot-product this later (otherwise we'd use a light-n-fast list comprehension)
+													# we can get relative distance components for Okada by dotting with this vector.
+		slip_mag = numpy.linalg.norm(total_slip_vector)	# note: this will be the "unit_slip" in SimElement::calc_displacement_vector
+		slip_unit = block_data['slip_vector']	# slip unit-vector
+		#
+		# now, plot the source vector:
+		this_color = colors_[j%len(colors_)]
+		ax.plot(pos_0[0], pos_0[1], 'o', color=this_color)
+		ax.arrow(pos_0[0], pos_0[1], 100*total_slip_vector[0], 100*total_slip_vector[1], head_width=.15, head_length=.25, fc=this_color, ec=this_color )
+		#
+		# calculate the field sites (and put them on a lattice):
+		#
+		x0 = float(int((pos_0[0] - block_L*plot_factor)/dx))*dx
+		y0 = float(int((pos_0[1] - block_L*plot_factor)/dy))*dy
+		#
+		x_max = pos_0[0] + block_L*plot_factor
+		y_max = pos_0[1] + block_L*plot_factor
+		#c = fabs(involved_elements[ele_id].vert(1)[2]);
+		c = abs(block_data['m_z_pt2'])
+		pi_factor = 0.0
+		#
+		this_element = quakelib.SimElement()
+		this_element.set_rake(block_data['rake'])
+		nothing = [this_element.set_vert(i, block_data['m_x_pt%d' % j], block_data['m_y_pt%d' % j], block_data['m_z_pt%d' % j]) for i,j in enumerate([1,2,4])]
+		this_element.set_lame_mu(block_data['lame_mu'])
+		this_element.set_lame_lambda(block_data['lame_lambda'])
+		#
+		this_y = y0
+		while this_y<y_max:
+			this_x = x0
+			y_index = int(this_y/dy)
+			#
+			while this_x<x_max:
+				x_index = int(this_x/dx)
+				disp_vector = (numpy.array(this_x, this_y) - pos_0[0:2])		# displacement vector (between a site and the epicenter).
+				#disp_vector = numpy.array([x/1000. for x in disp_vector])	# meter/km conversion?
+				#
+				# get okada displacement for this location:
+				positon_vector = quakelib.Vec3(*rotate_z(disp_vector, -(block_data['slip_phi']-pi_factor*math.pi)))
+				okada_disp = Okada_obj.calc_displacement_vector(positon_vector, c, block_data['dip_rad'], block_L, block_W, slip_mag*math.cos(block_data['rake_rad']), slip_mag*math.sin(block_data['rake_rad']), 0.0, block_data['lame_lambda'], block_data['lame_mu'])
+				okada_disp = rotate_z(okada_disp, (block_data['slip_phi']-pi_factor*math.pi))
+				#
+				# now, update disp_field values:
+				if not disp_field.has_key((x_index, y_index)): disp_field[(x_index, y_index)]={'xyz':[this_x, this_y, 0.], 'd_xyz':numpy.array([0., 0., 0.])}
+				disp_field[(x_index, y_index)]['d_xyz'] += numpy.array(okada_disp)
+				#
+				ax.plot(this_x, this_y, '.', color=this_color)
+				ax.arrow(this_x, this_y, 10000000*okada_disp[0], 10000000*okada_disp[1], head_width=.05, head_length=.1, fc=this_color, ec=this_color )
+				#
+				this_x += dx
+			this_y += dy
+		#
+	'''
+	if f_out!=None and isinstance(f_out, str):
+		print "cPickle.dump() to: %s" % f_out
+		with open(f_out, 'w') as fout:
+			cPickle.dump(disp_field, fout)
+		print "pickled..."
+	'''
+	#
+	return disp_field
+#
 #####
 # ripped off from pyvc (temporary...)
 #def plot_backslip(sim_file, duration, section_filter=None, field_type='gravity',cutoff=None,padding=0.08,tag=None,fringes=False):
@@ -1080,7 +1292,7 @@ from pyvc import vcutils
 from pyvc import vcplotutils
 from pyvc import vcexceptions
 from pyvc import vcanalysis
-def get_field_vals(sim_file, duration, section_filter=None, field_type='gravity',cutoff=None,padding=0.08,tag=None,fringes=False):
+def get_field_vals(sim_file=default_sim_file, duration=10000, section_filter=None, field_type='gravity',cutoff=None,padding=0.08,tag=None,fringes=False):
 	# just get the field values, using existing quakelib machinery.
 
 	#
@@ -1167,3 +1379,5 @@ def get_field_vals(sim_file, duration, section_filter=None, field_type='gravity'
 	
 	#generate_map(EF,EFP,fault_traces,fringes,event_data,output_file,field_type=field_type)
 	return EF
+
+

@@ -937,6 +937,7 @@ def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=N
 		#print "starting block_id: ", block_id
 		#
 		pos_0 = numpy.array([block_data['positions'][i_start][i_x] for i_x in xyz_indices])
+		pos_0_okada = [pos_0[0], pos_0[1], 0.]	# for use with Okada bits.
 		pos_final = numpy.array([block_data['positions'][i_stop][i_x] for i_x in xyz_indices])
 		total_slip_vector = pos_final-pos_0			# note: 1) these simulated positions are compiled in blockwise_slip(), and 2) we cast as numpy.array() here
 													# becasue we'll probably want to dot-product this later (otherwise we'd use a light-n-fast list comprehension)
@@ -964,7 +965,7 @@ def slip_field(blockwise_obj, dx=None, dy=None, i_start=0, i_stop=-1, sections=N
 			#
 			while this_x<x_max:
 				x_index = int(this_x/dx)
-				disp_vector = numpy.array(this_x, this_y) - pos_0[0:2]		# displacement vector (between a site and the epicenter).
+				disp_vector = numpy.array(this_x, this_y) - pos_0_okada		# displacement vector (between a site and the epicenter).
 				#disp_vector = numpy.array([x/1000. for x in disp_vector])	# meter/km conversion?
 				#
 				# get okada displacement for this location:
@@ -1098,6 +1099,13 @@ def rotate_z(vector=None, theta=0.):
 	#return rotate_vector_general(vector=vector, axis=[0., 0., 1.], theta=theta)
 #
 def draw_block_data(block_dict, fignum=4):
+	# take-away message:
+	# to calculate Okada:
+	# 1) rotate the displacement vector by -theta_strike (aka, -block_data['slip_phi'])
+	# 2) calc Okada, etc.
+	# 3) rotate return vectors by block_data['slip_phi'] (aka, the pseudo-strike -- noting that this "strike" angle is measured from x^ (direction
+	#    equals East), rather than y^ (North).
+	#
 	plt.figure(fignum)
 	plt.clf()
 	plt.ion()
@@ -1113,39 +1121,71 @@ def draw_block_data(block_dict, fignum=4):
 	W = numpy.linalg.norm(vW)
 	L = numpy.linalg.norm(vL)
 	#
+	# plot the slip vector:
 	plt.arrow(Xs[0][0], Xs[0][1], vL[0], vL[1], ls='dashed', color='r', head_width=25., head_length=50.)
 	#
+	# calculate the x and y components of the slip vector:
 	theta_strike = B['slip_phi']
 	x_prime = .5*L*math.cos(theta_strike)
 	y_prime = .5*L*math.sin(theta_strike)
 	#
+	# plot along slip vector to show we got the angle (phase) right:
 	plt.arrow(Xs[0][0], Xs[0][1], .5*vL[0], .5*vL[1], ls='dashed', color='m', head_width=25., head_length=50.)
 	plt.plot([Xs[0][0]+x_prime], [Xs[0][1]+y_prime], 'o')
 	#
+	# slip-vector transformation:
+	# rotate the slip vector into the X = [1,0,0] position (nominally we should be rotating the coord-system, but this is effectively the same thing...)
 	x_pp, y_pp, z_pp = rotate_z([x_prime, y_prime], -theta_strike)
 	plt.arrow(Xs[0][0], Xs[0][1], .5*vL[0], .5*vL[1], ls='dashed', color='m', head_width=25., head_length=50.)
 	plt.arrow(Xs[0][0], Xs[0][1], x_pp, y_pp, ls='dashed', color='m', head_width=25., head_length=50.)
-	
+	#
+	# random location:
+	# pick a random point near the origin (block position):
 	x_r = min(zXs[0]) + (max(zXs[0])-min(zXs[0]))*random.random()
 	y_r = min(zXs[1]) + (max(zXs[1])-min(zXs[1]))*random.random()
 	dx_r = x_r - Xs[0][0]
 	dy_r = y_r - Xs[0][1]
 	#
+	# plot random point with "dotted" arrow:
 	plt.plot(x_r, y_r, 'rs')
 	plt.arrow(Xs[0][0], Xs[0][1], dx_r, dy_r, color='r', ls='dotted', head_width=25., head_length=50.)
 	#
 	# this rotates the vector to its position relative to the strike vector:
-	dx_r_prime, dy_r_prime, dz_r_prime = rotate_z([dx_r, dy_r], -theta_strike)
+	dx_r_prime, dy_r_prime, dz_r_prime = rotate_z([dx_r, dy_r, 0.], -theta_strike)
 	plt.arrow(Xs[0][0], Xs[0][1], dx_r_prime, dy_r_prime, color='c', ls='dotted', head_width=25., head_length=50.)
+	print "rotated angle: %f (%f deg)" % (math.atan(dy_r_prime/dx_r_prime), 180.*math.atan(dy_r_prime/dx_r_prime)/math.pi)
+	print "(%f, %f)" % (dx_r_prime, dy_r_prime)
+	print "initial angle: %f (%f deg)" % (math.atan(dy_r/dx_r), 180.*math.atan(dy_r/dx_r)/math.pi)
+	print "slip_phi: %f (%f deg)" % (theta_strike, 180.*theta_strike/math.pi)
+	print "theta_initial - theta_rotation {should ==}: %f - %f =?= %f (%f)" % (math.atan(dy_r/dx_r), theta_strike, math.atan(dy_r/dx_r)-theta_strike, math.atan(dy_r_prime/dx_r_prime))
 	
 	print vW, vL, W, L
 	
 	return Xs
-	
 #
-def test_okada(blockwise_obj, block_ids=[], dx=None, dy=None, i_start=0, i_stop=-1, plot_factor=10., fnum=7):
-	# 
+def get_okada_location(position_vec=[], origin_vec=[0., 0., 0.], theta_CCW_from_x=0.):
+	# calculate relative position for Okada, etc. type calculations. Okada calculations assume strike lies along x axis, dip, rake, etc. will
+	# be accounted for in the Okada calculation.
+	#
+	# position - origin:
+	#print "okada_position: ", position_vec
+	#print "okada_origin: ", origin_vec
+	relative_position = [position_vec[i] - origin_vec[i] for i in xrange(len(position_vec))]	# or we could use numpy.array()
+	#
+	# rotate relative position vector:
+	#rp_prime = rotate_z(relative_position, -theta_strike)
+	#
+	return rotate_z(relative_position, -theta_CCW_from_x)
+#
+def test_okada(blockwise_obj=None, block_ids=[], dx=None, dy=None, i_start=0, i_stop=-1, plot_factor=10., fnum=7):
+	#
+	if block_ids==None or block_ids==[]:
+		#
+		block_ids = list({rw['block_id'] for rw in blockwise_obj.itervalues()})
+	#
 	# some scripts to test our okada rotations, etc.
+	if blockwise_obj==None: blockwise_obj=numpy.load('dumps/blockwise_290ct.pkl')
+	Okada_obj = quakelib.Okada()
 	#
 	block_ids.sort()
 	#
@@ -1207,6 +1247,7 @@ def test_okada(blockwise_obj, block_ids=[], dx=None, dy=None, i_start=0, i_stop=
 	plt.figure(fnum)
 	plt.clf()
 	ax = plt.gca()
+	arrow_factor=100.
 	#
 	#for block_id, block_data in blockwise_obj.iteritems():
 	for j, block_id in enumerate(block_ids):
@@ -1219,13 +1260,16 @@ def test_okada(blockwise_obj, block_ids=[], dx=None, dy=None, i_start=0, i_stop=
 		#strike = block_data['slip_phi']	# or some phase transformation of this...
 		#print "starting block_id: ", block_id
 		#
+		# block positions to calculate total slip, etc.
 		pos_0 = numpy.array([block_data['positions'][i_start][i_x] for i_x in xyz_indices])
+		pos_0_okada = [pos_0[0], pos_0[1], 0.]	# for use with Okada calcs.
 		pos_final = numpy.array([block_data['positions'][i_stop][i_x] for i_x in xyz_indices])
 		total_slip_vector = pos_final-pos_0			# note: 1) these simulated positions are compiled in blockwise_slip(), and 2) we cast as numpy.array() here
 													# becasue we'll probably want to dot-product this later (otherwise we'd use a light-n-fast list comprehension)
 													# we can get relative distance components for Okada by dotting with this vector.
 		slip_mag = numpy.linalg.norm(total_slip_vector)	# note: this will be the "unit_slip" in SimElement::calc_displacement_vector
-		slip_unit = block_data['slip_vector']	# slip unit-vector
+		slip_unit_vector = block_data['slip_vector']	# slip unit-vector. this is different than the slip_unit on the quakelib side, which is probably
+														# "slip for this unit(block)".
 		#
 		# now, plot the source vector:
 		this_color = colors_[j%len(colors_)]
@@ -1244,36 +1288,71 @@ def test_okada(blockwise_obj, block_ids=[], dx=None, dy=None, i_start=0, i_stop=
 		pi_factor = 0.0
 		#
 		this_element = quakelib.SimElement()
-		this_element.set_rake(block_data['rake'])
-		nothing = [this_element.set_vert(i, block_data['m_x_pt%d' % j], block_data['m_y_pt%d' % j], block_data['m_z_pt%d' % j]) for i,j in enumerate([1,2,4])]
+		this_element.set_rake(block_data['rake_rad'])
+		#this_element.set_dip(block_data['dip_rad'])
+		#nothing = [this_element.set_vert(i, quakelib.Vec3(block_data['m_x_pt%d' % k], block_data['m_y_pt%d' % k], block_data['m_z_pt%d' % k])) for i,k in enumerate([1,2,4])]
+		nothing = [this_element.set_vert(i, block_data['m_x_pt%d' % k], block_data['m_y_pt%d' % k], block_data['m_z_pt%d' % k]) for i,k in enumerate([1,2,4])]
+		#
+		#	print "vert: ", this_element.vert(i)
 		this_element.set_lame_mu(block_data['lame_mu'])
 		this_element.set_lame_lambda(block_data['lame_lambda'])
 		#
+		# for now, set okada vals here; get quakelib working later...
+		US = slip_mag*math.cos(block_data['rake_rad'])
+		UD = slip_mag*math.sin(block_data['rake_rad'])
+		UT= 0.0
+		#
+		L = numpy.linalg.norm(numpy.array([block_data['m_%s_pt4' % s] for s in ['x', 'y', 'z']]) - numpy.array([block_data['m_%s_pt1' % s] for s in ['x', 'y', 'z']]))
+		W = numpy.linalg.norm(numpy.array([block_data['m_%s_pt2' % s] for s in ['x', 'y', 'z']]) - numpy.array([block_data['m_%s_pt1' % s] for s in ['x', 'y', 'z']]))
+		c = abs(this_element.max_depth())
+		#dip = this_element.dip()
+		#
 		this_y = y0
+		#
 		while this_y<y_max:
 			this_x = x0
 			y_index = int(this_y/dy)
 			#
 			while this_x<x_max:
 				x_index = int(this_x/dx)
-				disp_vector = (numpy.array(this_x, this_y) - pos_0[0:2])		# displacement vector (between a site and the epicenter).
-				#disp_vector = numpy.array([x/1000. for x in disp_vector])	# meter/km conversion?
+				#
+				#disp_vector = (numpy.array(this_x, this_y) - pos_0[0:2])		# displacement vector (between a site and the epicenter).
 				#
 				# get okada displacement for this location:
-				positon_vector = quakelib.Vec3(*rotate_z(disp_vector, -(block_data['slip_phi']-pi_factor*math.pi)))
-				okada_disp = Okada_obj.calc_displacement_vector(positon_vector, c, block_data['dip_rad'], block_L, block_W, slip_mag*math.cos(block_data['rake_rad']), slip_mag*math.sin(block_data['rake_rad']), 0.0, block_data['lame_lambda'], block_data['lame_mu'])
-				okada_disp = rotate_z(okada_disp, (block_data['slip_phi']-pi_factor*math.pi))
+				#positon_vector = quakelib.Vec3(*rotate_z(disp_vector, -(block_data['slip_phi'])))
+				# use (??):
+				disp_vector = get_okada_location(position_vec=[this_x, this_y, 0.], origin_vec=pos_0_okada, theta_CCW_from_x=block_data['slip_phi'])
+				#print "disp_vector: ", disp_vector
+				this_v = quakelib.Vec3(*disp_vector)
+				#print this_v
+				#return this_element
+				#
+				okada_disp = Okada_obj.calc_displacement_vector(this_v, c, this_element.dip(), L, W, US, UD, UT, block_data['lame_lambda'], block_data['lame_mu'])
+				#
+				#okada_disp = this_element.calc_displacement_vector(quakelib.Vec3(*disp_vector), slip_mag, block_data['lame_lambda'], block_data['lame_mu'])
+				#
+				#okada_disp = Okada_obj.calc_displacement_vector(positon_vector, c, block_data['dip_rad'], block_L, block_W, slip_mag*math.cos(block_data['rake_rad']), slip_mag*math.sin(block_data['rake_rad']), 0.0, block_data['lame_lambda'], block_data['lame_mu'])
+				okada_disp = rotate_z(okada_disp, (+block_data['slip_phi']))
 				#
 				# now, update disp_field values:
 				if not disp_field.has_key((x_index, y_index)): disp_field[(x_index, y_index)]={'xyz':[this_x, this_y, 0.], 'd_xyz':numpy.array([0., 0., 0.])}
 				disp_field[(x_index, y_index)]['d_xyz'] += numpy.array(okada_disp)
 				#
 				ax.plot(this_x, this_y, '.', color=this_color)
-				ax.arrow(this_x, this_y, 10000000*okada_disp[0], 10000000*okada_disp[1], head_width=.05, head_length=.1, fc=this_color, ec=this_color )
+				ax.arrow(this_x, this_y, arrow_factor*okada_disp[0], arrow_factor*okada_disp[1], head_width=.05, head_length=.1, fc=this_color, ec=this_color )
 				#
 				this_x += dx
 			this_y += dy
 		#
+	plt.figure(fnum+1)
+	plt.clf()
+	for i, rw in disp_field.iteritems():
+		x = rw['xyz']
+		dx = rw['d_xyz']
+		#
+		plt.plot(x[0], x[1], 'b.')
+		plt.arrow(x[0], x[1], arrow_factor*dx[0], arrow_factor*dx[1], 'b')
+		
 	'''
 	if f_out!=None and isinstance(f_out, str):
 		print "cPickle.dump() to: %s" % f_out

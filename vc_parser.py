@@ -558,7 +558,7 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 	'''
 	# scatter plot of hit_ratio vs alert_time_ratio for as many data as we throw at it.
 	'''		
-	# wrapper to convert a bunch of normal arrays or maybe lists to numpy structured arrays (numpy.recarray).
+	# 
 	G=glob.glob(file_profile)
 	#
 	X, Y = [], []
@@ -694,7 +694,12 @@ def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2,
 		# datas is a list of dictionary objects like: {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 		#
 		#score_row = [x['b'], x['nyquist_factor'], x['n_predicted']/(x['n_predicted']+x['n_missed']), x['total_alert_time']/x['total_time'], (x['n_predicted']/(x['n_predicted']+x['n_missed']) - x['total_alert_time']/x['total_time']) for x in datas]
+		#
 		scores = [float(x['n_predicted'])/(float(x['n_predicted'])+float(x['n_missed'])) - x['total_alert_time']/x['total_time'] for x in datas]
+		# consider also the trigonometric score (do these produce different results?):
+		# math.sin(math.atan(rw['total_time']*rw['n_predicted']/(rw['total_alert_time']*(float(rw['n_predicted'])+rw['n_missed'])) ))
+		scores = [math.sin(math.atan( x['total_time']*x['n_predicted']/(x['total_alert_time']*(float(x['n_predicted'])+x['n_missed'])) )) for x in datas]
+		#
 		mean_score = numpy.mean(scores)
 		score_stdev = numpy.std(scores)
 		#
@@ -731,8 +736,12 @@ def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2,
 #
 def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None, dump_file='dumps/optimize_faultwise'):
 	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
-	# this runs a fully composite optimization, which produces some not super believable... or optimal
-	# results. it seems that we would do better to optimize each fault independently.
+	# this script optimizes each fault independently (so we get a set of: {section_id, nyq_fact, b_0}
+	#
+	# note though: this should be recoded to 1) not be stupid. namely in how we loop over the parameter/section_id space
+	# and 2) facilitate easy mpp. mpp should be split up by section_id; nominally, use a pool() and apply_async() or map_async().
+	# ... though note that this is fully MPP, but i think maybe not in the most optimal way. dunno...
+	#
 	#
 	R_b   = random.Random()
 	R_nyq = random.Random()
@@ -760,15 +769,24 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 			#
 			if fault_scores.has_key(rw['ary_in_name'])==False:
 				fault_scores[rw['ary_in_name']] = {}
-			this_score = float(rw['n_predicted'])/(float(rw['n_predicted'])+rw['n_missed']) - rw['total_alert_time']/rw['total_time']
-			fault_scores[rw['ary_in_name']][this_score] = rw	# index each row by the score for fast sorting.
+			#this_score = float(rw['n_predicted'])/(float(rw['n_predicted'])+rw['n_missed']) - rw['total_alert_time']/rw['total_time']
+			#
+			# try this metric as well:
+			# (maximize the angle... or the sin of the angle of the ROC vector).
+			#print "using trig based score:"
+			this_score = math.sin(math.atan(rw['n_predicted']*rw['total_time']/(rw['total_alert_time']*(float(rw['n_predicted'])+rw['n_missed'])) ))
+			if len(fault_scores[rw['ary_in_name']])==0 or this_score>max(fault_scores[rw['ary_in_name']].iterkeys()):
+				fault_scores[rw['ary_in_name']][this_score] = rw	# index each row by the score for fast sorting.
+			#
+			# note: this should probably be rewritten to NOT keep all the junk scores, but only the best scores. we can also MPP this fairly easily
+			# (lots of processing -- nits loops) with a tiny return... or at least (now) recoded to be smarter and faster about being selective...
 	#
 	# now, get the max score set for each row:
 	#return fault_scores
 	
 	scores_out = []
-	for key in fault_scores.keys():
-		rw = fault_scores[key]
+	for key,rw in fault_scores.iteritems():
+		#rw = fault_scores[key]
 		i0 = key.index('section_') + len('section_')
 		fault_number = int(key[i0:key.index('.', i0)])
 		#
@@ -792,11 +810,12 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 	#
 	return scores_out
 
-def plot_best_opt_prams(scores_in):
+def plot_best_opt_prams(scores_in=None):
 	'''
-	# plots from faultwise optimization
+	# plots from faultwise optimization (aka, from: optimize_metric_faultwise() )
 	#
 	'''
+	if scores_in==None: scores_in = 'dumps/optimize_faultwise_best_scores.npy' # (i think).
 	if isinstance(scores_in, str):
 		scores_in = numpy.load(scores_in)
 	#
@@ -842,6 +861,9 @@ def plot_best_opt_prams(scores_in):
 	f2.clf()
 	ax3d = f2.add_subplot(111, projection='3d')
 	ax3d.plot(scores_in['b_0'], scores_in['nyquist_factor'], scores_in['score'], '.')
+	ax3d.set_xlabel('b_0')
+	ax3d.set_ylabel('nyquist_factor')
+	ax3d.set_zlabel('score')
 	#
 	mean_b = numpy.mean(scores_in['b_0'])
 	std_b  = numpy.std(scores_in['score'])
@@ -2243,51 +2265,57 @@ def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_
 	return r_dict
 #
 def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
-		if isinstance(ary_in, str)==True:
-			ary_in = numpy.load(ary_in)
+	# use record-breaking metric to detect trends in a time-series.
+	if isinstance(ary_in, str)==True:
+		ary_in = numpy.load(ary_in)
+	#
+	Xs = ary_in['event_year'][1:]
+	Ns = ary_in['event_number'][1:]
+	# note: this gives the relative interval interval = year_i/year_(i-1). ?? (and i have no idea where it came from.
+	# note also that it could end up producing a significant problem, since log(small)-log(small + dt_0) != log(big)-log(big +dt_0).
+	#intervals = numpy.array(map(math.log10, ary_in['event_year'])[1:]) - numpy.array(map(math.log10, ary_in['event_year'])[:-1])
+	intervals = numpy.array([ary_in['event_year'][i]-ary_in['event_year'][i-1] for i in xrange(1, len(ary_in))])
+	
+	#return (intervals, ary_in)
+	mean_interval = numpy.mean(intervals)
+	#
+	X_numpy = numpy.array([[x, 1.0] for x in Xs])
+	
+	# first, get a fixed length line-fit:
+	#for i in xrange(nyqquist_len, len(ary_in)):
+	#	rw = ary_in[i]
+	fitses = [numpy.linalg.lstsq(X_numpy[i-nyquist_len:i], intervals[i-nyquist_len:i])[0] for i in xrange(nyquist_len, len(ary_in))]
+	#
+	output_names = ['event_number', 'event_year', 'lin_fit_a', 'lin_fit_b', 'rb_ratio', 'interval_rate_ratio']
+	#
+	# get record-breaking intervals
+	nrbs=[]
+	#output_names += ['rb_ratio']
+	for i in xrange(nyquist_len, len(ary_in)):
 		#
-		Xs = ary_in['event_year'][1:]
-		Ns = ary_in['event_number'][1:]
-		intervals = numpy.array(map(math.log10, ary_in['event_year'])[1:]) - numpy.array(map(math.log10, ary_in['event_year'])[:-1])
-		mean_interval = numpy.mean(intervals)
+		nrbs_up=[intervals[i-nyquist_len]]
+		nrbs_dn=[intervals[i-nyquist_len]]
 		#
-		X_numpy = numpy.array([[x, 1.0] for x in Xs])
-		
-		# first, get a fixed length line-fit:
-		#for i in xrange(nyqquist_len, len(ary_in)):
-		#	rw = ary_in[i]
-		fitses = [numpy.linalg.lstsq(X_numpy[i-nyquist_len:i], intervals[i-nyquist_len:i])[0] for i in xrange(nyquist_len, len(ary_in))]
+		for j, interval in enumerate(intervals[i-nyquist_len:i]):
+			if interval > nrbs_up[-1]: nrbs_up+=[interval]
+			if interval < nrbs_dn[-1]: nrbs_dn+=[interval]
 		#
-		output_names = ['event_number', 'event_year', 'lin_fit_a', 'lin_fit_b']
+		nrbs += [math.log10(float(len(nrbs_up))/float(len(nrbs_dn)))]
+		#rb_ratio = float(len(nrbs_up))/float(len(nrbs_dn))
+		#outputs[i]+=[rb_ratio]
 		#
-		# get record-breaking intervals
-		nrbs=[]
-		output_names += ['rb_ratio']
-		for i in xrange(nyquist_len, len(ary_in)):
-			#
-			nrbs_up=[intervals[i-nyquist_len]]
-			nrbs_dn=[intervals[i-nyquist_len]]
-			#
-			for j, interval in enumerate(intervals[i-nyquist_len:i]):
-				if interval > nrbs_up[-1]: nrbs_up+=[interval]
-				if interval < nrbs_dn[-1]: nrbs_dn+=[interval]
-			#
-			nrbs += [math.log10(float(len(nrbs_up))/float(len(nrbs_dn)))]
-			#rb_ratio = float(len(nrbs_up))/float(len(nrbs_dn))
-			#outputs[i]+=[rb_ratio]
-			#
-		#nrbs = [None for i in xrange(nyquist_len)] + nrbs
-		#
-		outputs = [[Ns[i], Xs[i], fitses[i][0], fitses[i][1], nrbs[i], intervals[i]/mean_interval] for i in xrange(len(fitses))]
-		output_names += ['interval_rate_ratio']
-		print "lens:: ", len(nrbs), len(outputs)
-		#
-		#CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final'], formats=[type(x).__name__ for x in CFF[0]])
-		outputs = numpy.core.records.fromarrays(zip(*outputs), names=output_names, formats = [type(x).__name__ for x in outputs[0]])
-		#
-		return outputs			
+	#nrbs = [None for i in xrange(nyquist_len)] + nrbs
+	#
+	outputs = [[Ns[i], Xs[i], fitses[i][0], fitses[i][1], nrbs[i], intervals[i]/mean_interval] for i in xrange(len(fitses))]
+	#output_names += ['interval_rate_ratio']
+	print "lens:: ", len(nrbs), len(outputs)
+	#
+	#CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final'], formats=[type(x).__name__ for x in CFF[0]])
+	outputs = numpy.core.records.fromarrays(zip(*outputs), names=output_names, formats = [type(x).__name__ for x in outputs[0]])
+	#
+	return outputs			
 #
-def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquist_factor=.5):
+def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.npy', fnum=0, nyquist_factor=.5):
 	# this script is for some of the earlier CFF numpy array types. newer arrays will require different scripting.
 	# for older data sets (most likely):
 	#	# 2 cols: event_number, CFF_initial
@@ -2328,7 +2356,7 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.ary', fnum=0, nyquis
 		ax_trend=ax_mag.twinx()
 		#
 		X_init = CFF['event_year']
-		X_finals = [x+.01 for x in X_init]
+		X_finals = [x+.01 for x in X_init]	# this to show the stress drops after a mainshock (X_final is the time of the data point after the event).
 		#
 		Y0 = -1*CFF['cff_initial']
 		Y_final = -1*(CFF['cff_final'])
@@ -2606,6 +2634,8 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 #
 def make_structured_arrays(file_profile = 'data/VC_CFF_timeseries_section_*.npy'):
 	# wrapper to convert a bunch of normal arrays or maybe lists to numpy structured arrays (numpy.recarray).
+	# (aka, this is a one time, or at least special occasion, script. with the exception that it might be instructive
+	# for developing new array handling scripts, it can probably be chucked).
 	G=glob.glob(file_profile)
 	#
 	for g in G:
@@ -3190,9 +3220,11 @@ def cols_from_h5_dict(cols_dict):
 	# dict(proxy) will be like: {str{col_name}:(dtype, width_index),...}
 	# SO, we want to return them in order o width_index
 	#
-	col_names=[]
-	for key in cols_dict.keys():
-		col_names += [[key, cols_dict[key][1]]]
+	#col_names=[]
+	#for key in cols_dict.keys():
+	#	col_names += [[key, cols_dict[key][1]]]
+	#
+	col_names = [[key,cols_dict[key][1]] for key in cols_dict.iterkeys()]
 	col_names.sort(key=lambda x:x[1])
 	#
 	return [x[0] for x in col_names]

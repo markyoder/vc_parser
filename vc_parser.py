@@ -2178,6 +2178,8 @@ def get_fault_traces(section_ids=None, sim_file=allcal_full_mks, block_resolutio
 		i_blk=0
 		for rw in block_data_iterator:
 			if rw['section_id'] not in section_ids:
+				continue
+				"""
 				print "skipping section_id: %d" % rw['section_id']
 				# do a fast-skip thorought these elements (without searching the list again).
 				#continue
@@ -2187,18 +2189,22 @@ def get_fault_traces(section_ids=None, sim_file=allcal_full_mks, block_resolutio
 					rw=block_data_iterator.next()
 					i_blk+=1
 				bogus_section_id=None
+				print "new section_id: %d" % rw['section_id']
 				#
+				"""
 			#
 			# now we have a valid section:
-			if faults.has_key(rw['section_id'])==False: faults[rw['section_id']] = []
-			if not hasattr(faults[rw['section_id']], '__len__'): faults[rw['section_id']]=[]
+			if faults.has_key(rw['fault_id'])==False:
+				faults[rw['fault_id']] = []
+				print "adding fault_id: %d/%d" % (rw['fault_id'], rw['section_id'])
+			#if not hasattr(faults[rw['fault_id']], '__len__'): faults[rw['fault_id']]=[]
 			#
 			# and for now, let's not separate the sections; just note the section_id:
 			UL, LL, UR = [[rw['m_%s_pt%d' % (xyz, j)] for xyz in ['x', 'y', 'z']] for j in [1,2,4]]	# note: this may need to be
 																									# corrected for newer vc where there are 3, not 4 vertices.
 			LR = numpy.array(LL) + numpy.array(UR)-numpy.array(UL)
 			#
-			faults[rw['section_id']] += [[rw['section_id'], rw['block_id'], UL, LL, LR, UR]]
+			faults[rw['fault_id']] += [[rw['section_id'], rw['block_id'], UL, LL, LR, UR]]
 			i_blk+=1
 			#
 		#for key in faults.iterkeys():

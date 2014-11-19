@@ -2080,10 +2080,10 @@ def vc_basemap(projection='cyl', resolution='i', **kwargs):
 	grid_color              = '#000000'
 	cb_fontcolor            = '#000000'
 	#
-	boundary_width          = 1.0
-	coastline_width         = 1.0
-	country_width           = 1.0
-	state_width             = 1.0
+	boundary_width          = 2.0
+	coastline_width         = 2.0
+	country_width           = 2.0
+	state_width             = 2.0
 	fault_width             = 0.5
 	forecast_fault_width    = 6.0
 	seq_fault_width_max     = 6.0
@@ -2158,10 +2158,61 @@ def vc_basemap(projection='cyl', resolution='i', **kwargs):
 	)
 	
 	return bm
-	
 #
-def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], mc=3.0):
+def get_fault_traces(section_ids=None, sim_file=allcal_full_mks, block_resolution=True):
+	# eventually, we'll want different types of fault traces: show all the blocks, show sections, show just a trace, maybe
+	# top/bottom trace, top/bottom/edges polygon (aka, hollow it out). we want, ultimately, to return a set of [[X,Y, Z?] ]
+	# pairs/triplets for plotting.
+	#
+	faults = {}
+	fault_col_names = ('section_id', 'block_id', 'UL', 'LL', 'LR', 'UR')
+	#
+	# first, get all block_ids and separate into faults (sections?):
+	with h5py.File(sim_file) as vc_data:
+		block_data = vc_data['block_info_table']
+		if section_ids == None: section_ids = set(block_data['section_id'].tolist())
+		#
+		block_data_iterator = block_data.__iter__()
+		#for rw in block_data:
+		i_max = len(block_data)-2		# aka, the [-2] position...
+		i_blk=0
+		for rw in block_data_iterator:
+			if rw['section_id'] not in section_ids:
+				print "skipping section_id: %d" % rw['section_id']
+				# do a fast-skip thorought these elements (without searching the list again).
+				#continue
+				bogus_section_id=rw['section_id']
+				while rw['section_id']==bogus_section_id and i_blk<i_max:
+					# manually increment j and rw:
+					rw=block_data_iterator.next()
+					i_blk+=1
+				bogus_section_id=None
+				#
+			#
+			# now we have a valid section:
+			if faults.has_key(rw['section_id'])==False: faults[rw['section_id']] = []
+			if not hasattr(faults[rw['section_id']], '__len__'): faults[rw['section_id']]=[]
+			#
+			# and for now, let's not separate the sections; just note the section_id:
+			UL, LL, UR = [[rw['m_%s_pt%d' % (xyz, j)] for xyz in ['x', 'y', 'z']] for j in [1,2,4]]	# note: this may need to be
+																									# corrected for newer vc where there are 3, not 4 vertices.
+			LR = numpy.array(LL) + numpy.array(UR)-numpy.array(UL)
+			#
+			faults[rw['section_id']] += [[rw['section_id'], rw['block_id'], UL, LL, LR, UR]]
+			i_blk+=1
+			#
+		#for key in faults.iterkeys():
+		#	# ... can't encode list-in-list, only simpler structures... for now, just return the list.
+		#	print "key-rw: ", faults[key][0]
+		#	faults[key] = numpy.core.records.fromarrays(zip(*faults[key]), names=fault_col_names, formats = [type(x).__name__ for x in faults[key][0]])
+			
+	#
+	return faults
+#
+def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], mc=3.0, etas_gridsize=.1, etas_mc=3.0, etas_contour_intervals=24):
 	# make a map of real seismicity around our model area. use the fault model to determine extents.
+	#
+	# emc section_ids: emc_section_filter['filter']
 	#
 	# handle some default values and book-keeping:
 	# ...
@@ -2175,6 +2226,7 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	lat_0 = ll_range['lat_min'] + (ll_range['lat_max']-ll_range['lat_min'])/2.
 	#
 	plt.figure(fignum, figsize=map_size)
+	plt.clf()
 	#bm = vc_basemap(llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i', projection='cyl')
 	bm = vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i')
 	
@@ -2191,16 +2243,21 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	#
 	etas_catalog = BASScast.getMFETAScatFromANSS(lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], dates=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=500), dtm.datetime.now(pytz.timezone('UTC'))], mc=mc)
 	#
-	contour_intervals=24
-	gridsize=.1
-	mc=3.0
+	#etas_contour_intervals=24
+	#etas_gridsize=.1
+	#etas_mc=3.0
 	#
-	etas = BASScast.BASScast(incat=etas_catalog, fcdate=end_date, gridsize=gridsize, contres=contour_intervals, mc=mc, eqeps=None, eqtheta=None, fitfactor=5., contour_intervals=contour_intervals, lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], rtype='ssim', p_quakes=1.05, p_map=0.0)
+	etas = BASScast.BASScast(incat=etas_catalog, fcdate=end_date, gridsize=etas_gridsize, contres=etas_contour_intervals, mc=etas_mc, eqeps=None, eqtheta=None, fitfactor=5., contour_intervals=etas_contour_intervals, lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], rtype='ssim', p_quakes=1.05, p_map=0.0)
 	#
-	conts = etas.getContourSet(X_i=None, Y_i=None, Z_ij=None, contres=contour_intervals, zorder=7, alpha=.15)
+	#conts = etas.getContourSet(X_i=None, Y_i=None, Z_ij=None, contres=etas_contour_intervals, zorder=7, alpha=.15)
 	#conts2 = etas.BASScastContourMap(fignum=3, maxNquakes=10, alpha=.75)
 	#
-	return conts
+	# and we can plot these contours anywhere like:
+	# X,Y,Z = a.X_i, a.Y_i, a.Z2d
+	# plt.contourf(X,Y,Z, alpha=.25) (noting that as X,Y will be in lat/lon coords.)
+	#
+	#return conts
+	return etas
 #
 def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
 	# find mean, stdev Delta_t, N between m>m0 events in ary_in.

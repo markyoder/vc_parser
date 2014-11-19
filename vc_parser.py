@@ -2179,19 +2179,24 @@ def get_fault_traces(section_ids=None, sim_file=allcal_full_mks, block_resolutio
 		for rw in block_data_iterator:
 			if rw['section_id'] not in section_ids:
 				continue
-				"""
+				#
+				# this should be a fast way to skip extraneous rows, but the iterator does not seem to work properly...
+				'''
 				print "skipping section_id: %d" % rw['section_id']
 				# do a fast-skip thorought these elements (without searching the list again).
 				#continue
 				bogus_section_id=rw['section_id']
 				while rw['section_id']==bogus_section_id and i_blk<i_max:
 					# manually increment j and rw:
-					rw=block_data_iterator.next()
-					i_blk+=1
+					try:
+						rw=block_data_iterator.next()
+						i_blk+=1
+					except:
+						break
 				bogus_section_id=None
 				print "new section_id: %d" % rw['section_id']
 				#
-				"""
+				'''	
 			#
 			# now we have a valid section:
 			if faults.has_key(rw['fault_id'])==False:

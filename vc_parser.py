@@ -2159,6 +2159,40 @@ def vc_basemap(projection='cyl', resolution='i', **kwargs):
 	
 	return bm
 #
+def get_vc_fault_polygon(fault_block_vertices):
+	# a sort of sloppy script to make a polygon out of a set of block vertices (see get_fault_traces() ).
+	# assume the blocks are an array with fixed z levels...
+	# but in the end, i guess we still have to make vectors out of the blocks
+	print "this is not finished yet..."
+	#
+	Z = zip(*fault_block_vertices)[2]
+	#
+	min_z = min(Z)
+	max_z = max(Z)
+	#
+	#reduced_blocks = [block in fault_block_vertices if block[2] in (min_z, max_z)]
+	#
+	# ... and then finish it later...
+#
+def simple_fault_trace(fault_block_vertices):
+	# falut_block_vertices from get_fault_traces output (just the vertices).
+	# like: [section_id, block_id, [verts: xyz_UL, xyz_LL, xyz_LR, xyz_UR]]
+	#
+	vecs = []
+	# just mash all the block vertices into a set of points, make a set() of them, and assume they're in
+	# the correct sequence?
+	# for now, just keep [x,y]
+	#
+	for rw in fault_block_vertices:
+		verts = rw[2:6]
+		#print verts
+		#points+= [(x[0],x[1]) for x in verts if (x[0],x[1]) not in points]
+		vecs += [zip(*[verts[0][0:2], verts[3][0:2]])]
+		vecs += [zip(*[verts[1][0:2], verts[2][0:2]])]
+	#
+	return vecs
+	
+#
 def get_fault_traces(section_ids=None, sim_file=allcal_full_mks, block_resolution=True):
 	# eventually, we'll want different types of fault traces: show all the blocks, show sections, show just a trace, maybe
 	# top/bottom trace, top/bottom/edges polygon (aka, hollow it out). we want, ultimately, to return a set of [[X,Y, Z?] ]

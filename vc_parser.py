@@ -1875,6 +1875,8 @@ def xy_to_lat_lon(x, y, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.
 		return lat, lon
 	elif return_format=='list':
 		return [lat, lon]
+	elif return_format=='lonlat_list':
+		return [lon, lat]
 	else:
 		return {'lat':lat, 'lon':lon}
 #
@@ -2192,8 +2194,8 @@ def simple_fault_trace(fault_block_vertices=None, vert_cols=[2,3,4,5]):
 		#print verts
 		#points+= [(x[0],x[1]) for x in verts if (x[0],x[1]) not in points]
 		#
-		vecs += [list(zip(*[verts[0][0:2], verts[-1][0:2]] ))]
-		if len(verts)>3: vecs += [list(zip(*[verts[1][0:2], verts[2][0:2]]))]
+		vecs += [[verts[0][0:2], verts[-1][0:2]] ]
+		if len(verts)>3: vecs += [[verts[1][0:2], verts[2][0:2]]]
 	#
 	return vecs
 #
@@ -2203,8 +2205,8 @@ def simple_fault_trace2(fault_block_vertices=None, vert_cols=[2,3,4,5]):
 	# like: [section_id, block_id, [verts: xyz_UL, xyz_LL, xyz_LR, xyz_UR]] (or something like this)
 	# each vert is a lists-like: [x,y,z]
 	#
-	#print "this is not working yet..."
-	#return "this is not working yet..."
+	print "this is not working yet..."
+	return "this is not working yet..."
 	#
 	vecs = []
 	# just mash all the block vertices into a set of points, make a set() of them, and assume they're in
@@ -2324,7 +2326,7 @@ def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_m
 	#
 	# get faultwise collections of blocks (by section_id)
 	if fault_blocks == None:
-		faults_blocks = get_fault_blocks(section_ids=section_ids, sim_file=sim_file)
+		fault_blocks = get_fault_blocks(section_ids=section_ids, sim_file=sim_file)
 	#
 	fault_traces = {}
 	#
@@ -2337,10 +2339,9 @@ def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_m
 		for fault_id, trace in fault_traces.iteritems():
 			for i, pair in enumerate(trace):
 				# each entry in the trace is like [ [x1,x2], [y1, y2] ]
-				for j in xrange(len(pair)):
-					lat, lon = xy_to_lat_lon(pair[j][0], pair[j][1], sim_file=sim_file, return_format='list')
-					fault_traces[fault_id][i][0][j] = lon
-					fault_traces[fault_id][i][1][j] = lat 
+				#print "pair: ", pair
+				fault_traces[fault_id][i] = [xy_to_lat_lon(rw[0], rw[1], sim_file=sim_file, return_format='lonlat_list') for rw in pair]
+				
 				
 	#
 	# ... and for now, plot it here. we'll move this out of funct. later...
@@ -2349,7 +2350,9 @@ def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_m
 		plt.clf()
 		for fault_id, trace in fault_traces.iteritems():
 			for pair in trace:
-				plt.plot(pair[0], pair[1], '-')
+				#X,Y = zip(*pair)
+				#plt.plot(X,Y, '-')
+				plt.plot([x[0] for x in pair], [y[1] for y in pair], '-')
 		#
 	#
 	return fault_traces
@@ -2394,6 +2397,8 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	#etas_mc=3.0
 	#
 	etas = BASScast.BASScast(incat=etas_catalog, fcdate=end_date, gridsize=etas_gridsize, contres=etas_contour_intervals, mc=etas_mc, eqeps=None, eqtheta=None, fitfactor=5., contour_intervals=etas_contour_intervals, lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], rtype='ssim', p_quakes=1.05, p_map=0.0)
+	
+	#return etas
 	#
 	#conts = etas.getContourSet(X_i=None, Y_i=None, Z_ij=None, contres=etas_contour_intervals, zorder=7, alpha=.15)
 	#conts2 = etas.BASScastContourMap(fignum=3, maxNquakes=10, alpha=.75)
@@ -2410,8 +2415,19 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	#plt.clf()
 	#for fault_id, trace in fault_traces.iteritems():
 	#	for pair in trace:
-	#		plt.plot(pair[0], pair[1], '-')
+	#		#X,Y = zip(*pair)
+	#		#plt.plot(X,Y, '-')
+	#		plt.plot([x[0] for x in pair], [y[1] for y in pair], '-')
 	# 
+	# convert to map coordis using etas.cm()
+	plt.figure(fignum)
+	for fault_id, trace in fault_traces.iteritems():
+		for pair in trace:
+			#X,Y = zip(*pair)
+			#plt.plot(X,Y, '-')
+			new_pair = [etas.cm(x,y) for x,y in pair]
+			plt.plot([x[0] for x in new_pair], [y[1] for y in new_pair], '-')
+	 
 	
 	#
 	return etas

@@ -2174,26 +2174,89 @@ def get_vc_fault_polygon(fault_block_vertices):
 	#
 	# ... and then finish it later...
 #
-def simple_fault_trace(fault_block_vertices):
+def simple_fault_trace(fault_block_vertices=None, vert_cols=[2,3,4,5]):
 	# falut_block_vertices from get_fault_traces output (just the vertices).
-	# like: [section_id, block_id, [verts: xyz_UL, xyz_LL, xyz_LR, xyz_UR]]
+	# like: [section_id, block_id, [verts: xyz_UL, xyz_LL, xyz_LR, xyz_UR]] (or something like this)
+	# each vert is a lists-like: [x,y,z]
 	#
 	vecs = []
 	# just mash all the block vertices into a set of points, make a set() of them, and assume they're in
 	# the correct sequence?
 	# for now, just keep [x,y]
 	#
+	#traces = []	# list of traces. each entry will be [[x,y],[x,y]...] in order of tip-to-tail.
+	#
 	for rw in fault_block_vertices:
-		verts = rw[2:6]
+		#verts = rw[2:6]
+		verts = [rw[i] for i in vert_cols]	# note, these can be named or numbered depending on the object type...
 		#print verts
 		#points+= [(x[0],x[1]) for x in verts if (x[0],x[1]) not in points]
-		vecs += [zip(*[verts[0][0:2], verts[3][0:2]])]
-		vecs += [zip(*[verts[1][0:2], verts[2][0:2]])]
+		#
+		vecs += [list(zip(*[verts[0][0:2], verts[-1][0:2]] ))]
+		if len(verts)>3: vecs += [list(zip(*[verts[1][0:2], verts[2][0:2]]))]
 	#
 	return vecs
+#
+def simple_fault_trace2(fault_block_vertices=None, vert_cols=[2,3,4,5]):
+	# slightly more compact (and will probably replace) simple_fault_trace()
+	# falut_block_vertices from get_fault_traces output (just the vertices).
+	# like: [section_id, block_id, [verts: xyz_UL, xyz_LL, xyz_LR, xyz_UR]] (or something like this)
+	# each vert is a lists-like: [x,y,z]
+	#
+	#print "this is not working yet..."
+	#return "this is not working yet..."
+	#
+	vecs = []
+	# just mash all the block vertices into a set of points, make a set() of them, and assume they're in
+	# the correct sequence?
+	# for now, just keep [x,y]
+	#
+	#traces = []	# list of traces. each entry will be [[x,y],[x,y]...] in order of tip-to-tail.
+	#
+	for rw in fault_block_vertices:
+		#verts = rw[2:6]
+		verts = [rw[i] for i in vert_cols]	# note, these can be named or numbered depending on the object type...
+		#print verts
+		#points+= [(x[0],x[1]) for x in verts if (x[0],x[1]) not in points]
+		#
+		#vecs += [zip(*[verts[0][0:2], verts[-1][0:2]])]
+		#if len(verts)>3: vecs += [zip(*[verts[1][0:2], verts[2][0:2]])]
+		vecs += [ [verts[0][0:2], verts[-1][0:2]] ]
+		if len(verts)>3: vecs += [ [verts[1][0:2], verts[2][0:2]] ]
+	#return vecs
+	#
+	# now, paste these verts together into connected fault traces.
+	# note that each vector is a mini-trace, so let's put them together:
+	#
+	traces = [vecs.pop()]
+	#
+	print "len(vecs): %d" % len(vecs)
+	#
+	# ... but i'm not sure this actually works, because fault blocks don't always (???) actually touch?
+	while len(vecs)>0:
+		for j, trace in enumerate(traces):
+			found_one=False
+			for i,vec in enumerate(vecs):
+				#print vec, trace
+				if vec[0]==trace[-1]:
+					traces[j]+=vec
+					found_one=True
+				if vec[-1]==trace[0]:
+					traces[j] = vec + trace
+					found_one=True
+				#
+		
+			if found_one==False and len(vecs)>0:
+				print "adding new trace..."
+				traces += [vecs.pop()]
+	
+	#
+	print "lens: %d, %d" % (len(traces), len(vecs))
+	return traces
+		
 	
 #
-def get_fault_traces(section_ids=None, sim_file=allcal_full_mks, block_resolution=True):
+def get_fault_blocks(section_ids=None, sim_file=allcal_full_mks):
 	# eventually, we'll want different types of fault traces: show all the blocks, show sections, show just a trace, maybe
 	# top/bottom trace, top/bottom/edges polygon (aka, hollow it out). we want, ultimately, to return a set of [[X,Y, Z?] ]
 	# pairs/triplets for plotting.
@@ -2243,7 +2306,7 @@ def get_fault_traces(section_ids=None, sim_file=allcal_full_mks, block_resolutio
 																									# corrected for newer vc where there are 3, not 4 vertices.
 			LR = numpy.array(LL) + numpy.array(UR)-numpy.array(UL)
 			#
-			faults[rw['fault_id']] += [[rw['section_id'], rw['block_id'], UL, LL, LR, UR]]
+			faults[rw['fault_id']] += [[rw['section_id'], rw['block_id'], UL, LL, LR.tolist(), UR]]
 			i_blk+=1
 			#
 		#for key in faults.iterkeys():
@@ -2252,9 +2315,47 @@ def get_fault_traces(section_ids=None, sim_file=allcal_full_mks, block_resolutio
 		#	faults[key] = numpy.core.records.fromarrays(zip(*faults[key]), names=fault_col_names, formats = [type(x).__name__ for x in faults[key][0]])
 			
 	#
+	# returns a dict like {fault_id:[list-o-blocks]...}
+	# where each list-o-blocks is like [section_id, block_id, vert0, vert1, vert2, vert3
 	return faults
 #
-def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], mc=3.0, etas_gridsize=.1, etas_mc=3.0, etas_contour_intervals=24):
+def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_mks, fignum=None, lat_lon=True ):
+	# get some simple fault traces for plotting (or whatever):
+	#
+	# get faultwise collections of blocks (by section_id)
+	if fault_blocks == None:
+		faults_blocks = get_fault_blocks(section_ids=section_ids, sim_file=sim_file)
+	#
+	fault_traces = {}
+	#
+	for fault_id,fault in fault_blocks.iteritems():
+		fault_traces[fault_id] = simple_fault_trace(fault_block_vertices=fault, vert_cols=[2,3,4,5])
+	#
+	# if lat_lon, then convert from xy to lat_lon:
+	# use: xy_to_lat_lon(x, y, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict')
+	if lat_lon:
+		for fault_id, trace in fault_traces.iteritems():
+			for i, pair in enumerate(trace):
+				# each entry in the trace is like [ [x1,x2], [y1, y2] ]
+				for j in xrange(len(pair)):
+					lat, lon = xy_to_lat_lon(pair[j][0], pair[j][1], sim_file=sim_file, return_format='list')
+					fault_traces[fault_id][i][0][j] = lon
+					fault_traces[fault_id][i][1][j] = lat 
+				
+	#
+	# ... and for now, plot it here. we'll move this out of funct. later...
+	if fignum!=None:
+		plt.figure(fignum)
+		plt.clf()
+		for fault_id, trace in fault_traces.iteritems():
+			for pair in trace:
+				plt.plot(pair[0], pair[1], '-')
+		#
+	#
+	return fault_traces
+	
+#
+def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], mc=4.0, etas_gridsize=.25, etas_mc=3.0, etas_contour_intervals=24):
 	# make a map of real seismicity around our model area. use the fault model to determine extents.
 	#
 	# emc section_ids: emc_section_filter['filter']
@@ -2301,7 +2402,18 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	# X,Y,Z = a.X_i, a.Y_i, a.Z2d
 	# plt.contourf(X,Y,Z, alpha=.25) (noting that as X,Y will be in lat/lon coords.)
 	#
-	#return conts
+	# now, draw some fault traces:
+	# fault_blocks=None --> will fetch fault blocks from get_fault_blocks()
+	fault_traces = get_fault_traces(fault_blocks=None, section_ids=section_ids, sim_file=sim_file, fignum=None, lat_lon=True)
+	# format is like:
+	#plt.figure(fignum)
+	#plt.clf()
+	#for fault_id, trace in fault_traces.iteritems():
+	#	for pair in trace:
+	#		plt.plot(pair[0], pair[1], '-')
+	# 
+	
+	#
 	return etas
 #
 def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):

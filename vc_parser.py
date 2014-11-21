@@ -1766,7 +1766,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 				fit_prams, fit_cov = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=t0), xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([max(1.0, mean_dT-t0), 1.5]))
 				#			
 				print "fitted (converging)...", fit_cov
-				pram_sigmas = numpy.sqrt(numpy.diag(fit_cov))
+				pram_sigmas = numpy.sqrt(numpy.diag(fit_cov))		# the uncertainties of the fit parameters are the diagonals of the covariance matrix... right?
 				mean_chi_sqr = numpy.mean([(f_weibull(x=this_X[k], chi=fit_prams[0], beta=fit_prams[1], x0=t0)-Y[k])**2. for k, xx in enumerate(this_X)]) # in xrange(len(X))])
 				stdErr = mean_chi_sqr/math.sqrt(N)
 				print fit_cov
@@ -2358,7 +2358,7 @@ def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_m
 	return fault_traces
 	
 #
-def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], mc=4.0, etas_gridsize=.25, etas_mc=3.0, etas_contour_intervals=24):
+def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], etas_gridsize=.25, etas_mc=3.0, etas_contour_intervals=24, etas_cat_len=500):
 	# make a map of real seismicity around our model area. use the fault model to determine extents.
 	#
 	# emc section_ids: emc_section_filter['filter']
@@ -2390,15 +2390,14 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	# looks like there might be some GIT synching problems to be handled here. maybe a change from Buller didn't manage
 	# to push up properly?
 	#
-	etas_catalog = BASScast.getMFETAScatFromANSS(lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], dates=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=500), dtm.datetime.now(pytz.timezone('UTC'))], mc=mc)
+	etas_catalog = BASScast.getMFETAScatFromANSS(lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], dates=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=etas_cat_len), dtm.datetime.now(pytz.timezone('UTC'))], mc=etas_mc)
 	#
 	#etas_contour_intervals=24
 	#etas_gridsize=.1
 	#etas_mc=3.0
 	#
+	# instantiate a BASScast object() (from the BASScast module).
 	etas = BASScast.BASScast(incat=etas_catalog, fcdate=end_date, gridsize=etas_gridsize, contres=etas_contour_intervals, mc=etas_mc, eqeps=None, eqtheta=None, fitfactor=5., contour_intervals=etas_contour_intervals, lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], rtype='ssim', p_quakes=1.05, p_map=0.0)
-	
-	#return etas
 	#
 	#conts = etas.getContourSet(X_i=None, Y_i=None, Z_ij=None, contres=etas_contour_intervals, zorder=7, alpha=.15)
 	#conts2 = etas.BASScastContourMap(fignum=3, maxNquakes=10, alpha=.75)
@@ -2421,14 +2420,17 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	# 
 	# convert to map coordis using etas.cm()
 	plt.figure(fignum)
-	for fault_id, trace in fault_traces.iteritems():
+	colors_ =  mpl.rcParams['axes.color_cycle']
+	fault_color = 'b'
+	for fault_index, (fault_id, trace) in enumerate(fault_traces.iteritems()):
 		for pair in trace:
 			#X,Y = zip(*pair)
 			#plt.plot(X,Y, '-')
+			#fault_color = colors_[fault_index%len(colors_)]
+			#
 			new_pair = [etas.cm(x,y) for x,y in pair]
-			plt.plot([x[0] for x in new_pair], [y[1] for y in new_pair], '-')
-	 
-	
+			plt.plot([x[0] for x in new_pair], [y[1] for y in new_pair], '-', color=fault_color)
+		#	
 	#
 	return etas
 #
@@ -3211,13 +3213,6 @@ def index_dict_test(N=10**6):
 		'''
 		#
 	return None
-#
-def print_eq(a,b, pipe=None):
-	truth = (a==b)
-	if pipe!=None:
-		pipe.send(truth)
-		pipe.close()
-	print truth
 #
 def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
 	# ... and "time_series" is implied.

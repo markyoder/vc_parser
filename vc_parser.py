@@ -57,6 +57,7 @@ napa_region_section_filter = {'filter':set([45, 50, 172, 171, 170, 169, 44, 168,
 
 emc_section_filter = {'filter': (16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149)}
 allcal_full_mks = '../ALLCAL2_1-7-11_no-creep_dyn-05_st-20.h5'
+default_sim_file = allcal_full_mks
 emc_sections = emc_section_filter['filter']
 
 class getter(object):
@@ -1007,6 +1008,13 @@ def mean_recurrenceses(section_ids=[], m0=7.0, file_path_format='data/VC_CFF_tim
 	#
 	return None
 #
+def f_inv_weibull(P=None, t0=None, tau=None, beta=None):
+	# inverse (solving for t or delta_t):
+	#print "prams: ", P,t0,tau,beta
+	P,t0,tau,beta = [float(x) for x in [P,t0,tau,beta]]
+	#
+	return tau*((t0/tau)**beta - math.log(1.-P))**(1./beta)
+#
 def f_weibull(x=None, chi=1.0, beta=1.0, x0=None):
 	'''
 	# weibull distribution (for fitting).
@@ -1603,7 +1611,132 @@ def tau_t0_fig(section_ids=None, glob_pattern='VC_CDF_WT_figs/VC_CDF_WT_*.npy'):
 
 	#
 	return full_array
+#
+def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0):
+	# ... and work out the details later...
+	# if we have a catalog, pass it in (preferably a recarray). otherwise, provide section_ids).
+	# n_t0: number of data points (number ot t0 values)
+	#
+	# note: for now,use a pre-compiled catalog. assembling event-section_id catalogs requires some parsing. these catalogs
+	# have been queried and stored in VC/vc_parser/data as *.npy files. there is a script here somewhere to compile an event-section-wise
+	# catalog; also checkout the quakelib.Event() bits (which i think are not included (yet) in the new quakelib).
+	#
+	# the various parameters are (probably) already calculated. we can look into recalculating them later; note that
+	# the WT fits can get a bit ugly because some fits don't naturally converge, so we use a MC method... which is, of
+	# course questionable because it does not seem to converge, but it does seem to give the best fit.
+	#
+	if section_ids=='emc': section_ids = list(emc_sections) 	# globally defined list of emc_sections
+	if isinstance(section_ids, int) or isinstance(section_ids,float): section_ids = [section_ids]
+	#print "sections: ", section_ids
+	#
+	cdf_fits = numpy.load(fits_data_file_CDF)	# recarray with dtype: dtype=[('t0', '<f8'), ('section_id', '<i8'), ('chi', '<f8'), ('beta', '<f8'), ('sigma_chi', '<f8'), ('sigma_beta', '<f8'), ('chi_sqr', '<f8'), ('fit_type', 'S16')])
+	#
+	# we want the expected \Delta t to the next "big one" as a function of t_0 (aka, <Delta t> (t_0) ), and in this case
+	# t_0 is basically current ellapsed time. nominally, we shoul do this 1) directly from data, 2) using t0=0 fits, 3)
+	# custom fits for each value of t0 (or at least use prams[t_0 closest to t_0].
+	#
+	# we can pull waiting time data from the sim-file, or we can use the pre-calculated bits...
+	# (see: /home/myoder/Documents/Research/Yoder/VC/vc_parser/VC_CDF_WT_figs/*.npy).
+	# for now, let's pull the data from ths sim-file, but we'll use pre-calculated fit data (maybe).
+	#
+	#
+	if catalog==None:
+		# (providing a catalog will be the exception (maybe during development processes, etc.). generally, load
+		# fron file.npy.
+		#
+		#catalog=[]
+		#with h5py.File(sim_file, 'r') as vc_data:
+		#	# ... and here it is... this is a bad idea; the whole point of those pre-calculated events is
+		#	# that it is difficult and expensive to grab section -- event combination data (aka, event_table does not
+		#	# know if the event occurred on a valid section, etc. use the pre-calculated numpy.dump() files.
+		#	vc_events = vc_data['event_table']
+		#	#catalog = [rw for rw in vc_events if (rw['event_magnitude']>=m0 and rw['section_id
+		#	pass
+		#
+		
+		#str_mag = str(m0).replace('.','')
+		catalog = numpy.load(WT_catalog_format % (section_ids[0]))
+		for j, section_id in enumerate(section_ids[1:]):
+			numpy.append(catalog, numpy.load(WT_catalog_format % (section_id)))
+		#
+		#return catalog
+		catalog.sort(order='event_year')
+		#
+	#
+	#return catalog
+	#print "catalog:\n", catalog[0:5]
+	delta_t_total = catalog[-1]['event_year'] - catalog[0]['event_year']
+	#
+	# "mean recurrence data", but what we really want is just the intervals between m>7, so let's just get that.
+	#mean_rec_data = mean_recurrence(ary_in=ary_in, m0=m0)
+	#X = mean_rec_data['dists']['dT'].tolist()
+	#
+	expected_delta_ts = []	# will be like [ [{.25}, {.5}, {.75}], ... ]
+	model_delta_ts_0 = []	# from base weibull fit (t0=0)
+	#
+	event_years = [rw['event_year'] for rw in catalog if rw['event_magnitude']>=m0]
+	dt0 = delta_t_total/float(n_t0)
+	this_t0 = 0.0
+	recurrence_intervals = [event_years[i]-event_years[i-1] for i in xrange(1,len(event_years))]
+	#return recurrence_intervals
+	recurrence_intervals.sort()
+	#
+	# preliminary fit:
+	#
+	X=recurrence_intervals
+	N_ri = len(X)
+	Y=numpy.array([j/float(N_ri) for j in numpy.arange(1., N_ri+1, 1.)])
+	#
 	
+	#return [X,Y, numpy.array([numpy.mean(X), 1.5])]
+	
+	fit_prams = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=0.), xdata=numpy.array(X), ydata=Y, p0=numpy.array([numpy.mean(X), 1.5]))
+	
+	#fit_prams_0, fit_cov_0 = spo.curve_fit(f_weibull, xdata=numpy.array(X), ydata=numpy.array([j/float(len(X)) for j in numpy.arange(1., len(X)+1)]), p0=numpy.array([mean_dT, 1.5]))
+	fit_tau_0 = fit_prams[0][0]
+	fit_beta_0 = fit_prams[0][1]
+	#
+	#print "fit_prams: ", fit_prams
+	#
+	while this_t0<delta_t_total:
+		these_delta_ts = [dt for dt in recurrence_intervals if dt>=this_t0]
+		these_delta_ts.sort()	# i think this is now redundant...
+		#
+		# now, get medianses:
+		# (there's a smart recursive way to do this, but we're just goint to code it):
+		N = len(these_delta_ts)
+		med_25 = numpy.median(these_delta_ts[:int(math.floor(N/2.))])
+		med_5 = numpy.median(these_delta_ts)
+		med_75 = numpy.median(these_delta_ts[int(math.ceil(N/2.)):])
+		
+		expected_delta_ts+= [[this_t0, med_25-this_t0, med_5-this_t0, med_75-this_t0]]
+		model_delta_ts_0 += [[this_t0] + [f_inv_weibull(P=p, tau=fit_tau_0, beta=fit_beta_0, t0=this_t0)-this_t0 for p in [.25, .5, .75]]]
+		#
+		this_t0+=dt0
+	#
+	expected_delta_ts = numpy.core.records.fromarrays(zip(*expected_delta_ts), names=['t0', 'med25', 'med50', 'med75'], formats = [type(x).__name__ for x in expected_delta_ts[0]])
+	#return model_delta_ts_0
+	model_delta_ts_0 = numpy.core.records.fromarrays(zip(*model_delta_ts_0), names=['t0', 'med25', 'med50', 'med75'], formats = [type(x).__name__ for x in model_delta_ts_0[0]])
+	#
+	plt.figure(fnum)
+	plt.clf()
+	xlim = max([t0 for j,t0 in enumerate(expected_delta_ts['t0']) if expected_delta_ts['med50'][j]>0])
+	#plt.gca().set_xlim(right=max(expected_delta_ts['t0'])*1.25)
+	plt.gca().set_xlim(right=xlim*1.25)
+	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med25'], 'b-')
+	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med50'], 'k.-')
+	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med75'], 'b-')
+	plt.fill_between(expected_delta_ts['t0'], expected_delta_ts['med25'], expected_delta_ts['med75'], color='y', alpha=.7)
+	#
+	# model_0:
+	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med25'], 'b--')
+	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med50'], 'm--')
+	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med75'], 'b--')
+	
+	
+	
+#	#
+
 #
 def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None):
 	'''
@@ -1617,7 +1750,12 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	# 4) a cumulative figure
 	'''
 	#
-	if section_ids in (None, [], ()): section_ids = list(emc_section_filter['filter'])
+	if section_ids in (None, [], ()):
+		section_ids='emc'
+		#
+	if isinstance(section_ids, str) and section_ids.lower()=='emc':
+		section_ids = list(emc_section_filter['filter'])
+	#
 	section_ids = list(set(section_ids))
 	plt.ion()
 	section_ids+=[-1, -2]		# ... assume they're not there and put them at the end...
@@ -1673,6 +1811,9 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 		these_t0_factors = t0_factors		# default t0 factors, but we might change them for composite figures...
 		#
 		if sec_id == -1:
+			# note: the full catalog gets compiled from the various catalog_id files (which are pre-calculated)
+			#        (see the non-aggregate bits below).
+			#
 			# use the full_catalog...
 			# but note that (i think, some events might be duplicated -- maybe when an earthquake occurs on multiple fault_segments?)
 			# remove duplicates:
@@ -1746,7 +1887,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 			min_x = 0.
 			#this_X = [x-t0 for x in X if (x-t0)>=0.]
 			this_X = [x for x in X if (x-t0)>=0.]
-			if len(this_X)<5: continue
+			if len(this_X)<5: continue		# ... because it won't fit...
 			this_X.sort()
 			#
 			# skip it if there aren't very many data:
@@ -1762,7 +1903,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 			print "these lens: ", len(this_X), len(Y)
 			try:
 				# f_weibull(x=None, chi=1.0, beta=1.0, x0=None)
-				fit_type = 'spo.curve_fit'
+				fit_type = 'spo.curve_fit'	# try a converging fit; if it fails, we'll use a fit_type='MC' (monte carlo)
 				fit_prams, fit_cov = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=t0), xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([max(1.0, mean_dT-t0), 1.5]))
 				#			
 				print "fitted (converging)...", fit_cov

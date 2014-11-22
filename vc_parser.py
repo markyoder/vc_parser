@@ -1627,7 +1627,7 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	#
 	if section_ids=='emc': section_ids = list(emc_sections) 	# globally defined list of emc_sections
 	if isinstance(section_ids, int) or isinstance(section_ids,float): section_ids = [section_ids]
-	#print "sections: ", section_ids
+	section_ids = list(set(section_ids))
 	#
 	cdf_fits = numpy.load(fits_data_file_CDF)	# recarray with dtype: dtype=[('t0', '<f8'), ('section_id', '<i8'), ('chi', '<f8'), ('beta', '<f8'), ('sigma_chi', '<f8'), ('sigma_beta', '<f8'), ('chi_sqr', '<f8'), ('fit_type', 'S16')])
 	#
@@ -1661,6 +1661,9 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 		#
 		#return catalog
 		catalog.sort(order='event_year')
+		#
+		# nominally, we should perform a set() operation to be sure that we don't have any dupes (from compiling these catalogs),
+		# but preliminary analysis suggests that we don't.
 		#
 	#
 	event_years = [rw['event_year'] for rw in catalog if rw['event_magnitude']>=m0]
@@ -1773,7 +1776,7 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med50'], 'm-', lw=1.5, alpha=.6)
 	plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med75'], 'b-', lw=1.5, alpha=.6)
 	
-	
+	return catalog
 	
 #	#
 

@@ -1663,23 +1663,18 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 		catalog.sort(order='event_year')
 		#
 	#
-	#return catalog
-	#print "catalog:\n", catalog[0:5]
-	delta_t_total = catalog[-1]['event_year'] - catalog[0]['event_year']
+	event_years = [rw['event_year'] for rw in catalog if rw['event_magnitude']>=m0]
+	recurrence_intervals = [event_years[i]-event_years[i-1] for i in xrange(1,len(event_years))]
 	#
-	# "mean recurrence data", but what we really want is just the intervals between m>7, so let's just get that.
-	#mean_rec_data = mean_recurrence(ary_in=ary_in, m0=m0)
-	#X = mean_rec_data['dists']['dT'].tolist()
+	recurrence_intervals.sort()
+	delta_t_total = 2.0*max(recurrence_intervals)
 	#
 	expected_delta_ts = []	# will be like [ [{.25}, {.5}, {.75}], ... ]
 	model_delta_ts_0 = []	# from base weibull fit (t0=0)
+	model_delta_ts_1 = []	# from the weibull fitting as we go...
 	#
-	event_years = [rw['event_year'] for rw in catalog if rw['event_magnitude']>=m0]
 	dt0 = delta_t_total/float(n_t0)
 	this_t0 = 0.0
-	recurrence_intervals = [event_years[i]-event_years[i-1] for i in xrange(1,len(event_years))]
-	#return recurrence_intervals
-	recurrence_intervals.sort()
 	#
 	# preliminary fit:
 	#
@@ -1697,6 +1692,10 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	fit_beta_0 = fit_prams[0][1]
 	#
 	#print "fit_prams: ", fit_prams
+	fit_prams_dyn = fit_prams[0].copy()
+	fit_tau_1 = fit_tau_0
+	fit_beta_1 = fit_beta_0
+	#prev_fit_prams = fit_prams_dyn.copy()
 	#
 	while this_t0<delta_t_total:
 		these_delta_ts = [dt for dt in recurrence_intervals if dt>=this_t0]
@@ -1712,26 +1711,67 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 		expected_delta_ts+= [[this_t0, med_25-this_t0, med_5-this_t0, med_75-this_t0]]
 		model_delta_ts_0 += [[this_t0] + [f_inv_weibull(P=p, tau=fit_tau_0, beta=fit_beta_0, t0=this_t0)-this_t0 for p in [.25, .5, .75]]]
 		#
+		# dynamic fit:
+		try:
+		#if True:
+			# try to get new fit parameters. if the fit fails, continue to use the previous values:
+			N_local = len(these_delta_ts)
+			Y=[j/float(N_local) for j in xrange(1, N_local+1)]
+			#
+			new_fit_prams_dyn = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=this_t0), xdata=numpy.array(these_delta_ts), ydata=numpy.array(Y), p0=numpy.array([numpy.mean(these_delta_ts), 1.5]))[0]
+			#
+			# if the fit fails, we'll kick over to exception handling at this point.
+			#
+			#prev_fit_prams = fit_prams_dyn.copy()
+			fit_prams_dyn = new_fit_prams_dyn.copy()					# this will only execute if the fit succeeds. otherwise, 
+			fit_tau_1 = new_fit_prams_dyn[0]
+			fit_beta_1 = new_fit_prams_dyn[1]
+			new_fit_prams_dyn = None							# we keep the old values (do we need to copy?)
+			
+		except:
+			#print new_fit_prams_dyn
+			#print "excepting: "
+			#print prev_fit_prams
+			#print fit_prams_dyn
+			#
+			#fit_tau_1  = fit_tau_0
+			#fit_beta_1 = fit_beta_0
+			#
+			#fit_prams_dyn = prev_fit_prams.copy()
+			#return None
+		 	#fit failed. we could have a go at MC, but let's just punt and use the previous set -- aka, do nothing.
+			# eventually, we might want to know that the fit failed, but for now just pass...
+			pass
+		
+		#model_delta_ts_1 += [[this_t0] + [f_inv_weibull(P=p, tau=fit_prams_dyn[0], beta=fit_prams_dyn[1], t0=this_t0)-this_t0 for p in [.25, .5, .75]]]
+		model_delta_ts_1 += [[this_t0] + [f_inv_weibull(P=p, tau=fit_tau_1, beta=fit_beta_1, t0=this_t0)-this_t0 for p in [.25, .5, .75]]]
+		#
 		this_t0+=dt0
 	#
 	expected_delta_ts = numpy.core.records.fromarrays(zip(*expected_delta_ts), names=['t0', 'med25', 'med50', 'med75'], formats = [type(x).__name__ for x in expected_delta_ts[0]])
 	#return model_delta_ts_0
 	model_delta_ts_0 = numpy.core.records.fromarrays(zip(*model_delta_ts_0), names=['t0', 'med25', 'med50', 'med75'], formats = [type(x).__name__ for x in model_delta_ts_0[0]])
+	model_delta_ts_1 = numpy.core.records.fromarrays(zip(*model_delta_ts_1), names=['t0', 'med25', 'med50', 'med75'], formats = [type(x).__name__ for x in model_delta_ts_1[0]])
 	#
 	plt.figure(fnum)
 	plt.clf()
 	xlim = max([t0 for j,t0 in enumerate(expected_delta_ts['t0']) if expected_delta_ts['med50'][j]>0])
 	#plt.gca().set_xlim(right=max(expected_delta_ts['t0'])*1.25)
 	plt.gca().set_xlim(right=xlim*1.25)
-	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med25'], 'b-')
-	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med50'], 'k.-')
-	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med75'], 'b-')
+	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med25'], 'b-', lw=1.5)
+	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med50'], 'k.-', lw=1.5)
+	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med75'], 'b-', lw=1.5)
 	plt.fill_between(expected_delta_ts['t0'], expected_delta_ts['med25'], expected_delta_ts['med75'], color='y', alpha=.7)
 	#
 	# model_0:
-	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med25'], 'b--')
-	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med50'], 'm--')
-	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med75'], 'b--')
+	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med25'], 'b--', lw=2.5)
+	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med50'], 'm--', lw=2.5)
+	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med75'], 'b--', lw=2.5)
+	#
+	# model_1:
+	plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med25'], 'c-', lw=1.5, alpha=.6)
+	plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med50'], 'm-', lw=1.5, alpha=.6)
+	plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med75'], 'b-', lw=1.5, alpha=.6)
 	
 	
 	

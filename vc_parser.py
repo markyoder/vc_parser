@@ -2567,6 +2567,7 @@ def get_anss_seismicity(section_ids=None, sim_file=allcal_full_mks, start_date=N
 		# might need to use: numpy.core.records.recarray
 		# (can also use "names=[]", "formats=[]" syntax, but note that type(datetime).__name__ does
 		# not produce a viable name-type for numpy.rec.array().
+		# pass
 		earthquake_catalog = numpy.rec.array(earthquake_catalog, dtype=[('event_date', 'M8[us]'), ('lat','f'), ('lon','f'), ('mag','f'), ('depth','f')])
 	#	
 	return earthquake_catalog	

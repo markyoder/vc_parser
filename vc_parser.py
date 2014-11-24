@@ -22,6 +22,8 @@ import scipy.optimize as spo
 import operator
 import glob
 import random
+import datetime as dtm
+import pytz
 #
 import cStringIO
 import sys
@@ -2540,7 +2542,34 @@ def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_m
 		#
 	#
 	return fault_traces
-	
+#
+def get_anss_seismicity(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, m_c=3.0, n_max=999999, n_cpus=None):
+	# make a map of real seismicity around our model area. use the fault model to determine extents.
+	#
+	# emc section_ids: emc_section_filter['filter']
+	#
+	# handle some default values and book-keeping:
+	# ...
+	if end_date==None: end_date=dtm.datetime.now(pytz.timezone('UTC'))
+	if start_date==None: start_date = end_date-dtm.timedelta(days=500)
+	#
+	#
+	ll_range = get_fault_model_extents(section_ids=section_ids, sim_file=sim_file, n_cpus=n_cpus)
+	#
+	lon_0 = ll_range['lon_min'] + (ll_range['lon_max']-ll_range['lon_min'])/2.
+	lat_0 = ll_range['lat_min'] + (ll_range['lat_max']-ll_range['lat_min'])/2.
+	#
+	# ... but we'll use an ANSStools function.
+	earthquake_catalog = ANSStools.catfromANSS(lon=[ll_range['lon_min'], ll_range['lon_max']], lat=[ll_range['lat_min'], ll_range['lat_max']], minMag=m_c, dates0=[start_date, end_date], Nmax=n_max, fout=None)
+	#
+	# now, let's cast the catalog as a recarray (which will soon be done in ANSStools):
+	if isinstance(earthquake_catalog, numpy.recarray)==False:
+		# might need to use: numpy.core.records.recarray
+		# (can also use "names=[]", "formats=[]" syntax, but note that type(datetime).__name__ does
+		# not produce a viable name-type for numpy.rec.array().
+		earthquake_catalog = numpy.rec.array(earthquake_catalog, dtype=[('event_date', 'M8[us]'), ('lat','f'), ('lon','f'), ('mag','f'), ('depth','f')])
+	#	
+	return earthquake_catalog	
 #
 def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], etas_gridsize=.25, etas_mc=3.0, etas_contour_intervals=24, etas_cat_len=500):
 	# make a map of real seismicity around our model area. use the fault model to determine extents.

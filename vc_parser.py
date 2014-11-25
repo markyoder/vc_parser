@@ -41,6 +41,8 @@ import multiprocessing as mpp
 import ANSStools
 import BASScast
 
+import pyvc
+import pyvc.vcanalysis as pvca
 try:
 	import quakelib
 except:
@@ -132,6 +134,7 @@ class io_capture_strlike(object):
 #
 # then:
 #> fields = sweep_cols.fields.keys()
+
 
 def get_emc_events(sim_file=allcal_full_mks, sortby='event_magnitude', show=None, event_range=None, section_filter=emc_section_filter, magnitude_filter=None,return_data=True, print_data=False, min_mag=0.0):
 #def get_emc_events(*args, **kwargs):

@@ -1032,10 +1032,93 @@ def slip_field(blockwise_obj=None, dx=None, dy=None, i_start=0, i_stop=-1, secti
 	#
 	return disp_field
 	#
-def plot_disp_field(okada_disps, plot_column = 'dxyz', fignum=0):
+def plot_disp_vector_field(okada_disps='dumps/okada_slips_allcal_2.pkl', fignum=0, plot_factor=1.0, z_colors=True, sim_file=default_sim_file, n_cpus=None, do_map=True):
+	if isinstance(okada_disps, str):
+		with open(okada_disps, 'r') as f:
+			# not sure, but this might also load with numpy.load()
+			okada_disps = cPickle.load(f)
+		#
+	#
+	# the native vector-vield object is an indexed dictionary like:
+	# {(x_i, y_i), {'d_xyz':[], 'xyz':[]} }
+	# where x_i, y_i are lat,lon indices (bacially, truncated lat/lon integers to facitate aggregation.
+	# we want to break this down into a recarray (see plot_disp_field() below)
+	#
+	try:
+		if isinstance(okada_disps.keys()[0], tuple):
+			okada_disps = [[x for x in rw['xyz']] + [dx for dx in rw['d_xyz']] for rw in okada_disps.itervalues()]
+			okada_disps = numpy.rec.array(okada_disps, names=['x', 'y', 'z', 'dx', 'dy', 'dz'], formats=[type(x).__name__ for x in okada_disps[0]])
+	except:
+		pass
+	#
+	# data are like[ [x,y,z, dx, dy, dz, dxyz, dxy], ...] (where the last two are the xyz length and the xy length and,
+	# because they are derived, may not always be present.
+	#
+	vec_colors=None
+	if z_colors:
+		# set up a color map based on vertical displacement:
+		z_vals = okada_disps['dz']
+		#log_z_vals = numpy.log10(z_vals)
+		my_colormap = plt.get_cmap('jet')
+		cNorm = mcolor.Normalize(vmin=min(z_vals), vmax=max(z_vals))
+		scalar_map = cm.ScalarMappable(norm=cNorm, cmap=my_colormap)
+		vec_colors=scalar_map.to_rgba(z_vals)
+	#
+	# start with a simple plot, no rules. later we'll look at color-coding the z component, etc.
+	plt.figure(fignum)
+	plt.ion()
+	plt.clf()
+	#print "plot factor: %f" % plot_factor
+	#print okada_disps['dx'][0:5], plot_factor*okada_disps['dx']
+	
+	plt.quiver(okada_disps['x'], okada_disps['y'], [plot_factor*dx for dx in okada_disps['dx']], [plot_factor*dy for dy in okada_disps['dy']], pivot='tail', color=vec_colors, alpha=.9)
+	#
+	if not do_map: return okada_disps
+	#
+	# now, make a map:
+	ll_range = vc_parser.get_fault_model_extents(section_ids=None, sim_file=sim_file, n_cpus=n_cpus)
+	lon_0 = ll_range['lon_min'] + (ll_range['lon_max']-ll_range['lon_min'])/2.
+	lat_0 = ll_range['lat_min'] + (ll_range['lat_max']-ll_range['lat_min'])/2.
+	map_size=[8,10]
+	plt.figure(fignum+1, figsize=map_size)
+	plt.clf()
+	bm = vc_parser.vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i')
+	
+	#
+	#xy_to_lat_lon(x, y, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict')
+	lat, lon = zip(*[vc_parser.xy_to_lat_lon(okada_disps['x'][i], okada_disps['y'][i], return_format='list') for i in xrange(len(okada_disps))])
+	map_X, map_Y = bm(lon, lat)
+	#
+	# simple quiver type:
+	#
+	#plt.quiver(map_X, map_Y, [plot_factor*dx for dx in okada_disps['dx']], [plot_factor*dy for dy in okada_disps['dy']], pivot='tail', color=vec_colors, zorder=11, alpha=.6)
+	#
+	# on-map, proportioal mini-quivers:
+	
+	lat_tip, lon_tip = zip(*[vc_parser.xy_to_lat_lon(okada_disps['x'][i]+plot_factor*okada_disps['dx'][i], okada_disps['y'][i]+plot_factor*okada_disps['dy'][i], return_format='list') for i in xrange(len(okada_disps))])
+	#
+	map_X_tip, map_Y_tip = bm(lon_tip, lat_tip)
+	#
+	disp_norms = [numpy.linalg.norm(x) for x in zip(*[okada_disps['dx'], okada_disps['dy'], okada_disps['dz']])]
+	median_displacement = numpy.median(disp_norms)
+	plt.plot([x for i,x in enumerate(map_X) if disp_norms[i]>median_displacement] , [x for i,x in enumerate(map_Y) if disp_norms[i]>median_displacement], 'b.', zorder=11, alpha=.25)
+	for i in xrange(len(map_X)):
+		if disp_norms[i]<=median_displacement: continue
+		plt.plot([map_X[i], map_X_tip[i]], [map_Y[i], map_Y_tip[i]], 'b-', zorder=11, alpha=.6)
+	
+	
+	#
+	return okada_disps
+
+def plot_disp_field(okada_disps='dumps/okada_slips_allcal_2.pkl', plot_column = 'dxyz', fignum=0):
 	# lots of details to be worked out here, not the least of which being the best return format. for slip_field(). for now, let's work with what we've got:
 	# dict of dicts: {(x_index, y_index):{'d_xyz':array([dx, dy, dz]), 'xyz':array([x,y,z])}}
 	# plot_column: 'dxyz', 'dx', 'dy', 'dz' are direct column plots. we'll add some code to permit other combinations like 'dxy'
+	#
+	# can we just load this? yeah, this works... and set default.
+	if isinstance(okada_disps, str):
+		with open(okada_disps, 'r') as f:
+			okada_disps = cPickle.load(f)
 	#
 	# first, compile this into something we can plot:
 	field_data = []
@@ -1052,13 +1135,21 @@ def plot_disp_field(okada_disps, plot_column = 'dxyz', fignum=0):
 	#if plot_column in ('dxy', 'dyx'):
 	#	z_vals = [math.sqrt(x['dx']**2. + x['dy']**2.) for x in field_data_prime]
 	#else:
-	z_vals = field_data_prime[plot_column]
+	z_vals = field_data_prime[plot_column]		# note: "plotting z", not vertical displacement. in this case, "z"
+												# is the "norm" or absolute length of the displacement vector.
 	#
 	# create triang for contouring:
 	#triang = tri.Triangulation(field_data['x'], field_data['y'])
 	my_colormap = plt.get_cmap('jet')
 	cNorm = mcolor.Normalize(vmin=min(z_vals), vmax=max(z_vals))
 	scalar_map = cm.ScalarMappable(norm=cNorm, cmap=my_colormap)
+	#
+	# now, can we set dynamic alpha to imply relief?
+	# min/max vertical displacement.
+	vert_disp_min, vert_disp_max = [float(f(field_data_prime['z'])) for f in [min, max]]
+	alpha_base = .5	# and we'll "shade" between alpha_base and 1.0.
+	delta_vert = vert_disp_max - vert_disp_min
+	alphas = [.5 + .5*(rw['z']-vert_disp_min)/delta_vert for rw in field_data_prime]
 	#
 	plt.figure(fignum)
 	plt.clf()
@@ -1067,6 +1158,8 @@ def plot_disp_field(okada_disps, plot_column = 'dxyz', fignum=0):
 	#plt.colorbar()
 	#
 	plt.scatter(field_data_prime['x'], field_data_prime['y'], marker='.', color=scalar_map.to_rgba(z_vals),alpha=.7)
+	# this doesn't quite work. we'd probably have to ploe each point indipendently, which might get memory intensive.
+	#plt.scatter(field_data_prime['x'], field_data_prime['y'], marker='.', color=scalar_map.to_rgba(z_vals),alpha=alphas)
 	'''
 	try:
 		plt.colorbar()
@@ -1085,8 +1178,6 @@ def plot_disp_field(okada_disps, plot_column = 'dxyz', fignum=0):
 	plt.clf()
 	plt.scatter(field_data_prime['x'], field_data_prime['y'], marker='.', color=scalar_map.to_rgba(log_z_vals),alpha=.7)
 	return field_data	
-		
-	
 #
 def rotation_matrix_general(axis=None, theta=None):
 	# generalize rotation matrix from:

@@ -541,7 +541,7 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 			ax_metric.set_yscale('linear')
 			ax_metric.fill_between(X,[-y+min_mag for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y] )
 			#
-			ax_mags.fill_between(X, [min_mag for x in X], [m0 for x in X], zorder=5, alpha=.2, color='m')
+			ax_mags.fill_between(X, [min_mag for x in X], [m0 for x in X], zorder=5, alpha=.2, color='c')
 	
 	
 		ax_mags.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='b', alpha=.7)
@@ -563,6 +563,7 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None):
 	'''
 	# scatter plot of hit_ratio vs alert_time_ratio for as many data as we throw at it.
+	# note, this uses a single value(s) for (b_0, nyquist_factor). see optimized versions as well.
 	'''		
 	# 
 	G=glob.glob(file_profile)
@@ -792,6 +793,9 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 	
 	scores_out = []
 	for key,rw in fault_scores.iteritems():
+		# note: this bit of using the float score value as a key was a mistake that should
+		# be rectified at some point...
+		#
 		#rw = fault_scores[key]
 		i0 = key.index('section_') + len('section_')
 		fault_number = int(key[i0:key.index('.', i0)])
@@ -812,7 +816,7 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 	scores_out = numpy.core.records.fromarrays(zip(*scores_out), names=['fault_id', 'b_0', 'nyquist_factor', 'n_predicted', 'n_missed', 'total_alert_time', 'total_time', 'score'], formats = [type(x).__name__ for x in scores_out[0]])
 	#
 	scores_out.dump('%s_best_scores.npy' % dump_file)
-	numpy.array(fault_scores).dump('%s_fault_scores.npy' % dump_file)
+	numpy.array(fault_scores).dump('%s_fault_scores.npy' % dump_file)	# so this should be the full lot.
 	#
 	return scores_out
 
@@ -833,8 +837,8 @@ def plot_best_opt_prams(scores_in=None):
 	X = [scores_in['total_alert_time'][i]/t for i, t in enumerate(scores_in['total_time'])]
 	Y = [float(N)/(float(N)+scores_in['n_missed'][i]) for i, N in enumerate(scores_in['n_predicted'])]
 	plt.clf()
-	plt.plot(X,Y, '.')
-	plt.plot([0., 1.], [0.,1.], '-')
+	plt.plot(X,Y, '.', ms=10)
+	plt.plot([0., 1.], [0.,1.], '-', lw=2.5)
 	plt.xlabel('percent alert time')
 	plt.ylabel('percent predicted')
 	#
@@ -2714,7 +2718,7 @@ def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_
 	return r_dict
 #
 def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
-	# use record-breaking metric to detect trends in a time-series.
+	# use record-breaking metric (?? mean slopes?) to detect trends in a time-series.
 	if isinstance(ary_in, str)==True:
 		ary_in = numpy.load(ary_in)
 	#

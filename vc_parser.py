@@ -792,6 +792,7 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 	#return fault_scores
 	
 	scores_out = []
+	full_lot = []
 	for key,rw in fault_scores.iteritems():
 		# note: this bit of using the float score value as a key was a mistake that should
 		# be rectified at some point...
@@ -808,6 +809,9 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 		scores_out += [[fault_number, best_set['b'], best_set['nyquist_factor'], best_set['n_predicted'], best_set['n_missed'], best_set['total_alert_time'], best_set['total_time'], best_score]]
 		# automated:
 		#scores_out += [[fault_number] + [best_set[key] for key in best_set] + [best_score]]
+		#
+		# and convert the main set to a rec array too:
+		#full_lot+=[[fault_number, best_set['b'], best_set['nyquist_factor'], best_set['n_predicted'], best_set['n_missed'], best_set['total_alert_time'], best_set['total_time'], best_score]]
 	#
 	#
 	
@@ -816,7 +820,10 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 	scores_out = numpy.core.records.fromarrays(zip(*scores_out), names=['fault_id', 'b_0', 'nyquist_factor', 'n_predicted', 'n_missed', 'total_alert_time', 'total_time', 'score'], formats = [type(x).__name__ for x in scores_out[0]])
 	#
 	scores_out.dump('%s_best_scores.npy' % dump_file)
-	numpy.array(fault_scores).dump('%s_fault_scores.npy' % dump_file)	# so this should be the full lot.
+	#numpy.array(fault_scores).dump('%s_fault_scores.npy' % dump_file)	# so this should be the full lot.
+	with open('%s_fault_scores.npy' % dump_file) as f:
+		cPickle.dump(fault_scores, f)
+	
 	#
 	return scores_out
 

@@ -403,7 +403,7 @@ def cff_dict_npy(dict_in):
 		
 	#
 #
-def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False):
+def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0):
 	'''
 	#
 	# forecast based on seismic acceleration. specifically, for a set of data (a fault-section time-series),
@@ -414,6 +414,8 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	#     - slope at time t_i of event or time t_i-1 of the previous event is below b_0 (typically, b_0=0.0).
 	#     - the "_i-1" condition is fair because 1) we don't know the slope is changin until the even happens
 	#       and 2) in a real scenario, we'd have aftershocks, which woluld turn the post-seismic slope positive.
+	#
+	# (we should use the plotting routine from vc_parser.plot_CFF_ary(), namely the top subfig. )
 	'''
 	#
 	CFF = numpy.load(ary_in)
@@ -529,24 +531,40 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	#
 	if do_plot:
 		# diagnostic plots of forecast metric:
-		plt.figure(0)
+		plt.figure(fnum)
 		plt.clf()
 		#
 		ax_metric = plt.gca()
+		#
 		ax_mags = ax_metric.twinx()
+		ax_ints = ax_metric.twinx()
+		ax_ints.set_yscale('log')
+		#
 		min_mag = min(CFF['event_magnitude'])
+		intervals = [x-CFF['event_year'][i] for i,x in enumerate(CFF['event_year'][1:])]
+		#
+		ax_ints.plot(CFF['event_year'][1:], intervals, 'b.-', lw=2, ms=7)
+		ax_metric.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
 		#
 		for segment in alert_segments:
 			X,Y = zip(*segment)
 			ax_metric.set_yscale('linear')
-			ax_metric.fill_between(X,[-y+min_mag for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y] )
 			#
-			ax_mags.fill_between(X, [min_mag for x in X], [m0 for x in X], zorder=5, alpha=.2, color='c')
+			# ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b']  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='m', zorder=1, alpha=.5)
+			#ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0.0 for x in trend_data], color='m', zorder=1, alpha=.25)
+		
+			ax_metric.fill_between(X,[y + min_mag + 1. for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y], zorder=7 )
+			ax_metric.plot(X, [0.0 for y in Y if y<0], 'm-')
+			ax_metric.plot(X, [y + min_mag + 1. for y in Y if y<0], 'm-')
+			#
+			#ax_mags.fill_between(X, [min_mag for x in X], [m0 for x in X], zorder=5, alpha=.2, color='c')
 	
 	
-		ax_mags.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='b', alpha=.7)
+		ax_mags.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='g', alpha=.7, lw=1.5)
 		X_big_mags, Y_big_mags = zip(*[[x['event_year'], x['event_magnitude']] for x in CFF if x['event_magnitude']>m0])
-		ax_mags.vlines(X_big_mags, [min_mag for x in Y_big_mags], Y_big_mags, color='r', alpha=.9, lw=2.5)
+		ax_mags.vlines(X_big_mags, [min_mag for x in Y_big_mags], Y_big_mags, color='r', alpha=.9, lw=2.75)
+		#
+		#ax_metric.set_ylim(ymax=.2)
 	#
 	#
 	print "preliminary report:"
@@ -1775,8 +1793,11 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 		N = len(these_delta_ts)
 		med_25 = numpy.median(these_delta_ts[:int(math.floor(N/2.))])
 		med_5 = numpy.median(these_delta_ts)
-		med_75 = numpy.median(these_delta_ts[int(math.ceil(N/2.)):])
-		
+		med_75 = numpy.median(these_delta_ts[int(math.ceil(N/2.)):])	# provide default values in the event
+		#if numpy.isnan(med_75): med_75 = expected_delta_ts[-1][3]+this_t0							# a median can't be found.
+		#if numpy.isnan(med_25): med_25=this_t0
+		#
+		#if this_t0>120.: print med_25, med_5, med_75
 		expected_delta_ts+= [[this_t0, med_25-this_t0, med_5-this_t0, med_75-this_t0]]
 		model_delta_ts_0 += [[this_t0] + [f_inv_weibull(P=p, tau=fit_tau_0, beta=fit_beta_0, t0=this_t0)-this_t0 for p in [.25, .5, .75]]]
 		#
@@ -1822,6 +1843,7 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 		#
 		#
 		this_t0+=dt0
+		#if this_t0>175.:break
 	#
 	expected_delta_ts = numpy.core.records.fromarrays(zip(*expected_delta_ts), names=['t0', 'med25', 'med50', 'med75'], formats = [type(x).__name__ for x in expected_delta_ts[0]])
 	#return model_delta_ts_0
@@ -2866,13 +2888,19 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.npy', fnum=0, nyquis
 		#
 		# create two axes:
 		# magnitudes plot
+		# bottom:
 		ax_mag = f.add_axes([.1, .05, .85, .25])
-		# CFF plot.
+		#
+		# CFF plot. (center):
 		ax_CFF = f.add_axes([.1, .35, .85, .25], sharex=ax_mag)
 		ax_dCFF = ax_CFF.twinx()	# over-plot stress (CFF) drop...
-		ax_ints = f.add_axes([.1, .65, .85, .25], sharex=ax_mag)
-		ax_mag2 = ax_ints.twinx()
-		ax_trend=ax_mag.twinx()
+		#
+		# top (intervals, etc.)
+		ax_ints  = f.add_axes([.1, .65, .85, .25], sharex=ax_mag)
+		ax_mag2  = ax_ints.twinx()
+		ax_trend2 = ax_ints.twinx()
+		#
+		ax_trend = ax_mag.twinx()
 		#
 		X_init = CFF['event_year']
 		X_finals = [x+.01 for x in X_init]	# this to show the stress drops after a mainshock (X_final is the time of the data point after the event).
@@ -2924,13 +2952,11 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.npy', fnum=0, nyquis
 		ax_trend.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
 		ax_trend.set_ylabel('(log) interval slope $b$')
 		#
-		ax_trend2 = ax_ints.twinx()
 		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], 'r-', zorder=5, alpha=.8)
 		#
 		ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b']  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='m', zorder=1, alpha=.5)
 		ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0.0 for x in trend_data], color='m', zorder=1, alpha=.25)
-		#ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b'] / x['interval_rate_ratio'] for x in trend_data], y2=[0.0 for x in trend_data], where=[(x['lin_fit_b'] / x['interval_rate_ratio'])<0. for x in trend_data], color='m', zorder=1, alpha=.5)
-		
+		#		
 		ax_trend2.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
 		#
 		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['rb_ratio'] for x in trend_data], 'c--')

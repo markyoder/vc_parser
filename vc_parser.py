@@ -1263,6 +1263,7 @@ def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_se
 		X_fit = numpy.arange(min(X), max(X)*1.5, (max(X)-min(X))/500.)
 		#
 		#ax=figs['all_cdf'].gca()
+		# faultwise mean/composite:
 		f = plt.figure(0)
 		plt.plot(X,Y, '.-', color=this_color)
 		plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl_composite)
@@ -1282,7 +1283,8 @@ def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_se
 		plt.title('CDF for m>7 on fault section %s' % sec_name)
 		plt.legend(loc=0, numpoints=1)
 		plt.savefig('%s/VC_CDF_m%s_section_%d.png' % (output_dir, str(m0).replace('.', ''), sec_id))
-		if keep_figs==False: plt.close(i)
+		if keep_figs==False and sec_id!=-2:
+			plt.close(i)
 	#
 	# composite/mean fits. instead of recoding all of this, maybe use a special section_id=-1, which we add to the section_id list
 	# above and do "if" on the fetch-data part...
@@ -1628,7 +1630,53 @@ def tau_t0_fig(section_ids=None, glob_pattern='VC_CDF_WT_figs/VC_CDF_WT_*.npy'):
 	#
 	return full_array
 #
-def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0):
+def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, output_dir='expected_waiting_time_figs', do_local_fit=False):
+	# make a set of "Expected Waiting Time" figures.
+	# (wrapper for expected_waiting_time_t0() )
+	#
+	if os.path.isdir(output_dir)==False:
+		os.mkdir(output_dir)
+	#
+	if section_ids.upper()=='EMC':
+		section_ids = [{'EMC':list(emc_sections)}] + list(emc_sections)
+	#
+	if section_ids==None:
+		# get 'em all:
+		with h5py.File(sim_file) as vcdata:
+			section_ids=list(set(vcdata['block_info_table']['section_id']))
+		#
+	#
+	# now, for each section_id, get EWT and draw a picture.
+	for sec_id in section_ids:
+		# first, is sec_id a number or a list? expected_waiting_time_t0() expects a list of section_ids.
+		name_str = None
+		#
+		# handle the input a bit. we can provide just a list of section ids or section id lists or we can mix in some dicts:
+		#  [1,2,3, [4,5,6], 7, [8,9,10], {'teens':[14,15,16,17,18,19]}, ... ]
+		# 
+		# a list of lists (or mi
+		if isinstance(sec_id, dict):
+			# we've been given a dictionary and some instructions. 
+			# assume for now that it's a single pair.
+			for key,val in sec_id.iteritems():
+				# just keep the last one...
+				name_str = str(key)
+				sec_id=val
+		if not hasattr(sec_id, '__len__'): sec_id=[sec_id]
+		if name_str == None: name_str=str(*sec_id)
+		#
+		EWT = expected_waiting_time_t0(section_ids=sec_id, m0=m0, fits_data_file_CDF=fits_data_file_CDF, WT_catalog_format=WT_catalog_format, sim_file=sim_file, n_t0=n_t0, fnum=fnum, do_local_fit=do_local_fit)
+		#
+		plt.figure(fnum)
+		plt.title('Expected Waiting times: sections %s' % name_str)
+		plt.xlabel('Time since last $m>%.2f$ event' % m0)
+		plt.ylabel('Expected interval $\Delta t$')
+		#
+		plt.savefig('%s/EWT_m0_%s_section_%s.png' % (output_dir, str(m0).replace('.',''), name_str))
+#
+def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, do_local_fit=True):
+	# do_local_fit: fit the weibull distribution along the way (for each time-step)? obviously, we get a better fit, but what
+	# does it mean? could be used for tabulated uncertainties. unfortunately, it seems to break down on the right hand side of the dist.
 	# ... and work out the details later...
 	# if we have a catalog, pass it in (preferably a recarray). otherwise, provide section_ids).
 	# n_t0: number of data points (number ot t0 values)
@@ -1673,7 +1721,8 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 		#str_mag = str(m0).replace('.','')
 		catalog = numpy.load(WT_catalog_format % (section_ids[0]))
 		for j, section_id in enumerate(section_ids[1:]):
-			numpy.append(catalog, numpy.load(WT_catalog_format % (section_id)))
+			catalog=numpy.append(catalog, numpy.load(WT_catalog_format % (section_id)))
+			#print "(%d) appending catalog: %d" % (len(catalog), section_id)
 		#
 		#return catalog
 		catalog.sort(order='event_year')
@@ -1716,6 +1765,7 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	fit_beta_1 = fit_beta_0
 	#prev_fit_prams = fit_prams_dyn.copy()
 	#
+	# this would be a lot faster if we advanced by event rather than d_t0...
 	while this_t0<delta_t_total:
 		these_delta_ts = [dt for dt in recurrence_intervals if dt>=this_t0]
 		these_delta_ts.sort()	# i think this is now redundant...
@@ -1731,46 +1781,52 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 		model_delta_ts_0 += [[this_t0] + [f_inv_weibull(P=p, tau=fit_tau_0, beta=fit_beta_0, t0=this_t0)-this_t0 for p in [.25, .5, .75]]]
 		#
 		# dynamic fit:
-		try:
-		#if True:
-			# try to get new fit parameters. if the fit fails, continue to use the previous values:
-			N_local = len(these_delta_ts)
-			Y=[j/float(N_local) for j in xrange(1, N_local+1)]
-			#
-			new_fit_prams_dyn = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=this_t0), xdata=numpy.array(these_delta_ts), ydata=numpy.array(Y), p0=numpy.array([numpy.mean(these_delta_ts), 1.5]))[0]
-			#
-			# if the fit fails, we'll kick over to exception handling at this point.
-			#
-			#prev_fit_prams = fit_prams_dyn.copy()
-			fit_prams_dyn = new_fit_prams_dyn.copy()					# this will only execute if the fit succeeds. otherwise, 
-			fit_tau_1 = new_fit_prams_dyn[0]
-			fit_beta_1 = new_fit_prams_dyn[1]
-			new_fit_prams_dyn = None							# we keep the old values (do we need to copy?)
+		if do_local_fit:		# eventually maybe get rid of this, but there are a few other "if"s that will have to be done.
+			try:
+			#if True:
+				# try to get new fit parameters. if the fit fails, continue to use the previous values:
+				N_local = len(these_delta_ts)
+				Y=[j/float(N_local) for j in xrange(1, N_local+1)]
+				#
+				new_fit_prams_dyn = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=this_t0), xdata=numpy.array(these_delta_ts), ydata=numpy.array(Y), p0=numpy.array([numpy.mean(these_delta_ts), 1.5]))[0]
+				#
+				# if the fit fails, we'll kick over to exception handling at this point.
+				#
+				#prev_fit_prams = fit_prams_dyn.copy()
+				fit_prams_dyn = new_fit_prams_dyn.copy()					# this will only execute if the fit succeeds. otherwise, 
+				fit_tau_1 = new_fit_prams_dyn[0]
+				fit_beta_1 = new_fit_prams_dyn[1]
+				new_fit_prams_dyn = None							# we keep the old values (do we need to copy?)
 			
-		except:
-			#print new_fit_prams_dyn
-			#print "excepting: "
-			#print prev_fit_prams
-			#print fit_prams_dyn
-			#
-			#fit_tau_1  = fit_tau_0
-			#fit_beta_1 = fit_beta_0
-			#
-			#fit_prams_dyn = prev_fit_prams.copy()
-			#return None
-		 	#fit failed. we could have a go at MC, but let's just punt and use the previous set -- aka, do nothing.
-			# eventually, we might want to know that the fit failed, but for now just pass...
-			pass
+			except:
+				#print new_fit_prams_dyn
+				#print "excepting: "
+				#print prev_fit_prams
+				#print fit_prams_dyn
+				#
+				#fit_tau_1  = fit_tau_0
+				#fit_beta_1 = fit_beta_0
+				#
+				#fit_prams_dyn = prev_fit_prams.copy()
+				#return None
+			 	#fit failed. we could have a go at MC, but let's just punt and use the previous set -- aka, do nothing.
+				# eventually, we might want to know that the fit failed, but for now just pass...
+				pass
+				#
+				#fit_tau_1 =  (fit_tau_1 + fit_tau_0)/2.	# note: this will be a creaping average...
+				#fit_beta_1 = (fit_beta_1 + fit_beta_0)/2.
 		
-		#model_delta_ts_1 += [[this_t0] + [f_inv_weibull(P=p, tau=fit_prams_dyn[0], beta=fit_prams_dyn[1], t0=this_t0)-this_t0 for p in [.25, .5, .75]]]
-		model_delta_ts_1 += [[this_t0] + [f_inv_weibull(P=p, tau=fit_tau_1, beta=fit_beta_1, t0=this_t0)-this_t0 for p in [.25, .5, .75]]]
+			#model_delta_ts_1 += [[this_t0] + [f_inv_weibull(P=p, tau=fit_prams_dyn[0], beta=fit_prams_dyn[1], t0=this_t0)-this_t0 for p in [.25, .5, .75]]]
+			model_delta_ts_1 += [[this_t0] + [f_inv_weibull(P=p, tau=fit_tau_1, beta=fit_beta_1, t0=this_t0)-this_t0 for p in [.25, .5, .75]]]
+			#
+		#
 		#
 		this_t0+=dt0
 	#
 	expected_delta_ts = numpy.core.records.fromarrays(zip(*expected_delta_ts), names=['t0', 'med25', 'med50', 'med75'], formats = [type(x).__name__ for x in expected_delta_ts[0]])
 	#return model_delta_ts_0
 	model_delta_ts_0 = numpy.core.records.fromarrays(zip(*model_delta_ts_0), names=['t0', 'med25', 'med50', 'med75'], formats = [type(x).__name__ for x in model_delta_ts_0[0]])
-	model_delta_ts_1 = numpy.core.records.fromarrays(zip(*model_delta_ts_1), names=['t0', 'med25', 'med50', 'med75'], formats = [type(x).__name__ for x in model_delta_ts_1[0]])
+	
 	#
 	plt.figure(fnum)
 	plt.clf()
@@ -1778,19 +1834,21 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	#plt.gca().set_xlim(right=max(expected_delta_ts['t0'])*1.25)
 	plt.gca().set_xlim(right=xlim*1.25)
 	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med25'], 'b-', lw=1.5)
-	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med50'], 'k.-', lw=1.5)
+	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med50'], 'k-', lw=2.5, alpha=.8)
 	plt.plot(expected_delta_ts['t0'], expected_delta_ts['med75'], 'b-', lw=1.5)
 	plt.fill_between(expected_delta_ts['t0'], expected_delta_ts['med25'], expected_delta_ts['med75'], color='y', alpha=.7)
 	#
 	# model_0:
-	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med25'], 'b--', lw=2.5)
-	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med50'], 'm--', lw=2.5)
-	plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med75'], 'b--', lw=2.5)
+	#plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med25'], 'b--', lw=2.5)
+	#plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med50'], 'm--', lw=2.5)
+	#plt.plot(model_delta_ts_0['t0'], model_delta_ts_0['med75'], 'b--', lw=2.5)
 	#
-	# model_1:
-	plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med25'], 'c-', lw=1.5, alpha=.6)
-	plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med50'], 'm-', lw=1.5, alpha=.6)
-	plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med75'], 'b-', lw=1.5, alpha=.6)
+	if do_local_fit:
+		model_delta_ts_1 = numpy.core.records.fromarrays(zip(*model_delta_ts_1), names=['t0', 'med25', 'med50', 'med75'], formats = [type(x).__name__ for x in model_delta_ts_1[0]])
+		# model_1:
+		plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med25'], 'c-', lw=1.5, alpha=.6)
+		plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med50'], 'm-', lw=1.5, alpha=.6)
+		plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med75'], 'b-', lw=1.5, alpha=.6)
 	
 	return catalog
 	
@@ -1799,6 +1857,7 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 #
 def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None):
 	'''
+	# (waiting time probabilities, not 'Expected Waiting Time')
 	# waiting time (or equivalently, "hazard function"?, plots. aka, probability of an earthquake given that one
 	# has not occured for t0. equivalently, probability of interval Delta t > t0.
 	#
@@ -1975,7 +2034,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 				#best_fit_dict[sec_id][t0] = [sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]
 				fit_vals = [t0, sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr, fit_type]
 			except:
-				fit_type = 'MC_%d' % nits
+				fit_type = 'MC_%d' % mc_nits
 				# converging fit failed. do an MC method:
 				print "converging fit failed. try an MC approach:"
 				prams_dict = {'chi':[0., 2.5*mean_dT], 'beta':[0.,6.], 'x0':[t0,t0]}	# can we automatedly guess at these prams?
@@ -2027,7 +2086,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 		plt.ylabel('Probability $P(t)$')
 		plt.savefig('%s/VC_CDF_WT_m%s_section_%d.png' % (output_dir, str(m0).replace('.', ''), sec_id))
 		
-		if keep_figs==False: plt.close(i)
+		if keep_figs==False and not sec_id<0: plt.close(i)	# ?? sec_id in [list-o-sec_ids]...
 	#
 	#
 	# and some interesting weibull pram plots are like:

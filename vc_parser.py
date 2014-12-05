@@ -407,6 +407,10 @@ def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_sect
 	# concatenate (then sort by year) a set of section catalogs. assume proper recarray() format, etc.
 	# ... and this should definitely be used for multi-fault combined catalogs; there are ~50 duplicate events in
 	# the full EMC set.
+	#
+	# handle some input variations:
+	if sections==None: return sections
+	if not hasattr(sections, '__len__'): sections = [sections]
 	if len(sections)==0: return sections
 	#
 	if len(sections)>=1:
@@ -635,6 +639,49 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	#return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments, 'ary_in_name':set_name, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 #
+def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, dump_file=None, n_cpus=None):
+	# mpp implementation of simple_metric_optimizer() to optimize a set of forecasts. note that sections[] can include not only 
+	# individual fault segments but groups of segments like: sections = [25, 23, 30, 31, 32, 33, [30,31,32,33], ...] in the event that
+	# we want to do faultwise analysis. also, we'll use this trick to do the composite set, rather than use a "do_composite" flag or something.
+	#
+	# trap some default shortcuts:
+	if sections in ('emc', 'EMC'):
+		sections = emc_sections + [emc_sections]
+		section_names = ['%d' % x for x in emc_sections] + ['emc']
+	#
+	# we can use a Pool():
+	if n_cpus==None: n_cpus = mpp.cpu_count()
+	P = mpp.Pool()
+	pool_handlers = []
+	#
+	if section_names == None:
+		section_names = []
+		for sec_id = in sections:
+			if hasattr(sec_id, '__len__'):
+				section_names += ['data_set(%d)' % len(x)]
+			else:
+				section_names += ['section_%d' % x]
+			#
+		#
+	#
+	#
+	for i, sec_id in enumerate(sections):
+
+		pool_handlers += [P.apply_async(simple_metric_optimizer, kwds={'CFF':{'sections':sec_id, 'start_year':start_year}, 'm0':m0, 'b_min':b_min, 'b_max':b_max, 'd_b':d_b, 'nyquist_min':nyquist_min, 'nyquist_max':nyquist_max, 'd_nyquist':d_nyquist, 'nits':nits, 'keep_set':keep_set, 'set_name':section_names[i], 'dump_file':None})]
+	P.close()
+	#
+	pool_results = [R.get()[0] for R in pool_handlers]
+	#
+	# make a recarray:
+	#scores_in = numpy.rec.array([rw.values() for rw in scores_in], names=scores_in[0].keys(), formats = [type(x).__name__ for x in scores_in[0].itervalues()])
+	pool_results = numpy.rec.array([rw.values() for rw in pool_results], names=scores_in[0].keys(), formats = [type(x).__name__ for x in pool_results[0].itervalues()])
+	#
+	if dump_file!=None:
+		with open(dump_file,'w') as f:
+			cPickle.dump(pool_results, f)
+	#
+	return pool_results
+#
 def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, set_name='data_set', dump_file=None):
 	'''
 	#, opt_func=forecast_metric_1, opt_args=[], opt_kwargs={}):
@@ -660,6 +707,10 @@ def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0,
 	'''
 	opt_func = forecast_metric_1
 	# forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0)
+	#
+	if isinstance(CFF, dict):
+		# for now, assume have the proper call signature in the key-val pairs
+		CFF = combine_section_CFFs(**CFF)
 	#
 	if isinstance(CFF, str):
 		CFF = numpy.load(CFF)
@@ -692,14 +743,17 @@ def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0,
 		alert_rate = float(fit_data['total_alert_time'])/float(fit_data['total_time'])
 		#
 		# and some sort of metric. how'bout the trig metric:
-		this_score = math.atan2(hit_rate, alert_rate)
+		# (but since we're just rank-ordering, the trig bit is not necessary)
+		#this_score = math.atan2(hit_rate, alert_rate)
+		this_score = hit_rate/alert_rate	# could also be hit_rate-alert_rate...
+		fit_data['score']=this_score
 		print this_score, hit_rate, alert_rate
 		if this_score>best_score:
 			best_score=this_score
 			best_prams = fit_data
 			#
-			print "best prams(%f): %s" % (best_score, str([[key,val] for key, val in fit_data.iteritems() if not key in ('alert_segments', 'ary_in_name')]))
-			print "hit=%f, alert=%f, score=%f\n*****\n" % (hit_rate, alert_rate, this_score)
+			#print "best prams(%f): %s" % (best_score, str([[key,val] for key, val in fit_data.iteritems() if not key in ('alert_segments', 'ary_in_name')]))
+			#print "hit=%f, alert=%f, score=%f\n*****\n" % (hit_rate, alert_rate, this_score)
 			#plt.plot([alert_rate], [hit_rate], 'o')
 			#bestXY += [[alert_rate, hit_rate]]
 			#plt.draw()
@@ -723,6 +777,9 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 	'''
 	# scatter plot of hit_ratio vs alert_time_ratio for as many data as we throw at it.
 	# note, this uses a single value(s) for (b_0, nyquist_factor). see optimized versions as well.
+	#
+	# ... and this works ok, but it is a bit limited in exactly what sets we can optimise. see simple_mpp_optimizer()
+	# and simple_metric_optimzer() above.
 	'''		
 	# 
 	G=glob.glob(file_profile)
@@ -901,6 +958,10 @@ def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2,
 
 #
 def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None, dump_file='dumps/optimize_faultwise'):
+	# (this function will probably be removed, as per a simpler framework using def simple_mpp_optimizer() )... or maybe not. in some ways,
+	# this scales better under mpp, but it still can take a long time (and not get mpp optimization) analyzing really big sets (like all
+	# EMC sections).
+	#
 	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
 	# this script optimizes each fault independently (so we get a set of: {section_id, nyq_fact, b_0}
 	#
@@ -989,11 +1050,19 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 def plot_best_opt_prams(scores_in=None):
 	'''
 	# plots from faultwise optimization (aka, from: optimize_metric_faultwise() )
+	# note that scores_in is a recarray with keys ['b_0'], ['nyquist_factor'], 'total_alert_time', 'total_time'
+	# 'n_missed', 'n_predicted'. let's also add a script to handle a list of dicts...
 	#
 	'''
 	if scores_in==None: scores_in = 'dumps/optimize_faultwise_best_scores.npy' # (i think).
 	if isinstance(scores_in, str):
 		scores_in = numpy.load(scores_in)
+	#
+	# did we get a list of dicts instead of a recarray?
+	if isinstance(scores_in[0], dict):
+		# this should work, but it has not yet been tested.
+		scores_in = numpy.rec.array([rw.values() for rw in scores_in], names=scores_in[0].keys(), formats = [type(x).__name__ for x in scores_in[0].itervalues()])
+		# 
 	#
 	b_col = scores_in['b_0']
 	nq_col = scores_in['nyquist_factor']

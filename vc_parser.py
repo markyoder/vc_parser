@@ -656,7 +656,7 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	#
 	if section_names == None:
 		section_names = []
-		for sec_id = in sections:
+		for sec_id in sections:
 			if hasattr(sec_id, '__len__'):
 				section_names += ['data_set(%d)' % len(x)]
 			else:

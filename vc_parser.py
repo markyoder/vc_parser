@@ -62,7 +62,7 @@ napa_region_section_filter = {'filter':set([45, 50, 172, 171, 170, 169, 44, 168,
 emc_section_filter = {'filter': (16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149)}
 allcal_full_mks = '../ALLCAL2_1-7-11_no-creep_dyn-05_st-20.h5'
 default_sim_file = allcal_full_mks
-emc_sections = emc_section_filter['filter']
+emc_sections = list(emc_section_filter['filter'])
 
 class getter(object):
 	# a simple container class to emulate objects that return values. for example,
@@ -403,7 +403,30 @@ def cff_dict_npy(dict_in):
 		
 	#
 #
-def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0):
+def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_section_%d.npy', start_year=0.):
+	# concatenate (then sort by year) a set of section catalogs. assume proper recarray() format, etc.
+	# ... and this should definitely be used for multi-fault combined catalogs; there are ~50 duplicate events in
+	# the full EMC set.
+	if len(sections)==0: return sections
+	#
+	if len(sections)>=1:
+		combined_catalog = numpy.load(ary_in_format % sections[0])
+	#
+	# ... and let's be sure we're not getting duplicate events as per section partitioning...
+	for i,sec_id in enumerate(sections[1:]):
+		# (or we can load and append in one fell swoop, but this should be fine).
+		combined_catalog = numpy.append(combined_catalog, numpy.load(ary_in_format % sec_id))
+	#
+	#l_cat=[rw.tolist() for rw in combined_catalog if rw['event_year']>=start_year]
+	#print "type: ", type(l_cat)
+	# only unique rows (re-create the recarray from a list-ofthe-set-ofthe-list-ofthe-recarray):
+	#combined_catalog=numpy.rec.array(list(set(combined_catalog.tolist())), dtype=combined_catalog.dtype)
+	combined_catalog=numpy.rec.array(list(set([rw.tolist() for rw in combined_catalog if rw['event_year']>=start_year])), dtype=combined_catalog.dtype)
+	combined_catalog.sort(order='event_year')
+	#
+	return combined_catalog
+	
+def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None):
 	'''
 	#
 	# forecast based on seismic acceleration. specifically, for a set of data (a fault-section time-series),
@@ -415,10 +438,21 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	#     - the "_i-1" condition is fair because 1) we don't know the slope is changin until the even happens
 	#       and 2) in a real scenario, we'd have aftershocks, which woluld turn the post-seismic slope positive.
 	#
+	# set_name: a name to give the set if ary_in is an array, not a string, or if we want to specify it.
 	# (we should use the plotting routine from vc_parser.plot_CFF_ary(), namely the top subfig. )
 	'''
 	#
-	CFF = numpy.load(ary_in)
+	if isinstance(ary_in, str):
+		CFF = numpy.load(ary_in)
+	else:
+		# otherwise, assume we've been passed a proper CFF object:
+		CFF = ary_in
+		# give the set a name  so we don't return the whole input data object...
+		if set_name==None: set_name='unnamed_CFF'
+	#
+	if set_name==None:
+		# still none? must be a string type ary_in...
+		set_name=ary_in
 	#
 	recurrence_data = mean_recurrence(ary_in=CFF, m0=m0)
 	nyquist_len = max(int(nyquist_factor*recurrence_data['mean_dN_fault']), 2)
@@ -533,39 +567,61 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 		# diagnostic plots of forecast metric:
 		plt.figure(fnum)
 		plt.clf()
+		plt.title('VC PSA Hazard Metric')
 		#
-		ax_metric = plt.gca()
+		ax_mags = plt.gca()
+		ax_metric = ax_mags.twinx()		
 		#
-		ax_mags = ax_metric.twinx()
 		ax_ints = ax_metric.twinx()
 		ax_ints.set_yscale('log')
+		ax_metric.set_yscale('linear')
 		#
 		min_mag = min(CFF['event_magnitude'])
+		max_mag = max(CFF['event_magnitude'])
 		intervals = [x-CFF['event_year'][i] for i,x in enumerate(CFF['event_year'][1:])]
 		#
-		ax_ints.plot(CFF['event_year'][1:], intervals, 'b.-', lw=2, ms=7)
-		ax_metric.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
+		#metric_pad_factor = min_mag
+		#metric_pad_factor = 0.
+		#min_metric = 0.
+		min_metric = alert_segments[0][0][1]
+		max_metric = alert_segments[0][0][1]
+		#
+		# do a quick spin to get min/max values and other useful stats:
+		for segment in alert_segments:
+			X,Y = zip(*segment)
+			min_metric = min(min(Y), min_metric)
+			max_matric = max(max(Y), max_metric)
 		#
 		for segment in alert_segments:
 			X,Y = zip(*segment)
-			ax_metric.set_yscale('linear')
+			min_metric = min(min(Y), min_metric)
 			#
 			# ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b']  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='m', zorder=1, alpha=.5)
 			#ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0.0 for x in trend_data], color='m', zorder=1, alpha=.25)
 		
-			ax_metric.fill_between(X,[y + min_mag + 1. for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y], zorder=7 )
+			# show the metric value:
+			ln_metric = ax_metric.fill_between(X,[y for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )			
 			ax_metric.plot(X, [0.0 for y in Y if y<0], 'm-')
-			ax_metric.plot(X, [y + min_mag + 1. for y in Y if y<0], 'm-')
+			ax_metric.plot(X, [y for y in Y if y<0], 'm-')
+			#
+			# and just an "alert!" box:
+			ln_metric = ax_metric.fill_between(X,[min_metric for y in Y],y2=[0.0 for y in Y], color='m', alpha=.15, where = [y<0. for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
 			#
 			#ax_mags.fill_between(X, [min_mag for x in X], [m0 for x in X], zorder=5, alpha=.2, color='c')
-	
-	
-		ax_mags.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='g', alpha=.7, lw=1.5)
+		#
+		ln_ints = ax_ints.plot(CFF['event_year'][1:], intervals, 'b.-', lw=2, ms=7, label='Intervals $\Delta t = t_i - t_{i-1}$')
+		ax_metric.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
+		ln_mags = ax_mags.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='g', alpha=.7, lw=1.5, label='magnitudes')
 		X_big_mags, Y_big_mags = zip(*[[x['event_year'], x['event_magnitude']] for x in CFF if x['event_magnitude']>m0])
 		ax_mags.vlines(X_big_mags, [min_mag for x in Y_big_mags], Y_big_mags, color='r', alpha=.9, lw=2.75)
 		#
-		#ax_metric.set_ylim(ymax=.2)
-	#
+		# cosmetics:
+		ax_mags.set_xlabel('Event Year $t$')
+		ax_ints.set_ylabel('Inter-event interval $\Delta t$')
+		ax_metric.yaxis.set_ticks([])
+		ax_mags.set_ylabel('Earthquake magnitude $m$')
+		#
+		ax_metric.set_ylim(ymin=1.15*min_metric, ymax = -min_metric/10.)
 	#
 	print "preliminary report:"
 	print "alert time: %f / %f :: %f " % (total_alert_time, total_total_time, total_alert_time/total_total_time)
@@ -576,8 +632,93 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	#
 	#return alert_segments
 	# , 'alert_segments':alert_segments
-	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
+	#return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
+	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments, 'ary_in_name':set_name, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 #
+def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, set_name='data_set', dump_file=None):
+	'''
+	#, opt_func=forecast_metric_1, opt_args=[], opt_kwargs={}):
+	
+	# a simple MC optimizer:
+	# CFF: it's interval data. a standard CFF file (like the default) will suffice, otherwise
+	# a rec_array basically with a ['event_year'], ['event_magnitude'] columns i think. if the arg is a string, load the file,
+	# otherwise assume it's a ready-to-rock array.
+	#
+	# nits: mc nits
+	#
+	#### save these for later...
+	# opt_func: optimization function
+	# opt_arts: args for opt_func
+	# opt_kwargs: kwargs for opt_func
+	# opt_funct will be called like f(CFF, *args, **kwargs)
+	########
+	#
+	# later, we need to generalize the evaluation part -- namely, how we determine what is optimal. on the ROC,
+	# Y=float(fc_data['n_predicted'])/(fc_data['n_predicted'] + float(fc_data['n_missed']))
+	# X=fc_data['total_alert_time']/fc_data['total_time']
+	# and then we use some sort of steepness metric...
+	'''
+	opt_func = forecast_metric_1
+	# forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0)
+	#
+	if isinstance(CFF, str):
+		CFF = numpy.load(CFF)
+	#
+	R_b   = random.Random()
+	R_nyq = random.Random()
+	delta_b = b_max-b_min
+	delta_nyq = nyquist_max - nyquist_min
+	# and let's do this right and randomly sample...
+	if nits==None: nits = 1 + int(abs((delta_b/d_b)*((delta_nyq)/d_nyquist)))	# safe-guard for n->0
+	#
+	all_prams=[]
+	best_prams={}
+	best_score=0.	# assume it will be positive (we can control this).
+	#
+	## we can plot this to watch the progression:
+	#plt.figure(11)
+	#plt.clf()
+	#plt.ion()
+	#plt.plot(range(2), range(2), '-')
+	#bestXY = []
+	for i in xrange(nits):
+		this_b   = b_min       + delta_b*R_b.random()
+		this_nyq = nyquist_min + delta_nyq*R_nyq.random()
+		#
+		fit_data = opt_func(ary_in=CFF, m0=m0, b_0=this_b, nyquist_factor=this_nyq, do_plot=False, set_name=set_name)
+		#
+		# get hits/falsies:
+		hit_rate = float(fit_data['n_predicted'])/(float(fit_data['n_predicted'])+float(fit_data['n_missed']))
+		alert_rate = float(fit_data['total_alert_time'])/float(fit_data['total_time'])
+		#
+		# and some sort of metric. how'bout the trig metric:
+		this_score = math.atan2(hit_rate, alert_rate)
+		print this_score, hit_rate, alert_rate
+		if this_score>best_score:
+			best_score=this_score
+			best_prams = fit_data
+			#
+			print "best prams(%f): %s" % (best_score, str([[key,val] for key, val in fit_data.iteritems() if not key in ('alert_segments', 'ary_in_name')]))
+			print "hit=%f, alert=%f, score=%f\n*****\n" % (hit_rate, alert_rate, this_score)
+			#plt.plot([alert_rate], [hit_rate], 'o')
+			#bestXY += [[alert_rate, hit_rate]]
+			#plt.draw()
+			
+		#
+		if keep_set:
+			all_prams+=[fit_data]
+		#
+	#
+	#plt.plot(zip(*bestXY)[0],zip(*bestXY)[1], '-')
+	#
+	if dump_file!=None:
+		with open(dump_file, 'w') as f:
+			cPickle.dump([best_prams, all_prams], f)
+	#
+	return best_prams, all_prams
+
+	
+
 def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None):
 	'''
 	# scatter plot of hit_ratio vs alert_time_ratio for as many data as we throw at it.

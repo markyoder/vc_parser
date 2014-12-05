@@ -662,9 +662,9 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 		section_names = []
 		for sec_id in sections:
 			if hasattr(sec_id, '__len__'):
-				section_names += ['data_set(%d)' % len(x)]
+				section_names += ['data_set(%d)' % len(sec_id)]
 			else:
-				section_names += ['section_%d' % x]
+				section_names += ['section_%d' % sec_id]
 			#
 		#
 	#
@@ -677,8 +677,14 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	pool_results = [R.get()[0] for R in pool_handlers]
 	#
 	# make a recarray:
-	#scores_in = numpy.rec.array([rw.values() for rw in scores_in], names=scores_in[0].keys(), formats = [type(x).__name__ for x in scores_in[0].itervalues()])
-	pool_results = numpy.rec.array([rw.values() for rw in pool_results], names=pool_results[0].keys(), formats = [type(x).__name__ for x in pool_results[0].itervalues()])
+	#
+	# duh... this won't work because we have a list data type (there may be a way to include lists, etc in recarrays, but i don't know
+	# it.) do we really want to keep the alert segments? they're easy enough to recover given the pramset. let's just kill them.
+	#
+	# screw this. there are strings... or one string anyway, so we have to fix its length and all of that. do this alter (or not at all)
+	#print pool_results[0]
+	#pool_results = numpy.rec.array([rw.values() for rw in pool_results], names=pool_results[0].keys(), formats = [type(x).__name__ for x in pool_results[0].itervalues()])
+	#
 	#
 	if dump_file!=None:
 		with open(dump_file,'w') as f:
@@ -754,8 +760,11 @@ def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0,
 		print this_score, hit_rate, alert_rate
 		if this_score>best_score:
 			best_score=this_score
-			best_prams = fit_data
+			#best_prams = fit_data
+			# for best_prams, let's forego the time-series of alert segments:
+			best_prams = {key:val for key,val in fit_data.iteritems() if key!='alert_segments'}
 			#
+			# some diagnostic bits:
 			#print "best prams(%f): %s" % (best_score, str([[key,val] for key, val in fit_data.iteritems() if not key in ('alert_segments', 'ary_in_name')]))
 			#print "hit=%f, alert=%f, score=%f\n*****\n" % (hit_rate, alert_rate, this_score)
 			#plt.plot([alert_rate], [hit_rate], 'o')

@@ -678,7 +678,7 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	#
 	# make a recarray:
 	#scores_in = numpy.rec.array([rw.values() for rw in scores_in], names=scores_in[0].keys(), formats = [type(x).__name__ for x in scores_in[0].itervalues()])
-	pool_results = numpy.rec.array([rw.values() for rw in pool_results], names=scores_in[0].keys(), formats = [type(x).__name__ for x in pool_results[0].itervalues()])
+	pool_results = numpy.rec.array([rw.values() for rw in pool_results], names=pool_results[0].keys(), formats = [type(x).__name__ for x in pool_results[0].itervalues()])
 	#
 	if dump_file!=None:
 		with open(dump_file,'w') as f:

@@ -41,13 +41,14 @@ import multiprocessing as mpp
 import ANSStools
 try:
 	import BASScast
+
 except:
 	pass
 
-import pyvc
-import pyvc.vcanalysis as pvca
 try:
 	import quakelib
+	import pyvc
+	import pyvc.vcanalysis as pvca
 except:
 	print "exception loading quakelib. quakelib functions not available."
 

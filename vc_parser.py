@@ -39,7 +39,10 @@ import inspect
 import multiprocessing as mpp
 #
 import ANSStools
-import BASScast
+try:
+	import BASScast
+except:
+	pass
 
 import pyvc
 import pyvc.vcanalysis as pvca

@@ -1914,8 +1914,11 @@ def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_C
 	if os.path.isdir(output_dir)==False:
 		os.mkdir(output_dir)
 	#
-	if section_ids.upper()=='EMC':
-		section_ids = [{'EMC':list(emc_sections)}] + list(emc_sections)
+	try:
+		if section_ids.upper()=='EMC':
+			section_ids = [{'EMC':list(emc_sections)}] + list(emc_sections)
+	except:
+		pass
 	#
 	if section_ids==None:
 		# get 'em all:

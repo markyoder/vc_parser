@@ -851,7 +851,8 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 		plt.ylabel('n_predicted/n_total')
 		plt.xlabel('percent alert time')
 	#
-	if resultses[0].has_key('alert_segments'): [x.pop('alert_segments') for x in resultses]
+	#if resultses[0].has_key('alert_segments'): [x.pop('alert_segments') for x in resultses]
+	resultses[0] = {key:val for key,val in resultses[0].iteritems() if key!='alert_segments'}	# a little bit faster and more elegant...
 	return resultses
 #
 def plot_aggregate_metric(scores_in, n_top=None):
@@ -1067,28 +1068,61 @@ def plot_best_opt_prams(scores_in=None):
 	# 'n_missed', 'n_predicted'. let's also add a script to handle a list of dicts...
 	#
 	'''
-	if scores_in==None: scores_in = 'dumps/optimize_faultwise_best_scores.npy' # (i think).
+	if scores_in==None:
+		#scores_in = 'dumps/optimize_faultwise_best_scores.npy' # (i think).
+		scores_in = 'dumps/optimize_faultwise_trig_105_best_scores.npy'	# which i think is the same as the above, but more nits.
+																		# maybe we want to compare a few sets? also get a "default" set (see below).
 	if isinstance(scores_in, str):
 		scores_in = numpy.load(scores_in)
 	#
 	# did we get a list of dicts instead of a recarray?
 	if isinstance(scores_in[0], dict):
-		# this should work, but it has not yet been tested.
-		scores_in = numpy.rec.array([rw.values() for rw in scores_in], names=scores_in[0].keys(), formats = [type(x).__name__ for x in scores_in[0].itervalues()])
+		# this should work, but it has not yet been tested... but it probably won't work because of string types...
+		scores_in = numpy.rec.array([[val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in scores_in], names=[key for key,val in scores_in[0].iteritems() if not hasattr(val, '__len__')], formats = [type(x).__name__ for x in scores_in[0].itervalues() if not hasattr(x, '__len__')])
 		# 
+	#
+	# get mean b_0, nyquist_factor values:
+	mean_best_scores = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=numpy.mean(scores_in['b_0']), nyquist_factor=numpy.mean(scores_in['nyquist_factor']), do_spp=False, do_plot=False, do_clf=True, n_cpus=None)
+	col_names   = [key for key,val in mean_best_scores[0].iteritems() if not hasattr(val, '__len__')]
+	col_formats = [type(val).__name__ for val in mean_best_scores[0].itervalues() if not hasattr(val, '__len__')]
+	mean_best_scores = numpy.rec.array([ [val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in mean_best_scores], names=col_names, formats=col_formats)
+	#
+	#
+	default_scores = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None)
+	# and we don't really care about fault name, etc. (we're plotting the points unnamed). make it a recarray (and copy this up above later...):
+	col_names   = [key for key,val in default_scores[0].iteritems() if not hasattr(val, '__len__')]
+	col_formats = [type(val).__name__ for val in default_scores[0].itervalues() if not hasattr(val, '__len__')]
+	default_scores = numpy.rec.array([ [val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in default_scores], names=col_names, formats=col_formats)
+	
 	#
 	b_col = scores_in['b_0']
 	nq_col = scores_in['nyquist_factor']
 	#
 	# information gain:
 	plt.figure(0)
-	X = [scores_in['total_alert_time'][i]/t for i, t in enumerate(scores_in['total_time'])]
-	Y = [float(N)/(float(N)+scores_in['n_missed'][i]) for i, N in enumerate(scores_in['n_predicted'])]
 	plt.clf()
-	plt.plot(X,Y, '.', ms=10)
-	plt.plot([0., 1.], [0.,1.], '-', lw=2.5)
-	plt.xlabel('percent alert time')
-	plt.ylabel('percent predicted')
+	plt.plot([0., 1.], [0.,1.], '-', lw=2.5, label='Random: $<y/x>=1.0$')
+	#
+	data_sets =  {'Default':{'data':default_scores, 'plot_kwargs':{'zorder':5, 'marker':'o', 'color':'g', 'ms':8, 'ls':'', 'alpha':.8}}, 
+	'Optimized':{'data':scores_in, 'plot_kwargs':{'zorder':6, 'marker':(4,1,45.), 'color':'m', 'ms':10, 'ls':''}},
+	'Mean-Optimized':{'data':mean_best_scores, 'plot_kwargs':{'zorder':4, 'marker':(2,1,0.), 'color':'c', 'ms':9, 'ls':'', 'alpha':.8}}
+	}
+	#
+	for key, datas in data_sets.iteritems():
+		# note the marker tuple: (num_sides/points, style, rotation_angle). styles: {0:polygon, 1:star-like, 2:asterisk/plus, 3:circle}
+		scores = datas['data']
+		#
+		X = [scores['total_alert_time'][i]/t for i, t in enumerate(scores['total_time'])]
+		Y = [float(N)/(float(N)+scores['n_missed'][i]) for i, N in enumerate(scores['n_predicted'])]
+		#
+		# calculate the total/mean score. we'll just calc the score since we can't necesssarily depend on the scoring
+		# metric to remain constant.
+		mean_score = numpy.mean(numpy.array(Y)/numpy.array(X))
+		plt.plot(X,Y, label='%s: $<y/x>=%.3f$' % (key, mean_score), **datas['plot_kwargs'])
+	plt.legend(loc='lower right', numpoints=1)
+	
+	plt.xlabel('percent alert time, "hit" rate')
+	plt.ylabel('percent predicted, "false alarm" rate')
 	#
 	# best-fit parameters:
 	plt.figure(1)
@@ -1114,6 +1148,7 @@ def plot_best_opt_prams(scores_in=None):
 	ax2.plot(X, Y, 'g.-')
 	#ax2.plot(scores_in['nyquist_factor'], scores_in['score'], 'g.-')
 	ax2.set_xlabel('nyquist factor')
+	ax2.set_ylabel('score')
 	#
 	f2 = plt.figure(3)
 	f2.clf()

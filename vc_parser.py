@@ -762,7 +762,8 @@ def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0,
 			best_score=this_score
 			#best_prams = fit_data
 			# for best_prams, let's forego the time-series of alert segments:
-			best_prams = {key:val for key,val in fit_data.iteritems() if key!='alert_segments'}
+			#best_prams = {key:val for key,val in fit_data.iteritems() if key!='alert_segments'}
+			best_prams = {key:val for key,val in fit_data.iteritems() if not hasattr(val, '__len__')}
 			#
 			# some diagnostic bits:
 			#print "best prams(%f): %s" % (best_score, str([[key,val] for key, val in fit_data.iteritems() if not key in ('alert_segments', 'ary_in_name')]))

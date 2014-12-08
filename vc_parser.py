@@ -868,7 +868,8 @@ def plot_aggregate_metric(scores_in, n_top=None):
 	ax3d.plot(scores_in['b_0'], scores_in['nyquist_factor'], scores_in['score'], '.')
 	ax3d.set_xlabel('threshold slope, $b_0$')
 	ax3d.set_ylabel('nyquist_factor')
-	ax3d.set_zlabel('ROC metric, (Percent Predicted) - (False alarm rate)')
+	#ax3d.set_zlabel('ROC metric, (Percent Predicted) - (false alarm)')
+	ax3d.set_zlabel('ROC metric, (H-F)')
 	#
 	if n_top==None:
 		n_top = min(100, int(len(scores_in)/100))
@@ -1065,6 +1066,8 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 def plot_best_opt_prams(scores_in=None):
 	'''
 	# plots from faultwise optimization (aka, from: optimize_metric_faultwise() )
+	# in particular, plots an ROC diagram for  several populations of faultwise forecast fits.
+	#
 	# note that scores_in is a recarray with keys ['b_0'], ['nyquist_factor'], 'total_alert_time', 'total_time'
 	# 'n_missed', 'n_predicted'. let's also add a script to handle a list of dicts...
 	#
@@ -1122,8 +1125,8 @@ def plot_best_opt_prams(scores_in=None):
 		plt.plot(X,Y, label='%s: $<y/x>=%.3f$' % (key, mean_score), **datas['plot_kwargs'])
 	plt.legend(loc='lower right', numpoints=1)
 	
-	plt.xlabel('percent alert time, "hit" rate')
-	plt.ylabel('percent predicted, "false alarm" rate')
+	plt.xlabel('percent alert time, "false alarm" rate $F$')
+	plt.ylabel('percent predicted, "hit" rate $H$')
 	#
 	# best-fit parameters:
 	plt.figure(1)

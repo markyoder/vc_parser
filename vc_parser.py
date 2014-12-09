@@ -652,6 +652,9 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	if sections in ('emc', 'EMC'):
 		sections = emc_sections + [emc_sections]
 		section_names = ['%d' % x for x in emc_sections] + ['emc']
+	if sections == 'napa':
+		sections = napa_sections + [napa_sections]
+		section_names = ['%d' % x for x in napa_sections] + ['napa']
 	#
 	# we can use a Pool():
 	if n_cpus==None: n_cpus = mpp.cpu_count()
@@ -788,6 +791,8 @@ def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0,
 
 def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None):
 	'''
+	# simple ROC diagram. see the optimized one...
+	#
 	# scatter plot of hit_ratio vs alert_time_ratio for as many data as we throw at it.
 	# note, this uses a single value(s) for (b_0, nyquist_factor). see optimized versions as well.
 	#
@@ -860,6 +865,8 @@ def plot_aggregate_metric(scores_in, n_top=None):
 	if isinstance(scores_in, str):
 		scores_in = numpy.load(scores_in)
 	#scores_in.sort(order=('b_0', 'nyquist_factor'))
+	#
+	#
 	#
 	f2 = plt.figure(3)
 	f2.clf()
@@ -1061,13 +1068,16 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 	#
 	return scores_out
 
-def plot_best_opt_prams(scores_in=None):
+def plot_best_opt_prams(scores_in=None, plot_f_out=None):
 	'''
 	# plots from faultwise optimization (aka, from: optimize_metric_faultwise() )
 	# note that scores_in is a recarray with keys ['b_0'], ['nyquist_factor'], 'total_alert_time', 'total_time'
 	# 'n_missed', 'n_predicted'. let's also add a script to handle a list of dicts...
 	#
 	'''
+	# a sloppy tweak: this maps one col-name to another col name, aka b-->b_0
+	col_name_subs = {}
+	#
 	if scores_in==None:
 		#scores_in = 'dumps/optimize_faultwise_best_scores.npy' # (i think).
 		scores_in = 'dumps/optimize_faultwise_trig_105_best_scores.npy'	# which i think is the same as the above, but more nits.
@@ -1079,14 +1089,43 @@ def plot_best_opt_prams(scores_in=None):
 	if isinstance(scores_in[0], dict):
 		# this should work, but it has not yet been tested... but it probably won't work because of string types...
 		scores_in = numpy.rec.array([[val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in scores_in], names=[key for key,val in scores_in[0].iteritems() if not hasattr(val, '__len__')], formats = [type(x).__name__ for x in scores_in[0].itervalues() if not hasattr(x, '__len__')])
+		#
+		# sloppy tweak:
+		if 'b_0' not in (scores_in.dtype.names): col_name_subs['b_0']='b'
 		# 
 	#
 	# get mean b_0, nyquist_factor values:
-	mean_best_scores = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=numpy.mean(scores_in['b_0']), nyquist_factor=numpy.mean(scores_in['nyquist_factor']), do_spp=False, do_plot=False, do_clf=True, n_cpus=None)
+	#mean_best_scores = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=numpy.mean(scores_in['b_0']),
+	mean_best_scores = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=numpy.mean(scores_in[col_name_subs.get('b_0', 'b_0')]), nyquist_factor=numpy.mean(scores_in['nyquist_factor']), do_spp=False, do_plot=False, do_clf=True, n_cpus=None)
 	col_names   = [key for key,val in mean_best_scores[0].iteritems() if not hasattr(val, '__len__')]
 	col_formats = [type(val).__name__ for val in mean_best_scores[0].itervalues() if not hasattr(val, '__len__')]
 	mean_best_scores = numpy.rec.array([ [val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in mean_best_scores], names=col_names, formats=col_formats)
 	#
+	#####################
+	# mean aggregate. 
+	#####################
+	#note this was run using a MPP process and not cpu-wise aggregated. just take the mean values. for now, hardcode the file.
+	# so note this is not actually aggregating like the other sets. the other sets aggregate over fits to individual fault-catalogs.
+	# this aggregates over 4 fits to the same regional catalog.
+	mean_aggregate_emc_fits = numpy.load('dumps/optimize_fullemc_forecast_4_x_2500.npy')
+	a_maf = numpy.mean([float(rw['n_predicted']) for rw in mean_aggregate_emc_fits])
+	b_maf = numpy.mean([float(rw['total_alert_time']) for rw in mean_aggregate_emc_fits])
+	c_maf = numpy.mean([float(rw['n_missed']) for rw in mean_aggregate_emc_fits])
+	d_maf = numpy.mean([float(rw['total_time']) for rw in mean_aggregate_emc_fits])
+	H_maf = a_maf/(a_maf + c_maf)
+	F_maf = b_maf/d_maf
+	score_maf = H_maf/F_maf
+	b_0_maf = numpy.mean([rw['b'] for rw in mean_aggregate_emc_fits])
+	nyquist_fact_maf = numpy.mean([rw['nyquist_factor'] for rw in mean_aggregate_emc_fits])
+	#
+	#print "mean_aggregate: b_0=%f, n_f=%f, H=%f, F=%f" % (b_maf, nyquist_fact_maf, H_maf, F_maf)
+	#
+	mean_best_regional_scores = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=b_0_maf, nyquist_factor=nyquist_fact_maf, do_spp=False, do_plot=False, do_clf=True, n_cpus=None)
+	col_names   = [key for key,val in mean_best_regional_scores[0].iteritems() if not hasattr(val, '__len__')]
+	col_formats = [type(val).__name__ for val in mean_best_regional_scores[0].itervalues() if not hasattr(val, '__len__')]
+	mean_best_regional_scores = numpy.rec.array([ [val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in mean_best_regional_scores], names=col_names, formats=col_formats)
+	######
+	
 	#
 	default_scores = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None)
 	# and we don't really care about fault name, etc. (we're plotting the points unnamed). make it a recarray (and copy this up above later...):
@@ -1095,7 +1134,8 @@ def plot_best_opt_prams(scores_in=None):
 	default_scores = numpy.rec.array([ [val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in default_scores], names=col_names, formats=col_formats)
 	
 	#
-	b_col = scores_in['b_0']
+	#b_col = scores_in['b_0']
+	b_col = scores_in[col_name_subs.get('b_0', 'b_0')]
 	nq_col = scores_in['nyquist_factor']
 	#
 	# information gain:
@@ -1103,9 +1143,10 @@ def plot_best_opt_prams(scores_in=None):
 	plt.clf()
 	plt.plot([0., 1.], [0.,1.], '-', lw=2.5, label='Random: $<y/x>=1.0$')
 	#
-	data_sets =  {'Default':{'data':default_scores, 'plot_kwargs':{'zorder':5, 'marker':'o', 'color':'g', 'ms':8, 'ls':'', 'alpha':.8}}, 
-	'Optimized':{'data':scores_in, 'plot_kwargs':{'zorder':6, 'marker':(4,1,45.), 'color':'m', 'ms':10, 'ls':''}},
-	'Mean-Optimized':{'data':mean_best_scores, 'plot_kwargs':{'zorder':4, 'marker':(2,1,0.), 'color':'c', 'ms':9, 'ls':'', 'alpha':.8}}
+	data_sets =  {'Default':{'data':default_scores, 'plot_kwargs':{'zorder':5, 'marker':'o', 'color':'g', 'ms':8, 'ls':'', 'alpha':.7}},
+	'Regional-mean optimized':{'data':mean_best_regional_scores, 'plot_kwargs':{'zorder':3, 'marker':(3,1,0.), 'color':'b', 'ms':10, 'ls':'', 'alpha':.7}},
+	'Faultwise-mean optimized':{'data':mean_best_scores, 'plot_kwargs':{'zorder':4, 'marker':(2,1,0.), 'color':'r', 'ms':10, 'ls':'', 'alpha':.7}}, 
+	'Faultwise optimized':{'data':scores_in, 'plot_kwargs':{'zorder':6, 'marker':(4,1,45.), 'color':'m', 'ms':14, 'ls':''}}
 	}
 	#
 	for key, datas in data_sets.iteritems():
@@ -1114,21 +1155,30 @@ def plot_best_opt_prams(scores_in=None):
 		#
 		X = [scores['total_alert_time'][i]/t for i, t in enumerate(scores['total_time'])]
 		Y = [float(N)/(float(N)+scores['n_missed'][i]) for i, N in enumerate(scores['n_predicted'])]
+		#print "key:%s, <F>=%f, <H>=%f" % (key, numpy.mean(X), numpy.mean(Y))
+		#print numpy.mean(b_col), numpy.mean(nq_col)
 		#
 		# calculate the total/mean score. we'll just calc the score since we can't necesssarily depend on the scoring
 		# metric to remain constant.
 		mean_score = numpy.mean(numpy.array(Y)/numpy.array(X))
-		plt.plot(X,Y, label='%s: $<y/x>=%.3f$' % (key, mean_score), **datas['plot_kwargs'])
+		plt.plot(X,Y, label='%s: $<H/F>=%.3f$' % (key, mean_score), **datas['plot_kwargs'])
+		plt.plot(numpy.mean(X), numpy.mean(Y), '*', ms=18, alpha=.75, color=datas['plot_kwargs']['color'], zorder=datas['plot_kwargs']['zorder'])
+	# and the regional aggregate score:
+	plt.plot(F_maf, H_maf, 'r*', ms=14, zorder=7, alpha=.8, label='EMC regional')
+	plt.plot(F_maf, H_maf, 'k*', ms=17, zorder=6, alpha=.8)
 	plt.legend(loc='lower right', numpoints=1)
 	
-	plt.xlabel('percent alert time, "hit" rate')
-	plt.ylabel('percent predicted, "false alarm" rate')
+	plt.xlabel('percent alert time, "false alarm" rate $F$')
+	plt.ylabel('percent predicted,  "hit" rate $H$')
+	#
+	if plot_f_out != None:
+		plt.savefig(plot_f_out)
 	#
 	# best-fit parameters:
 	plt.figure(1)
 	plt.clf()
 	ax=plt.gca()
-	X=scores_in['b_0'].copy()
+	X=scores_in[col_name_subs.get('b_0', 'b_0')].copy()
 	lst_scores=scores_in['score'].copy()
 	XY = zip(*[X, lst_scores])
 	XY.sort(key=lambda x:x[0])
@@ -1153,12 +1203,12 @@ def plot_best_opt_prams(scores_in=None):
 	f2 = plt.figure(3)
 	f2.clf()
 	ax3d = f2.add_subplot(111, projection='3d')
-	ax3d.plot(scores_in['b_0'], scores_in['nyquist_factor'], scores_in['score'], '.')
+	ax3d.plot(scores_in[col_name_subs.get('b_0', 'b_0')], scores_in['nyquist_factor'], scores_in['score'], '.')
 	ax3d.set_xlabel('b_0')
 	ax3d.set_ylabel('nyquist_factor')
 	ax3d.set_zlabel('score')
 	#
-	mean_b = numpy.mean(scores_in['b_0'])
+	mean_b = numpy.mean(scores_in[col_name_subs.get('b_0', 'b_0')])
 	std_b  = numpy.std(scores_in['score'])
 	#
 	mean_nf = numpy.mean(scores_in['nyquist_factor'])
@@ -1344,7 +1394,7 @@ def mcfitter(func=f_weibull, X=None, Y=None, prams_dict=None, nits=10**6, n_cpus
 		for i in xrange(n_cpus):
 			results+=[pool.apply_async(mcfitter, kwds={'func':f_weibull, 'X':X, 'Y':Y, 'prams_dict':prams_dict, 'nits':nits/n_cpus, 'n_cpus':1})]
 		pool.close()
-		pool.join()
+		#pool.join()
 		#
 		#Zmin, Z=[], []
 		Zmin, Z = results[0].get()
@@ -1408,6 +1458,7 @@ def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_se
 	'''
 	#
 	if section_ids in (None, [], ()): section_ids = list(emc_section_filter['filter'])
+	section_ids=list(section_ids)
 	plt.ion()
 	#if (-1) not in section_ids: section_ids+=[-1]		# add this special case which we will use for a composite mean fit.
 	if section_ids[-1]!=-1: section_ids+=[-1]		# ... and it needs to be the final entry.
@@ -1913,8 +1964,11 @@ def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_C
 	if os.path.isdir(output_dir)==False:
 		os.mkdir(output_dir)
 	#
-	if section_ids.upper()=='EMC':
-		section_ids = [{'EMC':list(emc_sections)}] + list(emc_sections)
+	if isinstance(section_ids, str):
+		if section_ids.upper()=='EMC':
+			section_ids = [{'EMC':list(napa_sections)}] + list(napa_sections)
+		if section_ids.lower() == 'napa':
+			section_ids = [{'Napa':list(napa_sections)}] + list(napa_sections)
 	#
 	if section_ids==None:
 		# get 'em all:
@@ -1969,7 +2023,19 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	if isinstance(section_ids, int) or isinstance(section_ids,float): section_ids = [section_ids]
 	section_ids = list(set(section_ids))
 	#
-	cdf_fits = numpy.load(fits_data_file_CDF)	# recarray with dtype: dtype=[('t0', '<f8'), ('section_id', '<i8'), ('chi', '<f8'), ('beta', '<f8'), ('sigma_chi', '<f8'), ('sigma_beta', '<f8'), ('chi_sqr', '<f8'), ('fit_type', 'S16')])
+	# load the pre-calced fits? if they don't exist, run them.
+	try:
+		cdf_fits = numpy.load(fits_data_file_CDF)	# recarray with dtype: dtype=[('t0', '<f8'), ('section_id', '<i8'), ('chi', '<f8'), ('beta', '<f8'), ('sigma_chi', '<f8'), ('sigma_beta', '<f8'), ('chi_sqr', '<f8'), ('fit_type', 'S16')])
+	except:
+		# ... ok, this is the right idea, but it's complicated, so let's handle it externally for now.
+		# anyway, we might not want to do it this way because it might run for a long, long time...
+		# fits failed. run a new set:
+		# waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None)
+		print "fits data not found. run waiting_time_figs()"
+		return None
+		
+		#wt_temp = waiting_time_figs(section_ids=section_ids, m0=m0, output_dir='temp_weibul_fits', mcnits=2000)
+		
 	#
 	# we want the expected \Delta t to the next "big one" as a function of t_0 (aka, <Delta t> (t_0) ), and in this case
 	# t_0 is basically current ellapsed time. nominally, we shoul do this 1) directly from data, 2) using t0=0 fits, 3)
@@ -2356,6 +2422,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 		#best_fit_dict[sec_id] = numpy.core.records.fromarrays(zip(*best_fit_dict[sec_id]), names=fit_columns, formats = [(type(x).__name__ for x in best_fit_dict[sec_id][0]])
 		best_fit_dict[sec_id] = numpy.core.records.fromarrays(zip(*best_fit_dict[sec_id]), names=fit_columns, formats = fit_columns_types)
 		#
+		# save best fits:
 		best_fit_dict[sec_id].dump('%s/VC_CDF_WT_fits_m%s_section_%d.npy' % (output_dir, str(m0).replace('.', ''), sec_id))
 		#
 		plt.legend(loc=0, numpoints=1)

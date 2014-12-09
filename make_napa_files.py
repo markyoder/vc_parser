@@ -1,5 +1,7 @@
 import vc_parser
-
+#
+vc_parser.mpl.use('Agg')
+#
 napa_sections = list(vc_parser.napa_region_section_filter['filter'])
 # and these can just mix with the existing EMC data.
 #A= vc_parser.get_EMC_CFF(sections=napa_sections, file_out_root='data/VC_CFF_timeseries_section')

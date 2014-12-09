@@ -1173,14 +1173,10 @@ def plot_best_opt_prams(scores_in=None, plot_f_out=None):
 	plt.legend(loc='lower right', numpoints=1)
 	
 	plt.xlabel('percent alert time, "false alarm" rate $F$')
-<<<<<<< HEAD
 	plt.ylabel('percent predicted,  "hit" rate $H$')
 	#
 	if plot_f_out != None:
 		plt.savefig(plot_f_out)
-=======
-	plt.ylabel('percent predicted, "hit" rate $H$')
->>>>>>> f45b76e61346c7bcc981c149a4a20761b5ffd3d4
 	#
 	# best-fit parameters:
 	plt.figure(1)
@@ -1972,19 +1968,12 @@ def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_C
 	if os.path.isdir(output_dir)==False:
 		os.mkdir(output_dir)
 	#
-<<<<<<< HEAD
 	if isinstance(section_ids, str):
 		if section_ids.upper()=='EMC':
 			section_ids = [{'EMC':list(napa_sections)}] + list(napa_sections)
 		if section_ids.lower() == 'napa':
 			section_ids = [{'Napa':list(napa_sections)}] + list(napa_sections)
-=======
-	try:
-		if section_ids.upper()=='EMC':
-			section_ids = [{'EMC':list(emc_sections)}] + list(emc_sections)
-	except:
-		pass
->>>>>>> f45b76e61346c7bcc981c149a4a20761b5ffd3d4
+
 	#
 	if section_ids==None:
 		# get 'em all:

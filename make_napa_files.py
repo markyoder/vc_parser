@@ -21,7 +21,7 @@ for this_m in [6.0, 7.0]:
 	Z=vc_parser.simple_mpp_optimizer(sections='napa', section_names=None, start_year=10000., m0=this_m, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, dump_file='dumps/napa_m%d_mpp_roc_optimize.npy' % this_m, n_cpus=None)
 	
 	try:
-		ZZ=vc_parser.plot_best_opt_prams(scores_in=Z, plot_f_out='dumps/napa_ros_m%s.png' % str(this_m).replace('.', ''))
+		ZZ=vc_parser.plot_best_opt_prams(scores_in=Z, plot_f_out='dumps/napa_roc_m%s.png' % str(this_m).replace('.', ''))
 	except:
 		ZZ=vc_parser.plot_best_opt_prams(scores_in='dumps/napa_m%d_mpp_roc_optimize.npy' % this_m, plot_f_out='dumps/napa_ros_m%s.png' % str(this_m).replace('.', ''))
 	#

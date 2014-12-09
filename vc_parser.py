@@ -1106,6 +1106,9 @@ def plot_best_opt_prams(scores_in=None, plot_f_out=None):
 	col_formats = [type(val).__name__ for val in mean_best_scores[0].itervalues() if not hasattr(val, '__len__')]
 	mean_best_scores = numpy.rec.array([ [val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in mean_best_scores], names=col_names, formats=col_formats)
 	#
+	# just comment this out so we can run Napa stuffp; we'll need to put it back/modify later.
+	mean_best_regional_scores = None
+	'''
 	#####################
 	# mean aggregate. 
 	#####################
@@ -1124,13 +1127,14 @@ def plot_best_opt_prams(scores_in=None, plot_f_out=None):
 	nyquist_fact_maf = numpy.mean([rw['nyquist_factor'] for rw in mean_aggregate_emc_fits])
 	#
 	#print "mean_aggregate: b_0=%f, n_f=%f, H=%f, F=%f" % (b_maf, nyquist_fact_maf, H_maf, F_maf)
+	
 	#
 	mean_best_regional_scores = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=b_0_maf, nyquist_factor=nyquist_fact_maf, do_spp=False, do_plot=False, do_clf=True, n_cpus=None)
 	col_names   = [key for key,val in mean_best_regional_scores[0].iteritems() if not hasattr(val, '__len__')]
 	col_formats = [type(val).__name__ for val in mean_best_regional_scores[0].itervalues() if not hasattr(val, '__len__')]
 	mean_best_regional_scores = numpy.rec.array([ [val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in mean_best_regional_scores], names=col_names, formats=col_formats)
 	######
-	
+	'''
 	#
 	default_scores = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None)
 	# and we don't really care about fault name, etc. (we're plotting the points unnamed). make it a recarray (and copy this up above later...):
@@ -1157,6 +1161,7 @@ def plot_best_opt_prams(scores_in=None, plot_f_out=None):
 	for key, datas in data_sets.iteritems():
 		# note the marker tuple: (num_sides/points, style, rotation_angle). styles: {0:polygon, 1:star-like, 2:asterisk/plus, 3:circle}
 		scores = datas['data']
+		if datas==None: continue
 		#
 		X = [scores['total_alert_time'][i]/t for i, t in enumerate(scores['total_time'])]
 		Y = [float(N)/(float(N)+scores['n_missed'][i]) for i, N in enumerate(scores['n_predicted'])]
@@ -1169,8 +1174,8 @@ def plot_best_opt_prams(scores_in=None, plot_f_out=None):
 		plt.plot(X,Y, label='%s: $<H/F>=%.3f$' % (key, mean_score), **datas['plot_kwargs'])
 		plt.plot(numpy.mean(X), numpy.mean(Y), '*', ms=18, alpha=.75, color=datas['plot_kwargs']['color'], zorder=datas['plot_kwargs']['zorder'])
 	# and the regional aggregate score:
-	plt.plot(F_maf, H_maf, 'r*', ms=14, zorder=7, alpha=.8, label='EMC regional')
-	plt.plot(F_maf, H_maf, 'k*', ms=17, zorder=6, alpha=.8)
+	#plt.plot(F_maf, H_maf, 'r*', ms=14, zorder=7, alpha=.8, label='EMC regional')
+	#plt.plot(F_maf, H_maf, 'k*', ms=17, zorder=6, alpha=.8)
 	plt.legend(loc='lower right', numpoints=1)
 	
 	plt.xlabel('percent alert time, "false alarm" rate $F$')

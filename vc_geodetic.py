@@ -985,6 +985,7 @@ def slip_field(blockwise_obj=None, dx=None, dy=None, i_start=0, i_stop=-1, secti
 		this_element.set_rake(block_data['rake_rad'])
 		#
 		# set vertices:
+		# this fails, "SimElement_set_vert() takes exactly 3 arguments (5 given)"
 		[this_element.set_vert(i, block_data['m_x_pt%d' % k], block_data['m_y_pt%d' % k], block_data['m_z_pt%d' % k]) for i,k in enumerate([1,2,4])]
 		#
 		#	print "vert: ", this_element.vert(i)

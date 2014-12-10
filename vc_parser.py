@@ -408,7 +408,7 @@ def cff_dict_npy(dict_in):
 		
 	#
 #
-def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_section_%d.npy', start_year=0.):
+def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_section_%d.npy', start_year=0., end_year=None):
 	# concatenate (then sort by year) a set of section catalogs. assume proper recarray() format, etc.
 	# ... and this should definitely be used for multi-fault combined catalogs; there are ~50 duplicate events in
 	# the full EMC set.
@@ -424,13 +424,20 @@ def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_sect
 	# ... and let's be sure we're not getting duplicate events as per section partitioning...
 	for i,sec_id in enumerate(sections[1:]):
 		# (or we can load and append in one fell swoop, but this should be fine).
-		combined_catalog = numpy.append(combined_catalog, numpy.load(ary_in_format % sec_id))
+		try:
+			combined_catalog = numpy.append(combined_catalog, numpy.load(ary_in_format % sec_id))
+		except:
+			print "failed to add sub-catalog for %d" % sec_id
 	#
 	#l_cat=[rw.tolist() for rw in combined_catalog if rw['event_year']>=start_year]
 	#print "type: ", type(l_cat)
 	# only unique rows (re-create the recarray from a list-ofthe-set-ofthe-list-ofthe-recarray):
 	#combined_catalog=numpy.rec.array(list(set(combined_catalog.tolist())), dtype=combined_catalog.dtype)
-	combined_catalog=numpy.rec.array(list(set([rw.tolist() for rw in combined_catalog if rw['event_year']>=start_year])), dtype=combined_catalog.dtype)
+	#
+	end_year = (end_year or max(combined_catalog['event_year']))
+	#combined_catalog=numpy.rec.array(list(set([rw.tolist() for rw in combined_catalog if rw['event_year']>=start_year])), dtype=combined_catalog.dtype)
+	combined_catalog=numpy.rec.array(list(set([rw.tolist() for rw in combined_catalog if (rw['event_year']>=start_year and rw['event_year']<=end_year)])), dtype=combined_catalog.dtype)
+	
 	combined_catalog.sort(order='event_year')
 	#
 	return combined_catalog
@@ -3003,15 +3010,30 @@ def get_anss_seismicity(section_ids=None, sim_file=allcal_full_mks, start_date=N
 	#	
 	return earthquake_catalog	
 #
-def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], etas_gridsize=.25, etas_mc=3.0, etas_contour_intervals=24, etas_cat_len=500):
+def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], etas_gridsize=.25, etas_mc=3.0, etas_contour_intervals=24, etas_cat_len=500, etas_catalog=None, p_map=0.0):
 	# make a map of real seismicity around our model area. use the fault model to determine extents.
 	#
 	# emc section_ids: emc_section_filter['filter']
 	#
 	# handle some default values and book-keeping:
+	#
+	# allow knowing users to pass a sweep index with the etas_catalog, so we can speed up the vc_catalog fetch.
+	sweep_index=None
+	if isinstance(etas_catalog, dict):
+		sweep_index = etas_catalog['sweep_index']
+		etas_catalog = etas_catalog['catalog']
+		
 	# ...
-	if end_date==None: end_date=dtm.datetime.now(pytz.timezone('UTC'))
-	if start_date==None: start_date = end_date-dtm.timedelta(days=500)
+	if end_date==None: 
+		if isinstance(start_date, float) or isinstance(start_date, int):
+			with h5py.File(sim_file) as vc_data:
+				end_date = 365.25*(max(vc_data['event_table']['event_year']))
+			#
+		#
+		else:
+			end_date=dtm.datetime.now(pytz.timezone('UTC'))
+	if start_date==None:
+		start_date = end_date-dtm.timedelta(days=500)
 	#
 	#
 	ll_range = get_fault_model_extents(section_ids=section_ids, sim_file=sim_file, n_cpus=n_cpus)
@@ -3034,15 +3056,26 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	#
 	# looks like there might be some GIT synching problems to be handled here. maybe a change from Buller didn't manage
 	# to push up properly?
+	print "start_date, end_date: ", start_date, end_date
 	#
-	etas_catalog = BASScast.getMFETAScatFromANSS(lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], dates=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=etas_cat_len), dtm.datetime.now(pytz.timezone('UTC'))], mc=etas_mc)
+	if etas_catalog in (None, 'etas'):
+		etas_catalog = BASScast.getMFETAScatFromANSS(lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], dates=[dtm.datetime.now(pytz.timezone('UTC'))-dtm.timedelta(days=etas_cat_len), dtm.datetime.now(pytz.timezone('UTC'))], mc=etas_mc)
+	elif etas_catalog == 'vc':
+		# make a vc type catalog:
+		etas_catalog = vc_ETAS_catalog(section_ids=section_ids, sim_file=sim_file, start_year=start_date, end_year=end_date, n_cpus=n_cpus, fignum=fignum, map_size=map_size, etas_mc=etas_mc, sweep_index=sweep_index)	# and a bunch of those prams can actually be removed.
+	else:
+		# use the provided catalog...
+		pass
 	#
-	#etas_contour_intervals=24
-	#etas_gridsize=.1
-	#etas_mc=3.0
+	print "catalog selected. calculate etas."
 	#
 	# instantiate a BASScast object() (from the BASScast module).
-	etas = BASScast.BASScast(incat=etas_catalog, fcdate=end_date, gridsize=etas_gridsize, contres=etas_contour_intervals, mc=etas_mc, eqeps=None, eqtheta=None, fitfactor=5., contour_intervals=etas_contour_intervals, lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], rtype='ssim', p_quakes=1.05, p_map=0.0)
+	# basscast needs a list object, otherwise its sorting routines get screwed up (we might fix this on the basscast side as well...)
+	#this_etas_catalog = etas_catalog
+	#if hasattr(etas_catalog, 'tolist'): this_etas_catalog=etas_catalog.tolist()
+	#
+	#return etas_catalog
+	etas = BASScast.BASScast(incat=etas_catalog, fcdate=end_date, gridsize=etas_gridsize, contres=etas_contour_intervals, mc=etas_mc, eqeps=None, eqtheta=None, fitfactor=5., contour_intervals=etas_contour_intervals, lons=[ll_range['lon_min'], ll_range['lon_max']], lats=[ll_range['lat_min'], ll_range['lat_max']], rtype='ssim', p_quakes=1.05, p_map=p_map)
 	#
 	#conts = etas.getContourSet(X_i=None, Y_i=None, Z_ij=None, contres=etas_contour_intervals, zorder=7, alpha=.15)
 	#conts2 = etas.BASScastContourMap(fignum=3, maxNquakes=10, alpha=.75)
@@ -3078,6 +3111,77 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 		#	
 	#
 	return etas
+#
+def vc_ETAS_catalog(section_ids=None, sim_file=allcal_full_mks, start_year=None, end_year=None, n_cpus=None, fignum=0, map_size=[10,8], etas_mc=3.0, sweeps_index=None):
+	'''
+	# make an ETAS map from VC catalog events.
+	# note: p_map gives the mapping representation of the Omori scaling exponent p. p_map -> 0.0 gives the time independend
+	# RI type, historical rates, as opposed to the local time dependent rates.
+	# we'll also need to work out bits about plotting large events, etc.
+	#
+	# ... and then we'll feed this into the existing BASS map thing above...
+	'''
+	#
+	# first, get a catalog:
+	vc_catalog = combine_section_CFFs(section_ids, start_year=start_year, end_year=end_year)
+	# now, convert this catalog to an ETAS-like format. our present catalog looks like:
+	# ('event_number',  'event_year',  'event_magnitude', 'cff_initial', 'cff_final', 'event_area')
+	# sampel BASScast catalog call:
+	# cat1=BASScast.getMFETAScatFromANSS(lons=[-117., -114.], lats=[32., 35.], dates=[dtm.datetime(1990,1,1, tzinfo=BASScast.pytz.timezone('UTC')), dtm.datetime.now(pytz.timezone('UTC'))], mc=3.0)
+	# rows (basically from ANSS) are like:
+	# [726468.958140625, 32.561, -115.805, 3.31, 4.19] --> [year, lat, lon, mag, depth]	(eventually, these too will be returned as recarrays).
+	# so to do ETAS, we have to find the event's epicenter... and this is going to be messy and slow... but let's just code it:
+	# (note this can also be done by just treating the individual blocks as little earthquakes, but it will give a somewhat different result.
+	# also, we may still need to reconstruct the catalog, though this might be basically done in vc_geodetic. we could take the time series of
+	# block displacements and treat each one like a little earthquake).
+	vc_etas_catalog=[]
+	with h5py.File(sim_file) as vc_data:
+		sweeps = vc_data['event_sweep_table']
+		blocks = vc_data['block_info_table']
+		#
+		# make a sweeps index (this may alredy exist in some form, but this will be quick). 
+		# we want the sweeps index for the first sweep of each event.
+		if sweeps_index==None: sweeps_index = {int(rw['event_number']):int(rw['block_id']) for rw in sweeps if rw['sweep_num']==0}	# ... and this takes a little while.
+		#
+		for rw in vc_catalog:
+			if rw['event_magnitude']<etas_mc: continue
+			# get initial block:
+			blk = blocks[sweeps_index[rw['event_number']]]
+			#print "blk: ", blk
+			#print 
+			x = numpy.mean([blk['m_x_pt%d' % k] for k in range(1,5)])	# these will be a little different with new VC since there are only 3 verts.
+			y = numpy.mean([blk['m_y_pt%d' % k] for k in range(1,5)])
+			z = - numpy.mean([blk['m_z_pt%d' % k] for k in range(1,5)])
+			#
+			z/=1000.		# in km...
+			#
+			# now lat/lon conversion:
+			# def xy_to_lat_lon(x, y, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict')
+			lat, lon = xy_to_lat_lon(x,y, sim_file=sim_file, lat0=None, lon0=None, chi=111.1, return_format='tuple')
+			#
+			# submit year in days. ETAS will internally convert these values to seconds...
+			vc_etas_catalog += [[float(rw['event_year']*365.25), lat, lon, float(rw['event_magnitude']), z]]
+			#   #note: these float() conversions look stupid, but they do something to decouple the h5py object from the row (make a copy,
+			#   # not a reference probably), which makes the recarray outputs not totally screwed up.
+		#
+		# okada_disps = numpy.rec.array(okada_disps, names=['x', 'y', 'z', 'dx', 'dy', 'dz'], formats=[type(x).__name__ for x in okada_disps[0]])
+		# field_data = numpy.core.records.fromarrays(zip(*field_data), names=['x', 'y', 'z', 'dx', 'dy', 'dz', 'dxyz', 'dxy'], formats=[type(x).__name__ for x in field_data[0]])
+		#
+	#
+	#vc_etas_catalog_ary=None
+	try:
+		# note: gotta convert the source data to an array or you get, for each field, something like (x,0., 0., 0., 0.) instead of just x.
+		# or we can use the numpy.core.records.fromarrays() method...
+		# both of these work:
+		#vc_etas_catalog = numpy.rec.array(numpy.array(vc_etas_catalog), names = ['event_year', 'lat', 'lon', 'mag', 'depth'], formats = [type(x).__name__ for x in vc_etas_catalog[0]])
+		vc_etas_catalog = numpy.core.records.fromarrays(zip(*vc_etas_catalog), names = ['event_year', 'lat', 'lon', 'mag', 'depth'], formats = [type(x).__name__ for x in vc_etas_catalog[0]])
+	except:
+		print "unable to convert to rec_array..."
+		pass
+	#
+	return vc_etas_catalog, sweeps_index
+	#
+
 #
 def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
 	# find mean, stdev Delta_t, N between m>m0 events in ary_in.

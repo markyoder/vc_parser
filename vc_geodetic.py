@@ -1033,7 +1033,13 @@ def slip_field(blockwise_obj=None, dx=None, dy=None, i_start=0, i_stop=-1, secti
 	#
 	return disp_field
 	#
-def plot_disp_vector_field(okada_disps='dumps/okada_slips_allcal_2.pkl', fignum=0, plot_factor=1.0, z_colors=True, sim_file=default_sim_file, n_cpus=None, do_map=True):
+def plot_disp_vector_field(okada_disps='dumps/okada_slips_allcal_2.pkl', section_ids=None, fignum=0, plot_factor=1.0, z_colors=True, sim_file=default_sim_file, n_cpus=None, do_map=True, color_map='seismic'):
+	'''
+	# plot an okada based displacement field.
+	'''
+	if okada_disps==None:
+		blockwise_obj='dumps/blockwise_slip_Nov11.pkl'		# but we should just generate this as well.
+		okada_disps = slip_field(blockwise_obj=blockwise_obj, section_ids=section_ids, f_out=None)
 	if isinstance(okada_disps, str):
 		with open(okada_disps, 'r') as f:
 			# not sure, but this might also load with numpy.load()
@@ -1060,7 +1066,7 @@ def plot_disp_vector_field(okada_disps='dumps/okada_slips_allcal_2.pkl', fignum=
 		# set up a color map based on vertical displacement:
 		z_vals = okada_disps['dz']
 		#log_z_vals = numpy.log10(z_vals)
-		my_colormap = plt.get_cmap('jet')
+		my_colormap = plt.get_cmap(color_map)
 		cNorm = mcolor.Normalize(vmin=min(z_vals), vmax=max(z_vals))
 		scalar_map = cm.ScalarMappable(norm=cNorm, cmap=my_colormap)
 		vec_colors=scalar_map.to_rgba(z_vals)
@@ -1071,42 +1077,56 @@ def plot_disp_vector_field(okada_disps='dumps/okada_slips_allcal_2.pkl', fignum=
 	plt.clf()
 	#print "plot factor: %f" % plot_factor
 	#print okada_disps['dx'][0:5], plot_factor*okada_disps['dx']
-	
-	plt.quiver(okada_disps['x'], okada_disps['y'], [plot_factor*dx for dx in okada_disps['dx']], [plot_factor*dy for dy in okada_disps['dy']], pivot='tail', color=vec_colors, alpha=.9)
 	#
-	if not do_map: return okada_disps
+	if not do_map:
+		plt.quiver(okada_disps['x'], okada_disps['y'], [plot_factor*dx for dx in okada_disps['dx']], [plot_factor*dy for dy in okada_disps['dy']], pivot='tail', color=vec_colors, alpha=.9)
+		return okada_disps
 	#
 	# now, make a map:
-	ll_range = vc_parser.get_fault_model_extents(section_ids=None, sim_file=sim_file, n_cpus=n_cpus)
+	ll_range = vc_parser.get_fault_model_extents(section_ids=section_ids, sim_file=sim_file, n_cpus=1)
 	lon_0 = ll_range['lon_min'] + (ll_range['lon_max']-ll_range['lon_min'])/2.
 	lat_0 = ll_range['lat_min'] + (ll_range['lat_max']-ll_range['lat_min'])/2.
 	map_size=[8,10]
+	#
+	# map 1:
+	plt.figure(fignum, figsize=map_size)
+	plt.clf()
+	bm = vc_parser.vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i')
+	#
+	# map 2:
 	plt.figure(fignum+1, figsize=map_size)
 	plt.clf()
 	bm = vc_parser.vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i')
-	
 	#
 	#xy_to_lat_lon(x, y, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict')
 	lat, lon = zip(*[vc_parser.xy_to_lat_lon(okada_disps['x'][i], okada_disps['y'][i], return_format='list') for i in xrange(len(okada_disps))])
 	map_X, map_Y = bm(lon, lat)
 	#
-	# simple quiver type:
-	#
-	#plt.quiver(map_X, map_Y, [plot_factor*dx for dx in okada_disps['dx']], [plot_factor*dy for dy in okada_disps['dy']], pivot='tail', color=vec_colors, zorder=11, alpha=.6)
-	#
 	# on-map, proportioal mini-quivers:
 	
 	lat_tip, lon_tip = zip(*[vc_parser.xy_to_lat_lon(okada_disps['x'][i]+plot_factor*okada_disps['dx'][i], okada_disps['y'][i]+plot_factor*okada_disps['dy'][i], return_format='list') for i in xrange(len(okada_disps))])
 	#
+	# get vector tips (both in position and delta (for vectors/quivers) )
 	map_X_tip, map_Y_tip = bm(lon_tip, lat_tip)
+	map_delta_X = numpy.array(map_X_tip)-numpy.array(map_X)
+	map_delta_Y = numpy.array(map_Y_tip)-numpy.array(map_Y)
 	#
+	# map 1, quivers:
+	plt.figure(fignum)
+	plt.quiver(map_X, map_Y, 3.0*map_delta_X, 3.0*map_delta_Y, pivot='tail', color=vec_colors, alpha=.9, zorder=11)
+	#
+	# map 2, dot-vectors:
+	plt.figure(fignum+1)
 	disp_norms = [numpy.linalg.norm(x) for x in zip(*[okada_disps['dx'], okada_disps['dy'], okada_disps['dz']])]
 	median_displacement = numpy.median(disp_norms)
 	plt.plot([x for i,x in enumerate(map_X) if disp_norms[i]>median_displacement] , [x for i,x in enumerate(map_Y) if disp_norms[i]>median_displacement], 'b.', zorder=11, alpha=.25)
 	for i in xrange(len(map_X)):
 		if disp_norms[i]<=median_displacement: continue
-		plt.plot([map_X[i], map_X_tip[i]], [map_Y[i], map_Y_tip[i]], 'b-', zorder=11, alpha=.6)
-	
+		#this_color='b'
+		this_color=vec_colors[i]
+		#plt.plot([map_X[i], map_X_tip[i]], [map_Y[i], map_Y_tip[i]], 'b-', zorder=11, alpha=.6)		
+		#
+		plt.plot([map_X[i], map_X_tip[i]], [map_Y[i], map_Y_tip[i]], '-', color=this_color,  zorder=11, alpha=1, lw=1.5)
 	
 	#
 	return okada_disps

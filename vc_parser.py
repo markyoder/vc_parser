@@ -2493,7 +2493,7 @@ def xy_to_lat_lon(x, y, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.
 			lat0 = vc_data['base_lat_lon'][0]
 			lon0 = vc_data['base_lat_lon'][1]
 	#
-	deg2rad = 2*math.pi/360.
+	deg2rad = 2.0*math.pi/360.
 	#
 	lat = lat0 + (y/1000.)/chi
 	lon = lon0 + (x/1000.)/(math.cos(deg2rad*lat)*chi)		# x,y standard in m?
@@ -2527,7 +2527,7 @@ def lat_lon_to_xy(lat, lon, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=
 	deg2rad = 2*math.pi/360.
 	#
 	y = (lat-lat0)*chi * 1000.
-	x = (lon-lon0)*math.cos(lat)*chi * 1000.		# xy, standard is in meters?
+	x = (lon-lon0)*math.cos(lat*deg2rad)*chi * 1000.		# xy, standard is in meters?
 	#
 	if return_format=='tuple':
 		return x,y
@@ -3006,47 +3006,24 @@ def get_nearest_section_ids(lat_0=emc_event['lat'], lon_0=emc_event['lon'], n_se
 				my_blocks +=  [ [rw['block_id'], rw['section_id'], (x[0]-x0)**2. + (x[1]-y0)**2., x[0], x[1]] for x in X] 
 			#
 		#
-	#okada_disps = numpy.rec.array(okada_disps, names=['x', 'y', 'z', 'dx', 'dy', 'dz'], formats=[type(x).__name__ for x in okada_disps[0]])
-	# ... and this (second) method works. maybe it's a list->recarray vs array->recarray thing...
+	#
+	# we might make a recarray, but since this is all internal (to this function), it's not really necessary...
 	#my_blocks = numpy.core.records.fromarrays(zip(*my_blocks), names=['block_id', 'section_id', 'dist', 'lat', 'lon'], formats=[type(x).__name__ for x in my_blocks[0]])
 	#my_blocks.sort(order='dist')
-	f=open('temp/blocks.csv', 'w')
-	f.write('#' + '\t'.join(['block_id', 'section_id', 'dist', 'x', 'y']) + '\n')
-	f.write('#x = %f\ty=%f\n' % (x0, y0))
-	for rw in my_blocks:
-		f.write('\t'.join(map(str, rw)) + '\n')
-	f.close()
-	#
 	my_blocks.sort(key=lambda x: x[2])
-	#return my_blocks
 	#
 	# now, we want the nearest n_sections.
 	return_section_ids = {}
 	for rw in my_blocks:
 		# my_blocks is sorted by distance. now get the closest unique section_id.
-		#if not return_section_ids.has_key(rw['section_id']):
-		#	return_section_ids[rw['section_id']] = rw
 		if not return_section_ids.has_key(rw[1]): return_section_ids[rw[1]]=rw
-			#
-		# but we don't even have to do this. we've sorted the list (array) by distance, so just add the first row for each
-		# new section_id.
-		#if rw['dist']<return_section_ids[rw['section_id']]['dist']]: return_section_ids.[rw['section_id']] = rw
-		#
-		#if len(return_section_ids) >= n_sections: break
-		#
-		# something's not working. let's get the whole thing, then sort...
-		#section_rows = [val.tolist() for val in return_section_ids.itervalues()]
-	section_rows = [val for val in return_section_ids.itervalues()]
-	section_rows.sort(key = lambda x: x[2])
-	
-	#unique_rows = []
-	#for sec_id in set([x[1] for x in section_rows]):
-	#	unique_rows += [[0, sec_id, min([rw[2] for rw in section_rows if rw[1]==sec_id])]]
-	#unique_rows.sort(key=lambda x:x[2])
-	#return unique_rows[0:n_sections]
-	#return_section_ids = unique_rows
-	
+		# ... and just skip all the rest...
+		if len(return_section_ids)>=n_sections: break
 	#
+	section_rows = [val for val in return_section_ids.itervalues()]
+	#section_rows.sort(key = lambda x: x[2])	# (though it should already be sorted).	
+	#
+	# just the section_ids:
 	return_section_ids = [rw[1] for rw in section_rows[0:n_sections]]
 	#return_section_ids = [rw[1] for rw in unique_rows[0:n_sections]]
 	#
@@ -3062,14 +3039,7 @@ def get_nearest_section_ids(lat_0=emc_event['lat'], lon_0=emc_event['lon'], n_se
 	verbose = False
 	if verbose:
 		return section_rows
-		
 	else:
-		#return [val[1] for val in return_section_ids.itervalues()]
-		# sort by distance... again...
-		#vals = [val for val in return_section_ids.itervalues()]
-		#vals.sort(key = lambda x: x[2])
-		#return [x['section_id'] for x in vals]
-		#
 		return return_section_ids
 #
 def get_block_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_mks, fignum=None, lat_lon=True ):

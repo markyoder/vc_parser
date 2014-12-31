@@ -32,7 +32,7 @@ def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, 
 		plt.title('Virtual Quake ETAS map of El Mayor-Cucapah region\n\n')
 		mainshock = {'event_time':dtm.datetime(2010, 4, 10, 3+7, 40, 41, tzinfo=pytz.timezone('UTC')), 'lat':32.128, 'lon':-115.303, 'mag':7.2}
 		if plot_sections!=None and len(plot_sections)==0:
-			plot_sections = [vc_parser.get_nearest_section_ids(n_sections=5, lat=emc_event['lat'], lon=emc_event['lon'])]
+			plot_sections = [vc_parser.get_nearest_section_ids(n_sections=5, lat_0=mainshock['lat'], lon_0=mainshock['lon'], verbose=False)]
 		#
 	#
 	ms_lon, ms_lat = my_map.cm(mainshock['lon'], mainshock['lat'])
@@ -104,7 +104,9 @@ def closest_emc_fault_section_figs(n_sections=5, sections=None, m0=7.0):
 	# sections: overrides n_sections? maybe we'll truncate. anyway, you can provide sections or leave it None and fetch them.
 	'''
 
-	if sections==None: sections = [val[1] for val in vc_parser.get_nearest_section_ids(lat=32.128, lon=-115.303, section_ids=vc_parser.emc_sections, dist_mode=0, n_sections=n_sections).itervalues()]
+	if sections==None:
+		sections = vc_parser.get_nearest_section_ids(lat_0=32.128, lon_0=-115.303, section_ids=vc_parser.emc_sections, dist_mode=0, n_sections=n_sections, verbose=False)
+	print "sections: ", sections
 	#
 	#################
 	q=waiting_time_figs(section_ids=sections, file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='emc_WT_figs_n_%d' % n_sections, mc_nits=100000, n_cpus=None)

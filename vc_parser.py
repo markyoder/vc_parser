@@ -2954,7 +2954,7 @@ def get_fault_blocks(section_ids=None, sim_file=allcal_full_mks):
 	# where each list-o-blocks is like [section_id, block_id, vert0, vert1, vert2, vert3
 	return faults
 #
-def get_nearest_section_ids(lat=33.5, lon=-116.5, n_sections=5, section_ids=None, sim_file=default_sim_file, dist_mode=0, verbose=False, fignum=None):
+def get_nearest_section_ids(lat_0=33.5, lon_0=-116.5, n_sections=5, section_ids=None, sim_file=default_sim_file, dist_mode=0, verbose=False, fignum=None):
 	'''
 	# return a list of the section_ids nearest to (lon, lat).
 	# lat, lon: closest to this position
@@ -2975,7 +2975,7 @@ def get_nearest_section_ids(lat=33.5, lon=-116.5, n_sections=5, section_ids=None
 	#xy = lat_lon_to_xy(lat, lon, sim_file=sim_file, lat0=None, lon0=None, chi=111.1, return_format='dict')
 	#x,y = [xy[s] for s in ['x', 'y']
 	#
-	x0,y0 = lat_lon_to_xy(lat, lon, sim_file=sim_file, lat0=None, lon0=None, chi=111.1, return_format='tuple')
+	x0,y0 = lat_lon_to_xy(lat_0, lon_0, sim_file=sim_file, lat0=None, lon0=None, chi=111.1, return_format='tuple')
 	#
 	my_blocks = []	# we'll make it a recarray. note we're not going to return the block/section data, just the section_ids and their dists.
 	#				# for mode=1 (any point), we'll return the nearest dist.
@@ -3056,7 +3056,7 @@ def get_nearest_section_ids(lat=33.5, lon=-116.5, n_sections=5, section_ids=None
 		print "sections: ", return_section_ids
 		#ft = get_fault_traces(section_ids = return_section_ids, fignum=fignum, lat_lon=True)
 		ft = get_block_traces(section_ids=return_section_ids, fignum=fignum, lat_lon=True)
-		plt.plot(lon, lat, 'r*', ms=18)
+		plt.plot(lon_0, lat_0, 'r*', ms=18)
 	#
 	#return my_blocks
 	verbose = False

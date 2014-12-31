@@ -3039,22 +3039,23 @@ def get_nearest_section_ids(lat=33.5, lon=-116.5, n_sections=5, section_ids=None
 	section_rows = [val for val in return_section_ids.itervalues()]
 	section_rows.sort(key = lambda x: x[2])
 	
-	unique_rows = []
-	for sec_id in set([x[1] for x in section_rows]):
-		unique_rows += [[0, sec_id, min([rw[2] for rw in section_rows if rw[1]==sec_id])]]
-	unique_rows.sort(key=lambda x:x[2])
+	#unique_rows = []
+	#for sec_id in set([x[1] for x in section_rows]):
+	#	unique_rows += [[0, sec_id, min([rw[2] for rw in section_rows if rw[1]==sec_id])]]
+	#unique_rows.sort(key=lambda x:x[2])
 	#return unique_rows[0:n_sections]
 	#return_section_ids = unique_rows
 	
 	#
-	#return_section_ids = [rw[1] for rw in section_rows[0:n_sections]]
-	return_section_ids = [rw[1] for rw in unique_rows[0:n_sections]]
+	return_section_ids = [rw[1] for rw in section_rows[0:n_sections]]
+	#return_section_ids = [rw[1] for rw in unique_rows[0:n_sections]]
 	#
 	if fignum!=None:
 		plt.figure(fignum)
 		plt.clf()
 		print "sections: ", return_section_ids
-		ft = get_fault_traces(section_ids = return_section_ids, fignum=fignum, lat_lon=True)
+		#ft = get_fault_traces(section_ids = return_section_ids, fignum=fignum, lat_lon=True)
+		ft = get_block_traces(section_ids=return_section_ids, fignum=fignum, lat_lon=True)
 		plt.plot(lon, lat, 'r*', ms=18)
 	#
 	#return my_blocks
@@ -3070,7 +3071,44 @@ def get_nearest_section_ids(lat=33.5, lon=-116.5, n_sections=5, section_ids=None
 		#return [x['section_id'] for x in vals]
 		#
 		return return_section_ids
-		
+#
+def get_block_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_mks, fignum=None, lat_lon=True ):
+	# like get_fault_traces(), but don't bother with the faultwise partitioning...
+	#
+	if fault_blocks==None:
+		with h5py.File(sim_file) as vc_data:
+			blks = vc_data['block_info_table']
+			fault_blocks = [rw.tolist() for rw in blks if rw['section_id'] in section_ids]
+			# numpy.core.records.fromarrays(zip(*field_data_prime), names=['x', 'y', 'z', 'dx', 'dy', 'dz', 'dxyz', 'dxy'], formats=[type(x).__name__ for x in field_data_prime[0]])
+			fault_blocks = numpy.core.records.fromarrays(zip(*fault_blocks), dtype=blks.dtype)
+	#
+	traces = []
+	#
+	for rw in fault_blocks:
+		UL, LL, UR = [[rw['m_%s_pt%d' % (xyz, j)] for xyz in ['x', 'y', 'z']] for j in [1,2,4]]	# note: this may need to be
+																								# corrected for newer vc where there are
+																								# 3, not 4 vertices.
+		LR = numpy.array(LL) + numpy.array(UR)-numpy.array(UL)
+		#
+		if lat_lon==True: 
+			UL = xy_to_lat_lon(UL[0], UL[1], sim_file=sim_file, return_format='lonlat_list') + [UL[2]]
+			UR = xy_to_lat_lon(UR[0], UR[1], sim_file=sim_file, return_format='lonlat_list') + [UR[2]]
+			LR = xy_to_lat_lon(LR[0], LR[1], sim_file=sim_file, return_format='lonlat_list') + [LR[2]]
+			LL = xy_to_lat_lon(LL[0], LL[1], sim_file=sim_file, return_format='lonlat_list') + [LL[2]]
+					#
+		traces += [[UL, UR]]
+		traces += [[LL, list(LR)]]
+		#
+	#
+	if fignum!=None:
+		plt.figure(fignum)
+		plt.clf()	
+		#
+		for rw in traces:
+			X,Y,Z = zip(*rw)
+			plt.plot(X,Y, '-', color='r')
+	#
+	return traces		
 #
 def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_mks, fignum=None, lat_lon=True ):
 	# get some simple fault traces for plotting (or whatever):
@@ -3106,6 +3144,18 @@ def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_m
 		#
 	#
 	return fault_traces
+#
+def plot_fault_traces(traces=None, section_ids=None, sim_file=allcal_full_mks, fignum=0, lat_lon=True, do_clf=False, plot_color=None):
+	if traces==None:
+		traces = get_block_traces(section_ids=section_ids, sim_file=sim_file, fignum=None, lat_lon=lat_lon)
+	#
+	plt.figure(fignum)
+	if do_clf: plt.clf()	
+	#
+	for rw in traces:
+		X,Y,Z = zip(*rw)
+		plt.plot(X,Y, '-', label='sec_id=%s' % ', '.join(map(str, section_ids)), color=('b' or plot_color))
+	plt.legend(loc=0, numpoints=1)
 #
 def get_anss_seismicity(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, m_c=3.0, n_max=999999, n_cpus=None):
 	# make a map of real seismicity around our model area. use the fault model to determine extents.

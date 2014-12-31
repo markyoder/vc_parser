@@ -3152,9 +3152,10 @@ def plot_fault_traces(traces=None, section_ids=None, sim_file=allcal_full_mks, f
 	plt.figure(fignum)
 	if do_clf: plt.clf()	
 	#
+	if plot_color==None: plot_color='r'
 	for rw in traces:
 		X,Y,Z = zip(*rw)
-		plt.plot(X,Y, '-', label='sec_id=%s' % ', '.join(map(str, section_ids)), color=('b' or plot_color))
+		plt.plot(X,Y, '%s-' % plot_color, label='sec_id=%s' % ', '.join(map(str, section_ids)))
 	plt.legend(loc=0, numpoints=1)
 #
 def get_anss_seismicity(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, m_c=3.0, n_max=999999, n_cpus=None):

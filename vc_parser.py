@@ -64,6 +64,7 @@ except:
 napa_region_section_filter = {'filter':set([45, 50, 172, 171, 170, 169, 44, 168, 167, 139, 40, 142, 41, 46])}
 napa_sections = list(napa_region_section_filter['filter'])
 
+emc_event = {'lat': 32.128, 'lon':-115.303, 'mag':7.2, 'event_time':dtm.datetime(2010,4,4,3,40,41,tzinfo=pytz.timezone('US/Pacific'))}
 emc_section_filter = {'filter': (16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149)}
 allcal_full_mks = '../ALLCAL2_1-7-11_no-creep_dyn-05_st-20.h5'
 default_sim_file = allcal_full_mks
@@ -2043,6 +2044,7 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	#
 	# load the pre-calced fits? if they don't exist, run them.
 	try:
+		# but it looks like we don't use this any longer...
 		cdf_fits = numpy.load(fits_data_file_CDF)	# recarray with dtype: dtype=[('t0', '<f8'), ('section_id', '<i8'), ('chi', '<f8'), ('beta', '<f8'), ('sigma_chi', '<f8'), ('sigma_beta', '<f8'), ('chi_sqr', '<f8'), ('fit_type', 'S16')])
 	except:
 		# ... ok, this is the right idea, but it's complicated, so let's handle it externally for now.
@@ -2079,10 +2081,14 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 		#
 		
 		#str_mag = str(m0).replace('.','')
-		catalog = numpy.load(WT_catalog_format % (section_ids[0]))
-		for j, section_id in enumerate(section_ids[1:]):
-			catalog=numpy.append(catalog, numpy.load(WT_catalog_format % (section_id)))
-			#print "(%d) appending catalog: %d" % (len(catalog), section_id)
+		
+		# this combine_section_CFFs() bit needs to be checked out... also, a start_year should be added to dump the early-sim junk.
+		#
+		#catalog = numpy.load(WT_catalog_format % (section_ids[0]))
+		#for j, section_id in enumerate(section_ids[1:]):
+		#	catalog=numpy.append(catalog, numpy.load(WT_catalog_format % (section_id)))
+		#	#print "(%d) appending catalog: %d" % (len(catalog), section_id)
+		catalog = combine_section_CFFs(section_ids, start_year=None, end_year=None)
 		#
 		#return catalog
 		catalog.sort(order='event_year')
@@ -2215,9 +2221,6 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 		plt.plot(model_delta_ts_1['t0'], model_delta_ts_1['med75'], 'b-', lw=1.5, alpha=.6)
 	
 	return catalog
-	
-#	#
-
 #
 def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None):
 	'''
@@ -2422,7 +2425,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 			X_fit = numpy.arange(min(this_X), max(this_X)*1.5, (max(this_X)-min(this_X))/500.)
 			#
 			# plot local t0 fit:
-			plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=t0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label='$t_0=%.2f, \\beta=%.3f, \\chi=%.3f$' % (t0, fit_prams[1], fit_prams[0]))
+			plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=t0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label='$t_0=%.2f, \\beta=%.3f, \\tau=%.3f$' % (t0, fit_prams[1], fit_prams[0]))
 			#
 			# plot using t0=0 fit:
 			plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams_0[0], beta=fit_prams_0[1], x0=t0) for x in X_fit], '-.', color=this_color, lw=lw, ms=ms, label=None)
@@ -2508,6 +2511,8 @@ def lat_lon_to_xy(lat, lon, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=
 	#
 	# these should probably also include a z component?
 	#
+	if return_format == None: return_format = 'tuple'
+	#
 	if lon0==None or lat0==None:
 		# get these from sim file:
 		if sim_file==None:
@@ -2515,8 +2520,8 @@ def lat_lon_to_xy(lat, lon, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=
 			return None
 		#
 		with h5py.File(sim_file) as vc_data:
-			lat0 = vc_data[base_lat_lon[0]]
-			lon0 = vc_dta[base_lat_lon[1]]
+			lat0 = vc_data['base_lat_lon'][0]
+			lon0 = vc_data['base_lat_lon'][1]
 		#
 	#
 	deg2rad = 2*math.pi/360.
@@ -2525,9 +2530,9 @@ def lat_lon_to_xy(lat, lon, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=
 	x = (lon-lon0)*math.cos(lat)*chi * 1000.		# xy, standard is in meters?
 	#
 	if return_format=='tuple':
-		return lat, lon
+		return x,y
 	elif return_format=='list':
-		return [lat, lon]
+		return [x,y]
 	else:
 		return {'x':x, 'y':y}
 #
@@ -2879,22 +2884,26 @@ def simple_fault_trace2(fault_block_vertices=None, vert_cols=[2,3,4,5]):
 	#
 	print "lens: %d, %d" % (len(traces), len(vecs))
 	return traces
-		
-	
 #
 def get_fault_blocks(section_ids=None, sim_file=allcal_full_mks):
+	'''
+	# this is a little bit mis-named. returns a dict. of faults, like:
+	# {fault_id:[list-o-blocks]...}
+	#
 	# eventually, we'll want different types of fault traces: show all the blocks, show sections, show just a trace, maybe
 	# top/bottom trace, top/bottom/edges polygon (aka, hollow it out). we want, ultimately, to return a set of [[X,Y, Z?] ]
 	# pairs/triplets for plotting.
 	#
-	faults = {}
 	fault_col_names = ('section_id', 'block_id', 'UL', 'LL', 'LR', 'UR')
+	'''
+	faults = {}
 	#
 	# first, get all block_ids and separate into faults (sections?):
 	with h5py.File(sim_file) as vc_data:
 		block_data = vc_data['block_info_table']
 		if section_ids == None: section_ids = set(block_data['section_id'].tolist())
 		#
+		print "get_fault_blocks() using section_ids=", section_ids
 		block_data_iterator = block_data.__iter__()
 		#for rw in block_data:
 		i_max = len(block_data)-2		# aka, the [-2] position...
@@ -2945,6 +2954,124 @@ def get_fault_blocks(section_ids=None, sim_file=allcal_full_mks):
 	# where each list-o-blocks is like [section_id, block_id, vert0, vert1, vert2, vert3
 	return faults
 #
+def get_nearest_section_ids(lat=33.5, lon=-116.5, n_sections=5, section_ids=None, sim_file=default_sim_file, dist_mode=0, verbose=False, fignum=None):
+	'''
+	# return a list of the section_ids nearest to (lon, lat).
+	# lat, lon: closest to this position
+	# n_sections: number of sections to return
+	# section_ids: an initial section_id filter, either for speed or some other purpose.
+	# sim_file: the sim_file (data) to use
+	# dist_mode: 0: section center (mean position), 1: closest any point/vertex.
+	# ... but note that as it stands, this is the center/closest point of the blocks, not the section itsef (that will be harder
+	# and we'll save it for later), so these modes are all but identical.
+	#
+	# note: there may be a sloppy handling of the 3 vs 4 verts data format that will (in some cases) not properly resolve depth.
+	# we'll probably, in cases where there are only 3 verts, simply repeat the final vert which should give (relatively) accurate
+	# x,y positions, but not depth.
+	'''
+	#
+	# convert input lat/lon to vc x,y. this will change using the new VC, since the native components for new_vc will be lat, lon.
+	# this will work and has a nice, general syntax:
+	#xy = lat_lon_to_xy(lat, lon, sim_file=sim_file, lat0=None, lon0=None, chi=111.1, return_format='dict')
+	#x,y = [xy[s] for s in ['x', 'y']
+	#
+	x0,y0 = lat_lon_to_xy(lat, lon, sim_file=sim_file, lat0=None, lon0=None, chi=111.1, return_format='tuple')
+	#
+	my_blocks = []	# we'll make it a recarray. note we're not going to return the block/section data, just the section_ids and their dists.
+	#				# for mode=1 (any point), we'll return the nearest dist.
+	#
+	with h5py.File(sim_file) as vc_data:
+		block_data = vc_data['block_info_table']
+		#if section_ids == None: section_ids = set(block_data['section_id'].tolist())
+		#XYZ = ['x', 'y', 'z']
+		# do we have 3 or 4 data points?
+		j_verts = range(1,4) + [3]
+		if 'm_x_pt_4' in block_data.dtype.names: j_verts=range(1,5)		# ... or _z_, _y_... . indeed, we have a 4th point, use it.
+		#
+		for rw in block_data:
+			if section_ids!=None and rw['section_id'] not in section_ids:
+				continue
+			#
+			#X = [ [rw['m_%s_pt%d' % (xyz, j)] for xyz in ['x', 'y', 'z']]  for j in j_verts]		# rows: [pos1, pos2, pos3...]
+			if dist_mode==0:
+				X = [ [rw['m_%s_pt%d' % (xyz, j)] for j in j_verts]  for xyz in ['x', 'y', 'z']]		# columns: [X, Y, Z]
+				mean_pos = [numpy.mean(x) for x in X]
+				dist_sqr = (mean_pos[0]-x0)**2. + (mean_pos[1]-y0)**2.		# we're just rank-ordering, so save the time of sqrt().
+				#dist = numpy.linalg.norm(mean_pos[0:2])
+				#
+				my_blocks += [[rw['block_id'], rw['section_id'], dist_sqr, mean_pos[0], mean_pos[1]]]
+			else:
+				# dist_mode==1 or anything else:
+				X = [ [rw['m_%s_pt%d' % (xyz, j)] for xyz in ['x', 'y', 'z']]  for j in j_verts]		# ... rows of unique positions.
+				my_blocks +=  [ [rw['block_id'], rw['section_id'], (x[0]-x0)**2. + (x[1]-y0)**2., x[0], x[1]] for x in X] 
+			#
+		#
+	#okada_disps = numpy.rec.array(okada_disps, names=['x', 'y', 'z', 'dx', 'dy', 'dz'], formats=[type(x).__name__ for x in okada_disps[0]])
+	# ... and this (second) method works. maybe it's a list->recarray vs array->recarray thing...
+	#my_blocks = numpy.core.records.fromarrays(zip(*my_blocks), names=['block_id', 'section_id', 'dist', 'lat', 'lon'], formats=[type(x).__name__ for x in my_blocks[0]])
+	#my_blocks.sort(order='dist')
+	f=open('temp/blocks.csv', 'w')
+	f.write('#' + '\t'.join(['block_id', 'section_id', 'dist', 'x', 'y']) + '\n')
+	f.write('#x = %f\ty=%f\n' % (x0, y0))
+	for rw in my_blocks:
+		f.write('\t'.join(map(str, rw)) + '\n')
+	f.close()
+	#
+	my_blocks.sort(key=lambda x: x[2])
+	#return my_blocks
+	#
+	# now, we want the nearest n_sections.
+	return_section_ids = {}
+	for rw in my_blocks:
+		# my_blocks is sorted by distance. now get the closest unique section_id.
+		#if not return_section_ids.has_key(rw['section_id']):
+		#	return_section_ids[rw['section_id']] = rw
+		if not return_section_ids.has_key(rw[1]): return_section_ids[rw[1]]=rw
+			#
+		# but we don't even have to do this. we've sorted the list (array) by distance, so just add the first row for each
+		# new section_id.
+		#if rw['dist']<return_section_ids[rw['section_id']]['dist']]: return_section_ids.[rw['section_id']] = rw
+		#
+		#if len(return_section_ids) >= n_sections: break
+		#
+		# something's not working. let's get the whole thing, then sort...
+		#section_rows = [val.tolist() for val in return_section_ids.itervalues()]
+	section_rows = [val for val in return_section_ids.itervalues()]
+	section_rows.sort(key = lambda x: x[2])
+	
+	unique_rows = []
+	for sec_id in set([x[1] for x in section_rows]):
+		unique_rows += [[0, sec_id, min([rw[2] for rw in section_rows if rw[1]==sec_id])]]
+	unique_rows.sort(key=lambda x:x[2])
+	#return unique_rows[0:n_sections]
+	#return_section_ids = unique_rows
+	
+	#
+	#return_section_ids = [rw[1] for rw in section_rows[0:n_sections]]
+	return_section_ids = [rw[1] for rw in unique_rows[0:n_sections]]
+	#
+	if fignum!=None:
+		plt.figure(fignum)
+		plt.clf()
+		print "sections: ", return_section_ids
+		ft = get_fault_traces(section_ids = return_section_ids, fignum=fignum, lat_lon=True)
+		plt.plot(lon, lat, 'r*', ms=18)
+	#
+	#return my_blocks
+	verbose = False
+	if verbose:
+		return section_rows
+		
+	else:
+		#return [val[1] for val in return_section_ids.itervalues()]
+		# sort by distance... again...
+		#vals = [val for val in return_section_ids.itervalues()]
+		#vals.sort(key = lambda x: x[2])
+		#return [x['section_id'] for x in vals]
+		#
+		return return_section_ids
+		
+#
 def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_mks, fignum=None, lat_lon=True ):
 	# get some simple fault traces for plotting (or whatever):
 	#
@@ -2965,7 +3092,6 @@ def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_m
 				# each entry in the trace is like [ [x1,x2], [y1, y2] ]
 				#print "pair: ", pair
 				fault_traces[fault_id][i] = [xy_to_lat_lon(rw[0], rw[1], sim_file=sim_file, return_format='lonlat_list') for rw in pair]
-				
 				
 	#
 	# ... and for now, plot it here. we'll move this out of funct. later...
@@ -3010,7 +3136,7 @@ def get_anss_seismicity(section_ids=None, sim_file=allcal_full_mks, start_date=N
 	#	
 	return earthquake_catalog	
 #
-def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], etas_gridsize=.25, etas_mc=3.0, etas_contour_intervals=24, etas_cat_len=500, etas_catalog=None, p_map=0.0):
+def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], etas_gridsize=.25, etas_mc=3.0, etas_contour_intervals=24, etas_cat_len=500, etas_catalog=None, p_map=0.0, map_resolution = 'i'):
 	# make a map of real seismicity around our model area. use the fault model to determine extents.
 	#
 	# emc section_ids: emc_section_filter['filter']
@@ -3044,7 +3170,7 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	plt.figure(fignum, figsize=map_size)
 	plt.clf()
 	#bm = vc_basemap(llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i', projection='cyl')
-	bm = vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i')
+	bm = vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution=map_resolution)
 	
 	# note: we could also specify lon_0, lat_0, width, height {in meters}.
 	#bm.drawcoastlines()

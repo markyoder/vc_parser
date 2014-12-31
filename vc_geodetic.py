@@ -1033,7 +1033,7 @@ def slip_field(blockwise_obj=None, dx=None, dy=None, i_start=0, i_stop=-1, secti
 	#
 	return disp_field
 	#
-def plot_disp_vector_field(okada_disps='dumps/okada_slips_allcal_2.pkl', section_ids=None, fignum=0, plot_factor=1.0, z_colors=True, sim_file=default_sim_file, n_cpus=None, do_map=True, color_map='seismic'):
+def plot_disp_vector_field(okada_disps='dumps/okada_slips_allcal_2.pkl', section_ids=None, fignum=0, plot_factor=1.0, z_colors=True, sim_file=default_sim_file, n_cpus=None, do_map=True, color_map='seismic', map_resolution='f'):
 	'''
 	# plot an okada based displacement field.
 	'''
@@ -1055,6 +1055,8 @@ def plot_disp_vector_field(okada_disps='dumps/okada_slips_allcal_2.pkl', section
 		if isinstance(okada_disps.keys()[0], tuple):
 			okada_disps = [[x for x in rw['xyz']] + [dx for dx in rw['d_xyz']] for rw in okada_disps.itervalues()]
 			okada_disps = numpy.rec.array(okada_disps, names=['x', 'y', 'z', 'dx', 'dy', 'dz'], formats=[type(x).__name__ for x in okada_disps[0]])
+			# this may make a big mes and should maybe be...
+			okada_disps = numpy.rec.array(zip(*okada_disps), names=['x', 'y', 'z', 'dx', 'dy', 'dz'], formats=[type(x).__name__ for x in okada_disps[0]])
 	except:
 		pass
 	#
@@ -1091,7 +1093,7 @@ def plot_disp_vector_field(okada_disps='dumps/okada_slips_allcal_2.pkl', section
 	# map 1:
 	plt.figure(fignum, figsize=map_size)
 	plt.clf()
-	bm = vc_parser.vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i')
+	bm = vc_parser.vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution=map_resolution)
 	#
 	# map 2:
 	plt.figure(fignum+1, figsize=map_size)
@@ -1122,8 +1124,8 @@ def plot_disp_vector_field(okada_disps='dumps/okada_slips_allcal_2.pkl', section
 	plt.plot([x for i,x in enumerate(map_X) if disp_norms[i]>median_displacement] , [x for i,x in enumerate(map_Y) if disp_norms[i]>median_displacement], 'b.', zorder=11, alpha=.25)
 	for i in xrange(len(map_X)):
 		if disp_norms[i]<=median_displacement: continue
-		#this_color='b'
-		this_color=vec_colors[i]
+		this_color='b'
+		#this_color=vec_colors[i]
 		#plt.plot([map_X[i], map_X_tip[i]], [map_Y[i], map_Y_tip[i]], 'b-', zorder=11, alpha=.6)		
 		#
 		plt.plot([map_X[i], map_X_tip[i]], [map_Y[i], map_Y_tip[i]], '-', color=this_color,  zorder=11, alpha=1, lw=1.5)

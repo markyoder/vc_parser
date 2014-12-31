@@ -2270,11 +2270,13 @@ def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_tim
 		stdErr = mean_chi_sqr/math.sqrt(N)
 		print fit_cov
 		#print "fit_prams(%d/%s)[t0 = %f]: %s / %s" % (i, str(section_ids), t0, str(fit_prams), str(fit_prams_0))
-		print "fit_prams(%d/%s)[t0 = %f]: %s / %s" % (i, str(section_ids), t0, str(fit_prams), '(holding string)')
+		print "fit_prams(%d/%s)[t0 = %f]: %s / s" % (i, str(section_ids), t0, str(fit_prams))
 		#
 		#best_fit_dict[sec_id][t0] = [sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]
+		print "assign bits..."
 		fit_vals = [t0, section_ids, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr, fit_type]
 	except:
+		return None
 		fit_type = 'MC_%d' % mc_nits
 		# converging fit failed. do an MC method:
 		print "converging fit failed. try an MC approach:"

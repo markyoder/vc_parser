@@ -12,7 +12,7 @@ import vc_parser
 sectionses = {'napa':napa_sections, 'emc':emc_sections}
 #emc_event = {'lat': 32.128, 'lon':-115.303, 'mag':7.2, 'event_time':dtm.datetime(2010,4,4,3,40,41,tzinfo=pytz.timezone('US/Pacific'))}
 
-def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, plot_sections=[]):
+def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, plot_sections=[], f_out=None):
 	# make an etas map from a vc catalog. we probably have to pare down the catalog, since simulated catalogs are super huge.
 	# sectionses: a list of a list of sections[ [secs1], [secs2], etc.] to (over)plot separately.
 	#
@@ -74,6 +74,9 @@ def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, 
 			X,Y = my_map.cm(X,Y)
 			plt.plot(X,Y, '-%s' % this_color)
 	#
+	if f_out!=None:
+		plt.savefig(f_out)
+	#
 	return my_map
 
 def vc_surface_deformation(map_flavor = 'napa', map_resolution='i'):
@@ -111,7 +114,8 @@ def closest_emc_fault_section_figs(n_sections=5, sections=None, m0=7.0):
 	#################
 	q=waiting_time_figs(section_ids=sections, file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='emc_WT_figs_n_%d' % n_sections, mc_nits=100000, n_cpus=None)
 	#
-	EWTf = EMC_EWT_figs(section_ids=sections, m0=m0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, output_dir='expected_emc_waiting_time_figs_n_%d' % n_sections, do_local_fit=False)\
+	EWTf = EMC_EWT_figs(section_ids=sections, m0=m0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, output_dir='expected_emc_waiting_time_figs_n_%d' % n_sections, do_local_fit=False)
+	#
 	#
 	b=vc_parser.expected_waiting_time_t0(section_ids=sections, do_local_fit=False)
 	plt.xlabel('Time since last $m>%.2f$ event, $t_0$ (years)' % m0)

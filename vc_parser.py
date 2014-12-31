@@ -2222,6 +2222,78 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	
 	return catalog
 #
+def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0 = 5.0, mc_nits=100000, n_cpus=None, fignum=None, sim_file=default_sim_file):
+	# calculate (and plot if fignum!=None) a single waiting_time distribution. illustrate that, since single (or few)-fault sets are
+	# not weibull-random, we can calculate specific probabilities for a set of faults.
+	#
+	# some preliminary bits:
+	max_x = 0.
+	min_x = 0.
+	#
+	if section_ids==None or len(section_ids)==0:
+		with h5py.File(sim_file) as vc_data:
+			section_ids = set(vc_data['block_info_table']['section_id'])
+		#
+	#
+	section_ids=list(section_ids)
+	#
+	# get a catalog of unique rows (section-wise catalogs can contain duplicate entries).
+	catalog = combine_section_CFFs(sections=section_ids, ary_in_format=file_path_pattern, start_year=10000., end_year=None)
+	catalog.sort(order='event_year')
+	mean_rec_data = mean_recurrence(ary_in=catalog, m0=m0)
+	X = mean_rec_data['dists']['dT'].tolist()
+	#
+	N = float(len(X))	
+	X.sort()
+	this_X = [x for x in X if (x-t0)>=0.]
+	this_X.sort()		# just in case...
+	N = float(len(this_X))
+	Y = [float(j)/N for j in range(1, int(N)+1)]
+	#
+	# keep track of min/max X values for later global plot... or we could use them here as well.
+	max_x = max(max_x, max(X))
+	min_x = min(min_x, min(X))
+	#
+	mean_dT = numpy.mean(X)
+	#
+	#print "preliminary fit for section_id=%d" % sec_id
+	#fit_prams_0, fit_cov_0 = spo.curve_fit(f_weibull, xdata=numpy.array(X), ydata=numpy.array([j/float(len(X)) for j in numpy.arange(1., len(X)+1)]), p0=numpy.array([mean_dT, 1.5]))
+	#
+	try:
+		# f_weibull(x=None, chi=1.0, beta=1.0, x0=None)
+		fit_type = 'spo.curve_fit'	# try a converging fit; if it fails, we'll use a fit_type='MC' (monte carlo)
+		fit_prams, fit_cov = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=t0), xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([max(1.0, mean_dT-t0), 1.5]))
+		#			
+		print "fitted (converging)...", fit_cov
+		pram_sigmas = numpy.sqrt(numpy.diag(fit_cov))		# the uncertainties of the fit parameters are the diagonals of the covariance matrix... right?
+		mean_chi_sqr = numpy.mean([(f_weibull(x=this_X[k], chi=fit_prams[0], beta=fit_prams[1], x0=t0)-Y[k])**2. for k, xx in enumerate(this_X)]) # in xrange(len(X))])
+		stdErr = mean_chi_sqr/math.sqrt(N)
+		print fit_cov
+		#print "fit_prams(%d/%s)[t0 = %f]: %s / %s" % (i, str(section_ids), t0, str(fit_prams), str(fit_prams_0))
+		print "fit_prams(%d/%s)[t0 = %f]: %s / %s" % (i, str(section_ids), t0, str(fit_prams), '(holding string)')
+		#
+		#best_fit_dict[sec_id][t0] = [sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]
+		fit_vals = [t0, section_ids, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr, fit_type]
+	except:
+		fit_type = 'MC_%d' % mc_nits
+		# converging fit failed. do an MC method:
+		print "converging fit failed. try an MC approach:"
+		prams_dict = {'chi':[0., 2.5*mean_dT], 'beta':[0.,6.], 'x0':[t0,t0]}	# can we automatedly guess at these prams?
+																			# maybe at some point, we should devise a quasi-
+																			# converging MC method.
+		Zmin, Z=mcfitter(func=f_weibull, X=this_X, Y=Y, prams_dict=prams_dict, nits=mc_nits, n_cpus=n_cpus)
+		Zmin.sort(order='chi_sqr')
+		best_fit = Zmin[0]
+		#
+		fit_prams = [best_fit['chi'], best_fit['beta']]
+		sigma_chi  = (prams_dict['chi'][1]-prams_dict['chi'][0])/mc_nits
+		sigma_beta = (prams_dict['beta'][1]-prams_dict['beta'][0])/mc_nits
+		#
+		#best_fit_dict[sec_id][t0] = [sec_id, best_fit['chi'], best_fit['beta'], sigma_chi, sigma_beta, best_fit['chi_sqr']]
+		fit_vals = [t0, section_ids, best_fit['chi'], best_fit['beta'], sigma_chi, sigma_beta, best_fit['chi_sqr'], fit_type]
+	#
+	return fit_vals
+#
 def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None):
 	'''
 	# (waiting time probabilities, not 'Expected Waiting Time')

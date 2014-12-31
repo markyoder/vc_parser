@@ -2954,7 +2954,7 @@ def get_fault_blocks(section_ids=None, sim_file=allcal_full_mks):
 	# where each list-o-blocks is like [section_id, block_id, vert0, vert1, vert2, vert3
 	return faults
 #
-def get_nearest_section_ids(lat_0=33.5, lon_0=-116.5, n_sections=5, section_ids=None, sim_file=default_sim_file, dist_mode=0, verbose=False, fignum=None):
+def get_nearest_section_ids(lat_0=emc_event['lat'], lon_0=emc_event['lon'], n_sections=5, section_ids=None, sim_file=default_sim_file, dist_mode=0, verbose=False, fignum=None):
 	'''
 	# return a list of the section_ids nearest to (lon, lat).
 	# lat, lon: closest to this position

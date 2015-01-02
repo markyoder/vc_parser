@@ -12,7 +12,7 @@ import vc_parser
 sectionses = {'napa':napa_sections, 'emc':emc_sections}
 #emc_event = {'lat': 32.128, 'lon':-115.303, 'mag':7.2, 'event_time':dtm.datetime(2010,4,4,3,40,41,tzinfo=pytz.timezone('US/Pacific'))}
 
-def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, plot_sections=[], f_out=None):
+def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, plot_sections=[], f_out=None, plot_quake_dots=False):
 	# make an etas map from a vc catalog. we probably have to pare down the catalog, since simulated catalogs are super huge.
 	# sectionses: a list of a list of sections[ [secs1], [secs2], etc.] to (over)plot separately.
 	#
@@ -40,7 +40,7 @@ def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, 
 	ln_ms1 = plt.plot(ms_lon, ms_lat, 'k*', ms=18, zorder=6, alpha=.9)
 	ln_ms2 = plt.plot(ms_lon, ms_lat, 'r*', ms=15, zorder=7, alpha=.9)
 	#
-	ln_quakes = plt.plot(quakes_x, quakes_y, 'm.', zorder=5, alpha=.6)
+	if plot_quake_dots: ln_quakes = plt.plot(quakes_x, quakes_y, 'm.', zorder=5, alpha=.6)
 	#
 	# now, plot any special sections:
 	for sections in plot_sections:
@@ -72,7 +72,7 @@ def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, 
 				#
 			#
 			X,Y = my_map.cm(X,Y)
-			plt.plot(X,Y, '-%s' % this_color)
+			plt.plot(X,Y, '-%s' % this_color, lw=1.5)
 	#
 	if f_out!=None:
 		plt.savefig(f_out)

@@ -409,7 +409,7 @@ def cff_dict_npy(dict_in):
 		
 	#
 #
-def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_section_%d.npy', start_year=0., end_year=None):
+def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_section_%d.npy', start_year=0., end_year=None, sim_file=default_sim_file):
 	# concatenate (then sort by year) a set of section catalogs. assume proper recarray() format, etc.
 	# ... and this should definitely be used for multi-fault combined catalogs; there are ~50 duplicate events in
 	# the full EMC set.
@@ -417,7 +417,15 @@ def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_sect
 	# handle some input variations:
 	if sections==None: return sections
 	if not hasattr(sections, '__len__'): sections = [sections]
-	if len(sections)==0: return sections
+	if len(sections)==0:
+		if sim_file==None: return sections
+		#
+		# try to get all the sections. otherwise, return None/sections in defeat:
+		try:
+			with h5py.File(sim_file) as vc_data:
+				sections = list(set(vc_data['block_info_table']['section_id']))
+		except:
+			return sections
 	#
 	if len(sections)>=1:
 		combined_catalog = numpy.load(ary_in_format % sections[0])
@@ -2222,7 +2230,7 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	
 	return catalog
 #
-def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0 = 5.0, mc_nits=100000, n_cpus=None, fignum=None, sim_file=default_sim_file):
+def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0 = 5.0, mc_nits=100000, n_cpus=None, fignum=None, sim_file=default_sim_file, output_type='dict'):
 	# calculate (and plot if fignum!=None) a single waiting_time distribution. illustrate that, since single (or few)-fault sets are
 	# not weibull-random, we can calculate specific probabilities for a set of faults.
 	#
@@ -2257,7 +2265,7 @@ def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_tim
 	mean_dT = numpy.mean(X)
 	#
 	#print "preliminary fit for section_id=%d" % sec_id
-	#fit_prams_0, fit_cov_0 = spo.curve_fit(f_weibull, xdata=numpy.array(X), ydata=numpy.array([j/float(len(X)) for j in numpy.arange(1., len(X)+1)]), p0=numpy.array([mean_dT, 1.5]))
+	fit_prams_0, fit_cov_0 = spo.curve_fit(f_weibull, xdata=numpy.array(X), ydata=numpy.array([j/float(len(X)) for j in numpy.arange(1., len(X)+1)]), p0=numpy.array([mean_dT, 1.5]))
 	#
 	try:
 		# f_weibull(x=None, chi=1.0, beta=1.0, x0=None)
@@ -2265,12 +2273,12 @@ def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_tim
 		fit_prams, fit_cov = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=t0), xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([max(1.0, mean_dT-t0), 1.5]))
 		#			
 		print "fitted (converging)...", fit_cov
-		pram_sigmas = numpy.sqrt(numpy.diag(fit_cov))		# the uncertainties of the fit parameters are the diagonals of the covariance matrix... right?
+		pram_sigmas = numpy.sqrt(numpy.diag(fit_cov))		# the uncertainties (variances) of the fit parameters are the diagonals of the covariance matrix... right?
 		mean_chi_sqr = numpy.mean([(f_weibull(x=this_X[k], chi=fit_prams[0], beta=fit_prams[1], x0=t0)-Y[k])**2. for k, xx in enumerate(this_X)]) # in xrange(len(X))])
 		stdErr = mean_chi_sqr/math.sqrt(N)
-		print fit_cov
-		#print "fit_prams(%d/%s)[t0 = %f]: %s / %s" % (i, str(section_ids), t0, str(fit_prams), str(fit_prams_0))
-		print "fit_prams(%d/%s)[t0 = %f]: %s / s" % (i, str(section_ids), t0, str(fit_prams))
+		print 'cov: ', fit_cov
+		print "fit_prams(%d/%s)[t0 = %f]: %s / %s" % (0, str(section_ids), t0, str(fit_prams), str(fit_prams_0))
+		#print "fit_prams(%d/%s)[t0 = %f]: %s / s" % (i, str(section_ids), t0, str(fit_prams))
 		#
 		#best_fit_dict[sec_id][t0] = [sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr]
 		print "assign bits..."
@@ -2294,6 +2302,10 @@ def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_tim
 		#best_fit_dict[sec_id][t0] = [sec_id, best_fit['chi'], best_fit['beta'], sigma_chi, sigma_beta, best_fit['chi_sqr']]
 		fit_vals = [t0, section_ids, best_fit['chi'], best_fit['beta'], sigma_chi, sigma_beta, best_fit['chi_sqr'], fit_type]
 	#
+	if output_type.lower()=='dict':
+		fit_vals = {key:val for key,val in zip(*[['t0', 'section_ids', 'tau', 'beta', 'sigma_tau', 'sigma_beta', 'chi_sqr', 'fit_type'],fit_vals])}
+	
+	# note: "sigmas" might really be variances. curve_fit() return variances; if we want stdev, take the sqrt(var)...
 	return fit_vals
 #
 def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None):
@@ -3330,7 +3342,7 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 			#fault_color = colors_[fault_index%len(colors_)]
 			#
 			new_pair = [etas.cm(x,y) for x,y in pair]
-			plt.plot([x[0] for x in new_pair], [y[1] for y in new_pair], '-', color=fault_color)
+			plt.plot([x[0] for x in new_pair], [y[1] for y in new_pair], '-', color=fault_color, lw=1.5)
 		#	
 	#
 	return etas

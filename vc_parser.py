@@ -2233,6 +2233,7 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0 = 5.0, mc_nits=100000, n_cpus=None, fignum=None, sim_file=default_sim_file, output_type='dict'):
 	# calculate (and plot if fignum!=None) a single waiting_time distribution. illustrate that, since single (or few)-fault sets are
 	# not weibull-random, we can calculate specific probabilities for a set of faults.
+	# this is P(t;t_0), right -- waiting-time probability distribution?
 	#
 	# some preliminary bits:
 	max_x = 0.

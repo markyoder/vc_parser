@@ -2315,6 +2315,9 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	# waiting time (or equivalently, "hazard function"?, plots. aka, probability of an earthquake given that one
 	# has not occured for t0. equivalently, probability of interval Delta t > t0.
 	#
+	# prams:
+	# (most are pretty self explanatory)
+	#
 	# for each section_id, fetch the mean_recurrence data.
 	# 1) plot each cumulative probability
 	# 2) including a weibull fit.
@@ -2517,14 +2520,6 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 			# plot using t0=0 fit:
 			plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams_0[0], beta=fit_prams_0[1], x0=t0) for x in X_fit], '-.', color=this_color, lw=lw, ms=ms, label=None)
 			#
-			# assign this at the begining of this sequence.
-			#this_chi_0  = best_fit_dict[sec_id][0.][1]
-			#this_beta_0 =best_fit_dict[sec_id][0.][2]
-			#
-			#this_chi_0  = best_fit_dict[sec_id][0]['chi']
-			#this_beta_0 =best_fit_dict[sec_id][0]['beta']
-			#
-			#plt.plot(X_fit, [f_weibull(x=x, chi=this_chi_0, beta=this_beta_0, x0=0.0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label=this_lbl + ' ($t_0 = 0$)')
 			#
 		print best_fit_dict[sec_id]
 		#best_fit_dict[sec_id] = numpy.core.records.fromarrays(zip(*best_fit_dict[sec_id]), names=fit_columns, formats = [(type(x).__name__ for x in best_fit_dict[sec_id][0]])
@@ -3202,7 +3197,7 @@ def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_m
 	#
 	return fault_traces
 #
-def plot_fault_traces(traces=None, section_ids=None, sim_file=allcal_full_mks, fignum=0, lat_lon=True, do_clf=False, plot_color=None):
+def plot_fault_traces(traces=None, section_ids=None, sim_file=allcal_full_mks, fignum=0, lat_lon=True, do_clf=False, plot_color=None, zorder=5, line_style = '-'):
 	if traces==None:
 		traces = get_block_traces(section_ids=section_ids, sim_file=sim_file, fignum=None, lat_lon=lat_lon)
 	#
@@ -3214,7 +3209,7 @@ def plot_fault_traces(traces=None, section_ids=None, sim_file=allcal_full_mks, f
 		X,Y,Z = zip(*rw)
 		lbl=None
 		if i==0: lbl='sec_id=%s' % ', '.join(map(str, section_ids))
-		plt.plot(X,Y, '%s-' % plot_color, label=lbl)
+		plt.plot(X,Y, '%s%s' % (plot_color, line_style), label=lbl, zorder=zorder)
 	plt.legend(loc=0, numpoints=1)
 #
 def get_anss_seismicity(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, m_c=3.0, n_max=999999, n_cpus=None):

@@ -3127,6 +3127,9 @@ def get_nearest_section_ids(lat_0=emc_event['lat'], lon_0=emc_event['lon'], n_se
 def get_block_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_mks, fignum=None, lat_lon=True ):
 	# like get_fault_traces(), but don't bother with the faultwise partitioning...
 	#
+	# some error handling:
+	if isinstance(section_ids, int): section_ids=[section_ids]
+	#
 	if fault_blocks==None:
 		with h5py.File(sim_file) as vc_data:
 			blks = vc_data['block_info_table']
@@ -3164,6 +3167,7 @@ def get_block_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_m
 #
 def get_fault_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_mks, fignum=None, lat_lon=True ):
 	# get some simple fault traces for plotting (or whatever):
+	if isinstance(section_ids, int): section_ids=[section_ids]
 	#
 	# get faultwise collections of blocks (by section_id)
 	if fault_blocks == None:

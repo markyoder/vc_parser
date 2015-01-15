@@ -23,7 +23,8 @@ def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_g
 	# ... which is a list, like: ['b', 'g', 'r', 'c', 'm', 'y', 'k']
 	#
 	# hard-code some section label position adjustments, as a factor of label_delta_{x,y}:
-	section_label_adjustments = {116:{'dx':0., 'dy':-2.}, 110:{'dx':-3., 'dy':3.}, 107:{'dx':-1, 'dy':3.}, 149:{'dx':0., 'dy':3.}, 113:{'dx':-3., 'dy':1.}}
+	section_label_adjustments = { 56:{'dx':3., 'dy':1.}, 57:{'dx':2., 'dy':0.}, 105:{'dx':-5., 'dy':2.}, 107:{'dx':-6., 'dy':4.5}, 110:{'dx':-8., 'dy':3.}, 112:{'dx':1., 'dy':-1.},
+	115: {'dx':4., 'dy':-.5}, 116:{'dx':3., 'dy':-4.}, 149:{'dx':0., 'dy':4.}, 113:{'dx':-3., 'dy':1.}, 56:{'dx':2., 'dy':-1.}, 57:{'dx':2., 'dy':1.}, 84:{'dx':-3., 'dy':0.}, 73:{'dx':10., 'dy':1.}, 17:{'dx':0., 'dy':-1.}  }
 		
 	#	
 	#

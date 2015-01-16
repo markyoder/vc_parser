@@ -303,7 +303,7 @@ def EMC_WT_dist_Appendix(wt_dir='VC_WT_probs_20150109', output_file = 'VC_WT_pro
 	#
 
 
-def EMC_exp_WT_Appendix(wt_dir='expected_waiting_time_figs', output_file = 'expected_waiting_time_figs/appendix_exp_wt.tex', section_ids=vc_parser.emc_sections):
+def EMC_exp_WT_Appendix(wt_dir='expected_waiting_time_figs', wt_prob_dir='VC_WT_probs_20150109', output_file = 'appendix_exp_wt.tex', section_ids=vc_parser.emc_sections):
 	'''
 	# make at least the framework for an appendix of all the WT distribution figures.
 	# file_format='VC_CDF_WT_m70_section_%d.png'
@@ -328,8 +328,10 @@ def EMC_exp_WT_Appendix(wt_dir='expected_waiting_time_figs', output_file = 'expe
 		#
 		for i, section_id in enumerate(section_ids):
 			f.write('\\begin{figure}\n')
-			f.write('\\noindent \\textbf{a)}\\includegraphics[width=2.5in]{VC_CDF_WT_m70_section_%d.png}\n' % section_id)
-			f.write('\\textbf{b)}\\includegraphics[width=2.5in]{../expected_waiting_time_figs/EWT_m0_70_section_%d}\n' % section_id)
+			#f.write('\\noindent \\textbf{a)}\\includegraphics[width=2.5in]{VC_CDF_WT_m70_section_%d.png}\n' % section_id)
+			f.write('\\noindent \\textbf{a)}\\includegraphics[width=2.5in]{%s/VC_CDF_WT_m70_section_%d.png}\n' % (wt_prob_dir, section_id))
+			#f.write('\\textbf{b)}\\includegraphics[width=2.5in]{../expected_waiting_time_figs/EWT_m0_70_section_%d}\n' % section_id)
+			f.write('\\textbf{b)}\\includegraphics[width=2.5in]{%s/EWT_m0_70_section_%d}\n' % (wt_dir, section_id))
 			f.write('\\caption{\\textbf{a)} Waiting time distributions and \\textbf{b)} Expected waiting times for fault section %d.}\n' % section_id)
 			f.write('\\label{fig:appendix_wt_%d}\n\\end{figure}\n' % section_id)
 			f.write('\n\n')

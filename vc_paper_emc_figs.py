@@ -167,6 +167,8 @@ def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, 
 		if plot_sections!=None and len(plot_sections)==0:
 			plot_sections = [vc_parser.get_nearest_section_ids(n_sections=5, lat_0=mainshock['lat'], lon_0=mainshock['lon'], verbose=False)]
 		#
+	#if map_falvor.lower() == 'alcal':
+	#	plt.title('Virtual Quake ETAS map of California\n\n')
 	#
 	ms_lon, ms_lat = my_map.cm(mainshock['lon'], mainshock['lat'])
 	quakes_x, quakes_y = my_map.cm(catalog['lon'][i_min:i_max], catalog['lat'][i_min:i_max])
@@ -303,7 +305,8 @@ def EMC_WT_dist_Appendix(wt_dir='VC_WT_probs_20150109', output_file = 'VC_WT_pro
 	#
 
 
-def EMC_exp_WT_Appendix(wt_dir='expected_waiting_time_figs', wt_prob_dir='VC_WT_probs_20150109', output_file = 'appendix_exp_wt.tex', section_ids=vc_parser.emc_sections):
+#def EMC_exp_WT_Appendix(wt_dir='expected_waiting_time_figs', wt_prob_dir='VC_WT_probs_20150109', output_file = 'appendix_exp_wt.tex', section_ids=vc_parser.emc_sections):
+def EMC_exp_WT_Appendix(wt_dir='\WTexpfigs', wt_prob_dir='\WTPfigs', output_file = 'appendix_exp_wt.tex', section_ids=vc_parser.emc_sections):
 	'''
 	# make at least the framework for an appendix of all the WT distribution figures.
 	# file_format='VC_CDF_WT_m70_section_%d.png'
@@ -324,9 +327,13 @@ def EMC_exp_WT_Appendix(wt_dir='expected_waiting_time_figs', wt_prob_dir='VC_WT_
 		f.write(header_string)
 		#
 		f.write('\n\n')
-		f.write('\\section{Appendix B: Expected waiting-times for fault segments in the El Mayor-Cucapah region}\n')
+		f.write('\\textbf{Appendix A: Waiting-time distributions and expected waiting-times for fault segments in the El Mayor-Cucapah region}\n')
+		#f.write('\\clearpage\n\n')
 		#
 		for i, section_id in enumerate(section_ids):
+			#
+			if i%3==0: f.write('\\clearpage\n\n')
+			#
 			f.write('\\begin{figure}\n')
 			#f.write('\\noindent \\textbf{a)}\\includegraphics[width=2.5in]{VC_CDF_WT_m70_section_%d.png}\n' % section_id)
 			f.write('\\noindent \\textbf{a)}\\includegraphics[width=2.5in]{%s/VC_CDF_WT_m70_section_%d.png}\n' % (wt_prob_dir, section_id))
@@ -335,11 +342,91 @@ def EMC_exp_WT_Appendix(wt_dir='expected_waiting_time_figs', wt_prob_dir='VC_WT_
 			f.write('\\caption{\\textbf{a)} Waiting time distributions and \\textbf{b)} Expected waiting times for fault section %d.}\n' % section_id)
 			f.write('\\label{fig:appendix_wt_%d}\n\\end{figure}\n' % section_id)
 			f.write('\n\n')
-			#
-			if i%3==0: f.write('\\clearpage\n\n')
+			
 			#
 		f.write('\n\n')
 		f.write('\\end{document}')
 		#
 	#
-		
+	os.system('cp %s %s' % (output_file, '/home/myoder/Dropbox/Research/VC/EMC_VC_paper/%s' % output_file))
+
+
+def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, output_dir='expected_waiting_time_figs', do_local_fit=False):
+	# make a set of "Expected Waiting Time" figures.
+	# (wrapper for expected_waiting_time_t0() )
+	#
+	if os.path.isdir(output_dir)==False:
+		os.mkdir(output_dir)
+	#
+	if isinstance(section_ids, str):
+		if section_ids.upper()=='EMC':
+			section_ids = [{'EMC':list(napa_sections)}] + list(napa_sections)
+		if section_ids.lower() == 'napa':
+			section_ids = [{'Napa':list(napa_sections)}] + list(napa_sections)
+
+	#
+	if section_ids==None:
+		# get 'em all:
+		with h5py.File(sim_file) as vcdata:
+			section_ids=list(set(vcdata['block_info_table']['section_id']))
+		#
+	#
+	# now, for each section_id, get EWT and draw a picture.
+	for sec_id in section_ids:
+		# first, is sec_id a number or a list? expected_waiting_time_t0() expects a list of section_ids.
+		name_str = None
+		#
+		# handle the input a bit. we can provide just a list of section ids or section id lists or we can mix in some dicts:
+		#  [1,2,3, [4,5,6], 7, [8,9,10], {'teens':[14,15,16,17,18,19]}, ... ]
+		# 
+		# a list of lists (or mi
+		if isinstance(sec_id, dict):
+			# we've been given a dictionary and some instructions. 
+			# assume for now that it's a single pair.
+			for key,val in sec_id.iteritems():
+				# just keep the last one...
+				name_str = str(key)
+				sec_id=val
+		if not hasattr(sec_id, '__len__'): sec_id=[sec_id]
+		if name_str == None: name_str=str(*sec_id)
+		#
+		EWT = expected_waiting_time_t0(section_ids=sec_id, m0=m0, fits_data_file_CDF=fits_data_file_CDF, WT_catalog_format=WT_catalog_format, sim_file=sim_file, n_t0=n_t0, fnum=fnum, do_local_fit=do_local_fit)
+		#
+		plt.figure(fnum)
+		plt.title('Expected Waiting times: sections %s' % name_str)
+		plt.xlabel('Time since last $m>%.2f$ event' % m0)
+		plt.ylabel('Expected interval $\Delta t$')
+		#
+		plt.savefig('%s/EWT_m0_%s_section_%s.png' % (output_dir, str(m0).replace('.',''), name_str))
+
+###################################
+#
+# IAGS paper (short, letter bit for IAGS special publication):
+
+def iags_waiting_time_probabilities():
+	A=vc_parser.waiting_time_figs(section_ids=[24, 25], output_dir='figs_iags')
+	#
+	return A
+#
+def iags_expected_waiting_times(output_dir='figs_iags', section_ids = [123, 124, [123, 124], 125, [123, 124, 125]], m0=7.0, fnum=0):
+	#
+	# make expected waiting time figures (yellow envelopes wiht black median line...)
+	#
+	plt.ion()
+	#
+	for sec_id in section_ids:
+		# pass these as lists. if an integer (or string) is passed, wrap it as a list.
+		if not hasattr(sec_id, 'append'): sec_id=[int(sec_id)]
+		#
+		#plt.figure(fnum)
+		#plt.clf()
+		B=vc_parser.expected_waiting_time_t0(section_ids=sec_id, m0=m0, do_local_fit=False, fnum=fnum)
+		# now, annotate:
+		plt.xlabel('Time $t_0$ since previous $m > %.2f$ earthquake' % m0)
+		plt.ylabel('Expected interval $\\Delta t$ to next $m > %.2f$ earthquake' % m0)
+		plt.title('Expected waiting times for section id(s): %s' % ', '.join([str(x) for x in sec_id]))
+		#
+		plt.savefig('%s/expected_waiting_time_m%s_sec_%s.png' % (output_dir, str(m0), '_'.join([str(x) for x in sec_id])))
+		#
+
+	

@@ -1983,6 +1983,9 @@ def tau_t0_fig(section_ids=None, glob_pattern='VC_CDF_WT_figs/VC_CDF_WT_*.npy'):
 	#
 	return full_array
 #
+'''
+# move this wrapper script to vc_paper_emc_figs.py (since it's basically a figure-script. if all works out ok, then delete this
+# commented section.
 def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, output_dir='expected_waiting_time_figs', do_local_fit=False):
 	# make a set of "Expected Waiting Time" figures.
 	# (wrapper for expected_waiting_time_t0() )
@@ -2030,6 +2033,7 @@ def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_C
 		plt.ylabel('Expected interval $\Delta t$')
 		#
 		plt.savefig('%s/EWT_m0_%s_section_%s.png' % (output_dir, str(m0).replace('.',''), name_str))
+'''
 #
 def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, do_local_fit=True):
 	# do_local_fit: fit the weibull distribution along the way (for each time-step)? obviously, we get a better fit, but what
@@ -2311,6 +2315,12 @@ def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_tim
 #
 def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None):
 	'''
+	# deprication note: this script will probably be depricated and replaced with something a bit simpler. this script
+	# fits all the individual section_ids and compiles a collective catalog as it goes. 1) this complexity is not necessary,
+	# and 2) we don't really need the "faultwise mean" analysis we've been doing (i don't think). the newer version will
+	# take a more generalized list/list of dicts (or something) input so that catalogs can be better customized, like
+	# section_ids = [1,2,3, [1,2], 4,5,6, [1,3,5,6]], etc.
+	#
 	# (waiting time probabilities, not 'Expected Waiting Time')
 	# waiting time (or equivalently, "hazard function"?, plots. aka, probability of an earthquake given that one
 	# has not occured for t0. equivalently, probability of interval Delta t > t0.
@@ -2558,6 +2568,245 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	#
 	#return best_fit_array
 	return best_fit_dict
+#
+def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None):
+	'''
+	# newer version of waiting_time_figs. section_ids [] is generalized to take integers or lists. the automatic aggregate
+	# bits are removed. a simple way to get an aggregate of all elements is like:
+	# my_list = [1,2,3,4]
+	# input_list = my_list + [mylist] --> [1,2,3,4, [1,2,3,4]], which will produce figs for each element and the combined catalog [1,2,3,4].
+	#
+	# (waiting time probabilities, not 'Expected Waiting Time')
+	# waiting time (or equivalently, "hazard function"?, plots. aka, probability of an earthquake given that one
+	# has not occured for t0. equivalently, probability of interval Delta t > t0.
+	#
+	# prams:
+	# (most are pretty self explanatory)
+	, start_year=start_year=10000, end_year=end_year=None
+	# start_year, end_year: start/end years of simulation. it's typically a good idea to sluff off the leading 10,000 years or so
+	# (i assume this depends on the simulation size) if you've got a short catalog, 0 will be fine, but there tend to be
+	# artifacts in the early parts of the 
+	#
+	# for each section_id, fetch the mean_recurrence data.
+	# 1) plot each cumulative probability
+	# 2) including a weibull fit.
+	# 3) do this for a set of waiting times:0, <t>/2, <t>, 1.5<t>, 2<t>, 2.5<t>
+	# 4) a cumulative figure
+	'''
+	#
+	if section_ids in (None, [], ()):
+		section_ids='emc'
+		#
+	if isinstance(section_ids, str) and section_ids.lower()=='emc':
+		section_ids = list(emc_section_filter['filter'])
+	#
+	# set() breaks when trying to hash list objects, so do this manually:
+	#section_ids = list(set(section_ids))
+	for i, x in enumerate(section_ids):
+		while section_ids.count(x)>1: section_ids.pop(i)
+	#
+	plt.ion()
+	#
+	# make sure we have a valid output dir:
+	i=0
+	new_output_dir = output_dir
+	if os.path.isdir(new_output_dir)==False:
+		while glob.glob(new_output_dir)!=[]:
+			# the dir does not exist or ther is a file where our dir should be...
+			new_output_dir = '%s_%d' % (output_dir, i)
+			if i>=1000:
+				print "can't find a valid output dir..."
+				break
+		output_dir = new_output_dir
+		os.mkdir(output_dir)
+	new_output_dir = None
+	#
+	lw=2.5
+	ms=5.
+	max_x = 0.
+	min_x = 0.
+	dT_composite_faultwise = []
+	full_catalog = []
+	# control color cycling:
+	colors_ =  mpl.rcParams['axes.color_cycle']
+	sections ={'all_cdf':{'fig':0}}
+	#best_fit_array = []		# ...and we'll cast this as a recarray later.
+	best_fit_dict = {}
+	fit_columns = ['t0', 'section_id', 'chi', 'beta', 'sigma_chi', 'sigma_beta', 'chi_sqr', 'fit_type']	# fit variables; map to dict.
+	fit_type_str_len = 32
+	#fit_columns_types = ['float', 'int', 'float', 'float', 'float', 'float', 'float', 'S%d' % fit_type_str_len]
+	fit_columns_types = ['float', 'S256', 'float', 'float', 'float', 'float', 'float', 'S%d' % fit_type_str_len]
+	for j, sec_id in enumerate(section_ids):
+		#this_color = colors_[j%len(colors_)]
+		#i=j+1
+		i=j
+		#sections[sec_id] = {'fig':i}
+		plt.figure(i, figsize=(12,10))
+		plt.clf()
+		#
+		#these_t0_factors = t0_factors		# default t0 factors, but we might change them for composite figures...
+		#
+		# handle some section_id input types:
+		# (but the better approach here might be to always pass these as tuples, not lists). tuples/integers can be
+		# passed to dict objects as indices
+		#if not hasattr(sec_id, 'append'):
+		#	if isinstance(sec_id, tuple):
+		#		sec_id=list(sec_id)		# can we always make these tuples?
+		#	else:
+		#		sec_id=[sec_id]
+		#	print "wrapping sec_id: ", sec_id
+		if not hasattr(sec_id, '__len__'): sec_id=tuple([sec_id])		# ignoring, for now, the possibility of strings, etc.
+		if hasattr(sec_id, '__len__') and hasattr(sec_id, 'append'): sec_id=tuple(sec_id)
+		#
+		# we'll need an index for dict objects. they can take integers, etc. or tuples but not lists...
+		# later, look into using integer or tuple types. if our sec_id lists --> tuples, we can pass sec_id
+		#sec_id_index = sec_id if hasattr(sec_id, 'append') else tuple(sec_id)
+		#
+		ary_in = combine_section_CFFs(sec_id, start_year=start_year, end_year=end_year)
+		#ary_in = numpy.load(file_path_pattern % sec_id)
+		#
+		if full_catalog in (None, []) or len(full_catalog)==0:
+			full_catalog = ary_in
+		else:
+			full_catalog = numpy.append(full_catalog, ary_in)
+		#
+		mean_rec_data = mean_recurrence(ary_in=ary_in, m0=m0)
+		X = mean_rec_data['dists']['dT'].tolist()
+		dT_composite_faultwise += X
+		print "sec_id: ", sec_id
+		this_lbl = 'section(s) %s' % ', '.join(map(str, sec_id))
+		#sec_name = this_lbl
+		#
+		N = float(len(X))	
+		X.sort()
+		#
+		# keep track of min/max X values for later global plot... or we could use them here as well.
+		max_x = max(max_x, max(X))
+		min_x = min(min_x, min(X))
+		#
+		#Y = [x/N for x in range(1, len(X)+1)]
+		#mean_dT = mean_rec_data['mean_dT']
+		mean_dT = numpy.mean(X)
+		this_t0s = [mean_dT * x for x in t0_factors]
+		#
+		best_fit_dict[sec_id]=[]
+		#
+		# do a preliminary fit for the whole set (should be equivalent to t0=0.0
+		print "preliminary fit for section_id(s)=%s" % ', '.join([str(x) for x in sec_id])
+		fit_prams_0, fit_cov_0 = spo.curve_fit(f_weibull, xdata=numpy.array(X), ydata=numpy.array([j/float(len(X)) for j in numpy.arange(1., len(X)+1)]), p0=numpy.array([mean_dT, 1.5]))
+		print fit_prams_0
+		this_chi_0 = fit_prams_0[0]
+		this_beta_0 = fit_prams_0[1]
+		#
+		print "--------------"
+		for i_t, t0 in enumerate(this_t0s):
+			this_color = colors_[i_t%len(colors_)]
+			max_x = 0.
+			min_x = 0.
+			#this_X = [x-t0 for x in X if (x-t0)>=0.]
+			this_X = [x for x in X if (x-t0)>=0.]
+			if len(this_X)<5: continue		# ... because it won't fit...
+			this_X.sort()
+			#
+			# skip it if there aren't very many data:
+			#if len(this_X)<5: continue
+			#
+			N = float(len(this_X))
+			Y = [float(j)/N for j in range(1, int(N)+1)]
+			max_x = max(max_x, max(X))
+			min_x = min(min_x, min(X))
+			#
+			plt.plot([x for x in this_X], Y, '.-', color = this_color, label='data, $t_0=%.3f$' % t0)
+			# curve_fit() tends to break -- aka, not converge. in that event, do an MC fit
+			print "these lens: ", len(this_X), len(Y)
+			try:
+				# f_weibull(x=None, chi=1.0, beta=1.0, x0=None)
+				fit_type = 'spo.curve_fit'	# try a converging fit; if it fails, we'll use a fit_type='MC' (monte carlo)
+				fit_prams, fit_cov = spo.curve_fit(lambda x, chi, beta: f_weibull(x=x, chi=chi, beta=beta, x0=t0), xdata=numpy.array(this_X), ydata=numpy.array(Y), p0=numpy.array([max(1.0, mean_dT-t0), 1.5]))
+				#			
+				print "fitted (converging)...", fit_cov
+				pram_sigmas = numpy.sqrt(numpy.diag(fit_cov))		# the uncertainties of the fit parameters are the diagonals of the covariance matrix... right?
+				mean_chi_sqr = numpy.mean([(f_weibull(x=this_X[k], chi=fit_prams[0], beta=fit_prams[1], x0=t0)-Y[k])**2. for k, xx in enumerate(this_X)]) # in xrange(len(X))])
+				stdErr = mean_chi_sqr/math.sqrt(N)
+				print fit_cov
+				print "fit_prams(%d/%d)[t0 = %f]: %s / %s" % (i, sec_id, t0, str(fit_prams), str(fit_prams_0))
+				#
+				#
+				#fit_vals = [t0, sec_id, fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr, fit_type]
+				fit_vals = [t0, str(sec_id), fit_prams[0], fit_prams[1], pram_sigmas[0], pram_sigmas[1], mean_chi_sqr, fit_type]
+			except:
+				fit_type = 'MC_%d' % mc_nits
+				# converging fit failed. do an MC method:
+				print "converging fit failed. try an MC approach:"
+				prams_dict = {'chi':[0., 2.5*mean_dT], 'beta':[0.,6.], 'x0':[t0,t0]}	# can we automatedly guess at these prams?
+																					# maybe at some point, we should devise a quasi-
+																					# converging MC method.
+				Zmin, Z=mcfitter(func=f_weibull, X=this_X, Y=Y, prams_dict=prams_dict, nits=mc_nits, n_cpus=n_cpus)
+				Zmin.sort(order='chi_sqr')
+				best_fit = Zmin[0]
+				#
+				fit_prams = [best_fit['chi'], best_fit['beta']]
+				sigma_chi  = (prams_dict['chi'][1]-prams_dict['chi'][0])/mc_nits
+				sigma_beta = (prams_dict['beta'][1]-prams_dict['beta'][0])/mc_nits
+				#
+				#				
+				#fit_vals = [t0, sec_id, best_fit['chi'], best_fit['beta'], sigma_chi, sigma_beta, best_fit['chi_sqr'], fit_type]
+				fit_vals = [t0, str(sec_id), best_fit['chi'], best_fit['beta'], sigma_chi, sigma_beta, best_fit['chi_sqr'], fit_type]
+			#
+			fit_data = {col:val for col, val in zip(*[fit_columns, fit_vals])}
+			#best_fit_dict[sec_id] += {col:val for col, val in zip(*[fit_columns, fit_vals])}
+			best_fit_dict[sec_id] += [fit_vals]	# and we'll make a structured array at the end of it all.
+			#
+			X_fit = numpy.arange(min(this_X), max(this_X)*1.5, (max(this_X)-min(this_X))/500.)
+			#
+			# plot local t0 fit:
+			plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=t0) for x in X_fit], '--', color=this_color, lw=lw, ms=ms, label='$t_0=%.2f, \\beta=%.3f, \\tau=%.3f$' % (t0, fit_prams[1], fit_prams[0]))
+			#
+			# plot using t0=0 fit:
+			plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams_0[0], beta=fit_prams_0[1], x0=t0) for x in X_fit], '-.', color=this_color, lw=lw, ms=ms, label=None)
+			#
+			#
+		print "best fit dict:", best_fit_dict[sec_id]
+		#best_fit_dict[sec_id] = numpy.core.records.fromarrays(zip(*best_fit_dict[sec_id]), names=fit_columns, formats = [(type(x).__name__ for x in best_fit_dict[sec_id][0]])
+		best_fit_dict[sec_id] = numpy.core.records.fromarrays(zip(*best_fit_dict[sec_id]), names=fit_columns, formats = fit_columns_types)
+		#
+		# save best fits:
+		#Z=(output_dir, str(m0).replace('.', ''), '_'.join(sec_id))
+		#for z in Z:
+		#	print "***", z, type(z)
+		best_fit_dict[sec_id].dump('%s/VC_CDF_WT_fits_m%s_section_%s.npy' % (output_dir, str(m0).replace('.', ''), '_'.join([str(x) for x in sec_id])))
+		#
+		plt.legend(loc=0, numpoints=1)
+		plt.gca().set_ylim([0., 1.1])
+		plt.title('CDF for m>%s on fault section %s' % (str(m0), ', '.join([str(x) for x in sec_id])))
+		plt.legend(loc=0, numpoints=1)
+		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$ (years)' % m0)
+		plt.ylabel('Probability $P(t)$')
+		plt.savefig('%s/waiting_time_distribution_m%s_section_%s.png' % (output_dir, str(m0).replace('.', ''), '_'.join([str(x) for x in sec_id])))
+		
+		#if keep_figs==False and not sec_id<0: plt.close(i)	# ?? sec_id in [list-o-sec_ids]...
+	#
+	#
+	# and some interesting weibull pram plots are like:
+	# (obviously other scalings are relevant; this seems to be the most linear)
+	#plt.loglog(best_fit_array['beta'], best_fit_array['tau'], '.')
+	# and of course, the distributions of beta, tau (dists. of beta are not terribly interesting,
+	# but the relationship between beta and tau might be).
+	'''
+	plt.figure()
+	ax1 = plt.gca()
+	Xbeta = best_fit_array['beta'].tolist()
+	Xbeta.sort()
+	ax1.plot(Xbeta, range(len(best_fit_array['beta'])), 'g.-')
+	ax2 = plt.gca().twiny()
+	Xtau = best_fit_array['tau'].tolist()
+	Xtau.sort()
+	ax2.plot(Xtau, range(len(best_fit_array['tau'])), 'r.-')
+	'''
+	#
+	#return best_fit_array
+	return best_fit_dict
+
 #
 def xy_to_lat_lon(x, y, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict'):
 	# for now, a simple x,y conversion. we should probably use at least a spherical distance formula.

@@ -228,6 +228,9 @@ def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, 
 	# ... and what's weird is that this seems to run WAY faster using multiprocessing (non-linearly faster) -- 1 cpu running for a minute or so
 	# and maybe a second or two using 4 processors... and in fact, even running 1 processor but using the multiprocessing structure is much,
 	# much faster.
+	# ... (but give this a second look and be sure that it includes piping the data back to the head-node. sometimes 
+	#     these appear to be running really fast, but they're only being prepped; they don't actually run until they are called
+	#     to pipe back the results).
 	#
 	# allow for multi-processing:
 	if n_cpus == None: n_cpus = mpp.cpu_count()

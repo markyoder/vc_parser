@@ -150,7 +150,14 @@ def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, 
 	if isinstance(fault_colors, str): fault_colors = [fault_colors]
 	#	
 	# first, get a catalog (we can do this inline wiht the map script, but this provides some added flexibility):
-	catalog, sweep_index = vc_ETAS_catalog(section_ids=sectionses[map_flavor], sim_file=default_sim_file, start_year=10000., end_year=None, n_cpus=None, fignum=0, map_size=[10,8], etas_mc=3.0, sweeps_index=None)
+	section_ids = sectionses.get(map_flavor, None)
+	if section_ids==None:
+		with vc_parser.h5py.File(default_sim_file) as vc_data:
+			print "getting all section_ids from %s" % default_sim_file
+			section_ids = list(set(vc_data['block_info_table']['section_id']))
+	
+	#catalog, sweep_index = vc_ETAS_catalog(section_ids=sectionses[map_flavor], sim_file=default_sim_file, start_year=10000., end_year=None, n_cpus=None, fignum=0, map_size=[10,8], etas_mc=3.0, sweeps_index=None)
+	catalog, sweep_index = vc_ETAS_catalog(section_ids=section_ids, sim_file=default_sim_file, start_year=10000., end_year=None, n_cpus=None, fignum=0, map_size=[10,8], etas_mc=3.0, sweeps_index=None)
 	#
 	# now, make a map using part of this catalog:
 	#
@@ -169,6 +176,11 @@ def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, 
 		#
 	#if map_falvor.lower() == 'alcal':
 	#	plt.title('Virtual Quake ETAS map of California\n\n')
+	#	# for now, use the emc mainshock:
+	#	mainshock = {'event_time':dtm.datetime(2010, 4, 10, 3+7, 40, 41, tzinfo=pytz.timezone('UTC')), 'lat':32.128, 'lon':-115.303, 'mag':7.2}
+	#	# get all fault sections:
+	#	with vc_parser.h5py.File(default_sim_file) as vc_data:
+	#		section_ids = list(set(vc_data['block_info_table']['section_id']))
 	#
 	ms_lon, ms_lat = my_map.cm(mainshock['lon'], mainshock['lat'])
 	quakes_x, quakes_y = my_map.cm(catalog['lon'][i_min:i_max], catalog['lat'][i_min:i_max])

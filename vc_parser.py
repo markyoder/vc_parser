@@ -412,10 +412,12 @@ def cff_dict_npy(dict_in):
 		
 	#
 #
-def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_section_%d.npy', start_year=0., end_year=None, sim_file=default_sim_file):
+def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_section_%d.npy', start_year=0., end_year=None, sim_file=default_sim_file, create_missing_catalogs=True):
 	# concatenate (then sort by year) a set of section catalogs. assume proper recarray() format, etc.
 	# ... and this should definitely be used for multi-fault combined catalogs; there are ~50 duplicate events in
 	# the full EMC set.
+	# create_missing_catalogs: true: if the pre-processed array does not exist, then create it. this can be time consuming,
+	# so it may be desirable to set this to False and let the script fail.
 	#
 	# handle some input variations:
 	if sections==None: return sections
@@ -430,6 +432,17 @@ def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_sect
 		except:
 			return sections
 	#
+	# let's just do this here... check all section_ids to see that their pre-processed catalogs have been made. if not, make them.
+	for i,sec_id in enumerate(sections):
+			# get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, event_sweeps_dict=None)
+			# get_EMC_CFF(sections=None, file_out_root='data/VC_CFF_timeseries_section')
+			ary_file_name = ary_in_format % sec_id
+			if ary_file_name not in glob.glob(ary_file_name):
+				print "creating section catalog: %s" % ary_file_name
+				#ary_data = get_CFF_on_section(sim_file=default_sim_file, section_id=sec_id)	
+				ary_data = get_EMC_CFF(sections=[sec_id], file_out_root=ary_in_format.split('_%d')[0])
+	
+	#
 	if len(sections)>=1:
 		combined_catalog = numpy.load(ary_in_format % sections[0])
 	#
@@ -437,6 +450,7 @@ def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_sect
 	for i,sec_id in enumerate(sections[1:]):
 		# (or we can load and append in one fell swoop, but this should be fine).
 		try:
+			#
 			combined_catalog = numpy.append(combined_catalog, numpy.load(ary_in_format % sec_id))
 		except:
 			print "failed to add sub-catalog for %d" % sec_id

@@ -2072,6 +2072,8 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	section_ids = list(set(section_ids))
 	#
 	# load the pre-calced fits? if they don't exist, run them.
+	# (but then, we never ended up using these...)
+	'''
 	try:
 		# but it looks like we don't use this any longer...
 		cdf_fits = numpy.load(fits_data_file_CDF)	# recarray with dtype: dtype=[('t0', '<f8'), ('section_id', '<i8'), ('chi', '<f8'), ('beta', '<f8'), ('sigma_chi', '<f8'), ('sigma_beta', '<f8'), ('chi_sqr', '<f8'), ('fit_type', 'S16')])
@@ -2084,7 +2086,7 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 		return None
 		
 		#wt_temp = waiting_time_figs(section_ids=section_ids, m0=m0, output_dir='temp_weibul_fits', mcnits=2000)
-		
+	'''	
 	#
 	# we want the expected \Delta t to the next "big one" as a function of t_0 (aka, <Delta t> (t_0) ), and in this case
 	# t_0 is basically current ellapsed time. nominally, we shoul do this 1) directly from data, 2) using t0=0 fits, 3)
@@ -2251,7 +2253,8 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	
 	return catalog
 #
-def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0 = 5.0, mc_nits=100000, n_cpus=None, fignum=None, sim_file=default_sim_file, output_type='dict'):
+#def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0 = 5.0, mc_nits=100000, n_cpus=None, fignum=None, sim_file=default_sim_file, output_type='dict'):
+def conditional_RI_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0 = 5.0, mc_nits=100000, n_cpus=None, fignum=None, sim_file=default_sim_file, output_type='dict'):
 	# calculate (and plot if fignum!=None) a single waiting_time distribution. illustrate that, since single (or few)-fault sets are
 	# not weibull-random, we can calculate specific probabilities for a set of faults.
 	# this is P(t;t_0), right -- waiting-time probability distribution?
@@ -2332,6 +2335,10 @@ def waiting_time_single_curve(section_ids=[], file_path_pattern='data/VC_CFF_tim
 #
 def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None):
 	'''
+	# this function will be removed and replaced by its more modular cousin: conditional_RI_figs()
+	# though note, the faultwise-aggregate functionality will not be automatic... but it will be easy to script separately if
+	# necessary.
+	#
 	# deprication note: this script will probably be depricated and replaced with something a bit simpler. this script
 	# fits all the individual section_ids and compiles a collective catalog as it goes. 1) this complexity is not necessary,
 	# and 2) we don't really need the "faultwise mean" analysis we've been doing (i don't think). the newer version will
@@ -2586,8 +2593,15 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	#return best_fit_array
 	return best_fit_dict
 #
-def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None):
+#def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None):
+def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None):
 	'''
+	# ... note as soon as we work out of these early yoder et al. 2015ab papers, we can dump def waiting_time_figs() entirely...)
+	# ... and phase 2 of this retro-fit will be to separate this into a loop (which we'll move elsewhere) and a caller for a single cRI
+	#  figure. groups of figurues will be handled by a callign script.
+	#
+	# and note that we screwed up the notation/nomenclature. these are "Conditional Recurrence Probabilities", P(t,t_0),
+	# where waiting times are \Delta t = t_0 + t .
 	# newer version of waiting_time_figs. section_ids [] is generalized to take integers or lists. the automatic aggregate
 	# bits are removed. a simple way to get an aggregate of all elements is like:
 	# my_list = [1,2,3,4]
@@ -2642,7 +2656,6 @@ def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 	ms=5.
 	max_x = 0.
 	min_x = 0.
-	dT_composite_faultwise = []
 	full_catalog = []
 	# control color cycling:
 	colors_ =  mpl.rcParams['axes.color_cycle']
@@ -2679,6 +2692,8 @@ def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 		# later, look into using integer or tuple types. if our sec_id lists --> tuples, we can pass sec_id
 		#sec_id_index = sec_id if hasattr(sec_id, 'append') else tuple(sec_id)
 		#
+		# this bit about combinining catalogs needs to be reviewed and possibly re-written. how, specifically, do we want to 
+		# facilitate custom catalogs?
 		ary_in = combine_section_CFFs(sec_id, start_year=start_year, end_year=end_year)
 		#ary_in = numpy.load(file_path_pattern % sec_id)
 		#
@@ -2687,9 +2702,10 @@ def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 		else:
 			full_catalog = numpy.append(full_catalog, ary_in)
 		#
+		# get some mean interval stats and dN and dT (number of events and time between m>m0 events):
 		mean_rec_data = mean_recurrence(ary_in=ary_in, m0=m0)
-		X = mean_rec_data['dists']['dT'].tolist()
-		dT_composite_faultwise += X
+		X = mean_rec_data['dists']['dT'].tolist()			# time intervals; dNs are ['dists']['dN']
+		#
 		print "sec_id: ", sec_id
 		this_lbl = 'section(s) %s' % ', '.join(map(str, sec_id))
 		#sec_name = this_lbl
@@ -2701,8 +2717,7 @@ def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 		max_x = max(max_x, max(X))
 		min_x = min(min_x, min(X))
 		#
-		#Y = [x/N for x in range(1, len(X)+1)]
-		#mean_dT = mean_rec_data['mean_dT']
+		# get t_0 values as factors of <t>.
 		mean_dT = numpy.mean(X)
 		this_t0s = [mean_dT * x for x in t0_factors]
 		#
@@ -2720,20 +2735,19 @@ def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 			this_color = colors_[i_t%len(colors_)]
 			max_x = 0.
 			min_x = 0.
-			#this_X = [x-t0 for x in X if (x-t0)>=0.]
-			this_X = [x for x in X if (x-t0)>=0.]
-			if len(this_X)<5: continue		# ... because it won't fit...
-			this_X.sort()
 			#
-			# skip it if there aren't very many data:
-			#if len(this_X)<5: continue
+			#this_X = [x for x in X if (x-t0)>=0.]		# why didn't we just say if x>t0?
+			this_X = [x for x in X if x >= t0 ]
+			if len(this_X)<5: continue		# ... because we won't be able to fit it...
+			this_X.sort()					# ... though it should already be sorted...
 			#
 			N = float(len(this_X))
 			Y = [float(j)/N for j in range(1, int(N)+1)]
 			max_x = max(max_x, max(X))
 			min_x = min(min_x, min(X))
 			#
-			plt.plot([x for x in this_X], Y, '.-', color = this_color, label='data, $t_0=%.3f$' % t0)
+			#plt.plot([x for x in this_X], Y, '.-', color = this_color, label='data, $t_0=%.3f$' % t0)
+			plt.plot(this_X, Y, '.-', color = this_color, label='data, $t_0=%.3f$' % t0)
 			# curve_fit() tends to break -- aka, not converge. in that event, do an MC fit
 			print "these lens: ", len(this_X), len(Y)
 			try:
@@ -2797,9 +2811,9 @@ def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 		plt.gca().set_ylim([0., 1.1])
 		plt.title('CDF for m>%s on fault section %s' % (str(m0), ', '.join([str(x) for x in sec_id])))
 		plt.legend(loc=0, numpoints=1)
-		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$ (years)' % m0)
-		plt.ylabel('Probability $P(t)$')
-		plt.savefig('%s/waiting_time_distribution_m%s_section_%s.png' % (output_dir, str(m0).replace('.', ''), '_'.join([str(x) for x in sec_id])))
+		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t_r$ (years)' % m0)
+		plt.ylabel('Probability $P(\\Delta t_r)$')
+		plt.savefig('%s/RI_conditional_CDF_m%s_section_%s.png' % (output_dir, str(m0).replace('.', ''), '_'.join([str(x) for x in sec_id])))
 		
 		#if keep_figs==False and not sec_id<0: plt.close(i)	# ?? sec_id in [list-o-sec_ids]...
 	#

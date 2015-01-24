@@ -400,13 +400,15 @@ def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_C
 				name_str = str(key)
 				sec_id=val
 		if not hasattr(sec_id, '__len__'): sec_id=[sec_id]
-		if name_str == None: name_str=str(*sec_id)
+		if name_str == None: 
+			#name_str=str(*sec_id)
+			name_str = '_'.join([str(x) for x in sec_id])
 		#
 		EWT = expected_waiting_time_t0(section_ids=sec_id, m0=m0, fits_data_file_CDF=fits_data_file_CDF, WT_catalog_format=WT_catalog_format, sim_file=sim_file, n_t0=n_t0, fnum=fnum, do_local_fit=do_local_fit)
 		#
 		plt.figure(fnum)
 		plt.title('Expected Waiting times: sections %s' % name_str)
-		plt.xlabel('Time since last $m>%.2f$ event' % m0)
+		plt.xlabel('Time since last $m>%.2f$ event, $t_0$' % m0)
 		plt.ylabel('Expected interval $\Delta t$')
 		#
 		plt.savefig('%s/EWT_m0_%s_section_%s.png' % (output_dir, str(m0).replace('.',''), name_str))
@@ -415,10 +417,17 @@ def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_C
 #
 # IAGS paper (short, letter bit for IAGS special publication):
 
-def iags_waiting_time_probabilities():
-	A=vc_parser.waiting_time_figs(section_ids=[24, 25], output_dir='figs_iags')
+#def iags_waiting_time_probabilities():
+#	A=vc_parser.waiting_time_figs(section_ids=[24, 25], output_dir='figs_iags')
+#	#
+#	return A
+def iags_RI_probabilities(section_ids=[123, 111, vc_parser.emc_sections], output_dir='figs_iags'):
+	# use: def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None)
 	#
-	return A
+	#for i, sec_id in enumerate(section_ids):
+	
+	z=conditional_RI_figs(section_ids=section_ids,file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='figs_iags_tmp', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None)
+	
 #
 def iags_expected_waiting_times(output_dir='figs_iags', section_ids = [123, 124, [123, 124], 125, [123, 124, 125]], m0=7.0, fnum=0):
 	#

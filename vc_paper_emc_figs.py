@@ -140,6 +140,7 @@ def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_g
 	return my_map
 
 def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, plot_sections=[], f_out=None, plot_quake_dots=False, fault_colors = None):
+	# note, here "RI" means "Relative Intensity", NOT "recurrence interval"
 	# make an etas map from a vc catalog. we probably have to pare down the catalog, since simulated catalogs are super huge.
 	# sectionses: a list of a list of sections[ [secs1], [secs2], etc.] to (over)plot separately.
 	#
@@ -259,31 +260,67 @@ def closest_emc_fault_section_figs(n_sections=5, sections=None, m0=7.0):
 	# a few plots based on the nearest sections to the EMC event.
 	# sections: overrides n_sections? maybe we'll truncate. anyway, you can provide sections or leave it None and fetch them.
 	'''
+	
+	output_dir = 'figs_gji/emc_RI_WT_figs_n_%d' % n_sections
 
 	if sections==None:
 		sections = vc_parser.get_nearest_section_ids(lat_0=32.128, lon_0=-115.303, section_ids=vc_parser.emc_sections, dist_mode=0, n_sections=n_sections, verbose=False)
 	print "sections: ", sections
 	#
 	#################
-	q=waiting_time_figs(section_ids=sections, file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='emc_WT_figs_n_%d' % n_sections, mc_nits=100000, n_cpus=None)
+	#q=waiting_time_figs(section_ids=sections, file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='emc_WT_figs_n_%d' % n_sections, mc_nits=100000, n_cpus=None)
 	#
-	EWTf = EMC_EWT_figs(section_ids=sections, m0=m0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, output_dir='expected_emc_waiting_time_figs_n_%d' % n_sections, do_local_fit=False)
+	# ... but we should already have these from gji_RI_probabilities(), and we don't use the individual figures anyway...
+	#q1=conditional_RI_figs(section_ids=sections,file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir=output_dir, mc_nits=100000, n_cpus=None, start_year=10000, end_year=None)
+	
+	q1=conditional_RI_figs(section_ids=[sections],file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir=output_dir, mc_nits=100000, n_cpus=None, start_year=10000, end_year=None)
+	plt.title('CDF $P(\Delta t_r)$ for 5 nearest fault segments (%s)' % (', '.join([str(x) for x in sections])))
+	#ax = plt.gca()
+	#ax.set_xlim(0., 175.)
+	#plt.draw() 
+	#
+	plt.savefig('%s/EMC_conditional_ri_aggregate_%d_nearest.png' % (output_dir, n_sections))
+	
+	#
+	EWTf = EMC_EWT_figs(section_ids=sections, m0=m0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, output_dir=output_dir, do_local_fit=False)
 	#
 	#
 	b=vc_parser.expected_waiting_time_t0(section_ids=sections, do_local_fit=False)
 	plt.xlabel('Time since last $m>%.2f$ event, $t_0$ (years)' % m0)
 	plt.ylabel('Expected interval $\Delta t$')
 	plt.title('EMC expected waiting times for fault sections:\n' + ', '.join(map(str, sections)) + '\n')
-	plt.savefig('expected_emc_waiting_time_figs_n_%d/emc_ewt_n%d_composite.png' % (n_sections, n_sections))
+	plt.savefig('%s/emc_ewt_n_%d_composite.png' % (output_dir, n_sections))
 	
 	return EWTf
 
-def EMC_WT_dist_Appendix(wt_dir='VC_WT_probs_20150109', output_file = 'VC_WT_probs_20150109/appendix_wt_probs.tex', section_ids=vc_parser.emc_sections):
+#
+def gji_RI_probabilities(section_ids=vc_parser.emc_sections, output_dir='figs_gji'):
+	#
+	# ... and we should write a script to plot pre-fit data. it's probably better to just write a separate script, since matching the 
+	# existing t_0 values with the parent (fit + fig generating script) is tricky (since they're floats). the better approach is to separate
+	# the fitting and plotting parts... so do this in PyVQ.
+	#
+	# get individual section figures:
+	gji_pri_figs_dir = '%s/pri' % output_dir
+	#
+	#z=conditional_RI_figs(section_ids=section_ids,file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir=gji_pri_figs_dir, mc_nits=100000, n_cpus=None, start_year=10000, end_year=None)
+	#
+	# now get the aggregate figure:
+	z=conditional_RI_figs(section_ids=[section_ids],file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir=gji_pri_figs_dir, mc_nits=100000, n_cpus=None, start_year=10000, end_year=None)
+	plt.title('CDF $P(\Delta t_r)$ for EMC region, aggregated')
+	ax = plt.gca()
+	ax.set_xlim(0., 175.)
+	plt.draw()
+	#
+	plt.savefig('%s/EMC_conditional_ri_aggregate.png' % output_dir)
+
+def EMC_WT_dist_Appendix(wt_dir='figs_gji/pri', output_file = 'figs_gji/pri/appendix_wt_probs.tex', section_ids=vc_parser.emc_sections):
 	'''
 	# make at least the framework for an appendix of all the WT distribution figures.
 	# file_format='VC_CDF_WT_m70_section_%d.png'
 	#
 	'''
+	# formerly: wt_dir='VC_WT_probs_20150109'
 	#
 	src_template_file = '/home/myoder/Dropbox/Research/VC/EMC_VC_paper/VC_forecasting_yoder.tex'
 	header_string = ''
@@ -318,14 +355,16 @@ def EMC_WT_dist_Appendix(wt_dir='VC_WT_probs_20150109', output_file = 'VC_WT_pro
 
 
 #def EMC_exp_WT_Appendix(wt_dir='expected_waiting_time_figs', wt_prob_dir='VC_WT_probs_20150109', output_file = 'appendix_exp_wt.tex', section_ids=vc_parser.emc_sections):
-def EMC_exp_WT_Appendix(wt_dir='\WTexpfigs', wt_prob_dir='\WTPfigs', output_file = 'appendix_exp_wt.tex', section_ids=vc_parser.emc_sections):
+def EMC_exp_WT_Appendix(wt_dir='\WTexpfigs', wt_prob_dir='\WTPfigs', output_file = 'vc_appendix_emc_PRI.tex', section_ids=vc_parser.emc_sections):
 	'''
 	# make at least the framework for an appendix of all the WT distribution figures.
 	# file_format='VC_CDF_WT_m70_section_%d.png'
 	#
 	'''
 	#
-	src_template_file = '/home/myoder/Dropbox/Research/VC/EMC_VC_paper/VC_forecasting_yoder.tex'
+	manuscript_folder = '/home/myoder/Dropbox/Research/VC/VC_EMC_gji_yoder'
+	#
+	src_template_file = '%s/VC_forecasting_yoder.tex' % manuscript_folder
 	header_string = ''
 	with open(src_template_file,'r') as f:
 		for rw in f:
@@ -352,7 +391,7 @@ def EMC_exp_WT_Appendix(wt_dir='\WTexpfigs', wt_prob_dir='\WTPfigs', output_file
 			#f.write('\\textbf{b)}\\includegraphics[width=2.5in]{../expected_waiting_time_figs/EWT_m0_70_section_%d}\n' % section_id)
 			f.write('\\textbf{b)}\\includegraphics[width=2.5in]{%s/EWT_m0_70_section_%d}\n' % (wt_dir, section_id))
 			f.write('\\caption{\\textbf{a)} Waiting time distributions and \\textbf{b)} Expected waiting times for fault section %d.}\n' % section_id)
-			f.write('\\label{fig:appendix_wt_%d}\n\\end{figure}\n' % section_id)
+			f.write('\\label{fig:appendix_pri_%d}\n\\end{figure}\n' % section_id)
 			f.write('\n\n')
 			
 			#
@@ -360,7 +399,8 @@ def EMC_exp_WT_Appendix(wt_dir='\WTexpfigs', wt_prob_dir='\WTPfigs', output_file
 		f.write('\\end{document}')
 		#
 	#
-	os.system('cp %s %s' % (output_file, '/home/myoder/Dropbox/Research/VC/EMC_VC_paper/%s' % output_file))
+	#os.system('cp %s %s' % (output_file, '%s/%s' % (manuscript_folder, output_file)))
+	os.system('cp %s %s/%s' % (output_file, manuscript_folder, output_file))
 
 
 def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, output_dir='expected_waiting_time_figs', do_local_fit=False):
@@ -426,8 +466,8 @@ def iags_RI_probabilities(section_ids=[123, 111, vc_parser.emc_sections], output
 	#
 	#for i, sec_id in enumerate(section_ids):
 	
-	z=conditional_RI_figs(section_ids=section_ids,file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='figs_iags_tmp', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None)
-	
+	z=conditional_RI_figs(section_ids=section_ids,file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir=output_dir, mc_nits=100000, n_cpus=None, start_year=10000, end_year=None)
+
 #
 def iags_expected_waiting_times(output_dir='figs_iags', section_ids = [123, 124, [123, 124], 125, [123, 124, 125]], m0=7.0, fnum=0):
 	#

@@ -2594,7 +2594,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	return best_fit_dict
 #
 #def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None):
-def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None):
+def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None, keep_figs=False):
 	'''
 	# ... note as soon as we work out of these early yoder et al. 2015ab papers, we can dump def waiting_time_figs() entirely...)
 	# ... and phase 2 of this retro-fit will be to separate this into a loop (which we'll move elsewhere) and a caller for a single cRI
@@ -2617,6 +2617,8 @@ def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 	# start_year, end_year: start/end years of simulation. it's typically a good idea to sluff off the leading 10,000 years or so
 	# (i assume this depends on the simulation size) if you've got a short catalog, 0 will be fine, but there tend to be
 	# artifacts in the early parts of the 
+	# fit_file_pattern: use an existing fit (for re-making figures), or calculate new fits (which can be time consuming). to always re-fit,
+	# se fit_file_pattern=None
 	#
 	# for each section_id, fetch the mean_recurrence data.
 	# 1) plot each cumulative probability
@@ -2650,7 +2652,7 @@ def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 				break
 		output_dir = new_output_dir
 		os.mkdir(output_dir)
-	new_output_dir = None
+	new_output_dir = None		
 	#
 	lw=2.5
 	ms=5.
@@ -2666,12 +2668,16 @@ def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 	fit_type_str_len = 32
 	#fit_columns_types = ['float', 'int', 'float', 'float', 'float', 'float', 'float', 'S%d' % fit_type_str_len]
 	fit_columns_types = ['float', 'S256', 'float', 'float', 'float', 'float', 'float', 'S%d' % fit_type_str_len]
+	#	
+	plt.figure(i, figsize=(12,10))
+	plt.clf()
+	#
 	for j, sec_id in enumerate(section_ids):
 		#this_color = colors_[j%len(colors_)]
 		#i=j+1
 		i=j
 		#sections[sec_id] = {'fig':i}
-		plt.figure(i, figsize=(12,10))
+		if keep_figs: plt.figure(i, figsize=(12,10))
 		plt.clf()
 		#
 		#these_t0_factors = t0_factors		# default t0 factors, but we might change them for composite figures...
@@ -2738,7 +2744,10 @@ def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 			#
 			#this_X = [x for x in X if (x-t0)>=0.]		# why didn't we just say if x>t0?
 			this_X = [x for x in X if x >= t0 ]
-			if len(this_X)<5: continue		# ... because we won't be able to fit it...
+			#print "tyring... %s/%f because it's too short (%d)" % (str(sec_id), t0, len(this_X))
+			if len(this_X)<=5: 
+				print "skipping %s/%f because it's too short (%d)" % (str(sec_id), t0, len(this_X))
+				continue					# ... because we won't be able to fit it...
 			this_X.sort()					# ... though it should already be sorted...
 			#
 			N = float(len(this_X))
@@ -2797,15 +2806,11 @@ def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 			plt.plot([x for x in X_fit], [f_weibull(x=x, chi=fit_prams_0[0], beta=fit_prams_0[1], x0=t0) for x in X_fit], '-.', color=this_color, lw=lw, ms=ms, label=None)
 			#
 			#
-		print "best fit dict:", best_fit_dict[sec_id]
+		print "best fit dict (final):", best_fit_dict[sec_id]
 		#best_fit_dict[sec_id] = numpy.core.records.fromarrays(zip(*best_fit_dict[sec_id]), names=fit_columns, formats = [(type(x).__name__ for x in best_fit_dict[sec_id][0]])
-		best_fit_dict[sec_id] = numpy.core.records.fromarrays(zip(*best_fit_dict[sec_id]), names=fit_columns, formats = fit_columns_types)
-		#
-		# save best fits:
-		#Z=(output_dir, str(m0).replace('.', ''), '_'.join(sec_id))
-		#for z in Z:
-		#	print "***", z, type(z)
-		best_fit_dict[sec_id].dump('%s/VC_CDF_WT_fits_m%s_section_%s.npy' % (output_dir, str(m0).replace('.', ''), '_'.join([str(x) for x in sec_id])))
+		if len(best_fit_dict[sec_id])>0:
+			best_fit_dict[sec_id] = numpy.core.records.fromarrays(zip(*best_fit_dict[sec_id]), names=fit_columns, formats = fit_columns_types)
+			best_fit_dict[sec_id].dump('%s/VC_CDF_WT_fits_m%s_section_%s.npy' % (output_dir, str(m0).replace('.', ''), '_'.join([str(x) for x in sec_id])))
 		#
 		plt.legend(loc=0, numpoints=1)
 		plt.gca().set_ylim([0., 1.1])
@@ -3699,7 +3704,7 @@ def vc_ETAS_catalog(section_ids=None, sim_file=allcal_full_mks, start_year=None,
 
 #
 def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
-	# find mean, stdev Delta_t, N between m>m0 events in ary_in.
+	# find mean, stdev Delta_t, N between m>=m0 events in ary_in.
 	# for now, assume ary_in is a structured array, h5, or name of a structured array file.
 	#
 	if isinstance(ary_in, str)==True:
@@ -3710,7 +3715,7 @@ def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_
 	except:
 		print "ary_in sorting failed, but continuing anyway, hoping for not nonsense..."
 	#
-	Ns, Js, Ts, Ms = zip(*[[x['event_number'], j, x['event_year'], x['event_magnitude']] for j, x in enumerate(ary_in) if float(x['event_magnitude'])>m0])
+	Ns, Js, Ts, Ms = zip(*[[x['event_number'], j, x['event_year'], x['event_magnitude']] for j, x in enumerate(ary_in) if float(x['event_magnitude'])>=m0])
 	Ns_total, Js_total, Ts_total = zip(*[[x['event_number'], j, x['event_year']] for j, x in enumerate(ary_in) ])
 	#
 	# just large events:
@@ -3722,7 +3727,7 @@ def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_
 	#
 	# all events:
 	stress_drop_total = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:]]
-	stress_drop = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:] if float(x['event_magnitude'])>m0]	# large m stress-drop
+	stress_drop = [(x['cff_initial']-x['cff_final'])**2. for x in ary_in[2:] if float(x['event_magnitude'])>=m0]	# large m stress-drop
 	dNs_total = [Ns_total[i]-Ns_total[i-1] for i, n in enumerate(Ns_total[1:])][1:]
 	dJs_total = [Js_total[i]-Js_total[i-1] for i, n in enumerate(Js_total[1:])][1:]
 	dTs_total = [Ts_total[i]-Ts_total[i-1] for i, t in enumerate(Ts_total[1:])][1:]

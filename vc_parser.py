@@ -467,8 +467,11 @@ def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_sect
 	combined_catalog.sort(order='event_year')
 	#
 	return combined_catalog
-	
-def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None):
+#
+# ROC and predictability bits.
+#
+
+def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.gt, section_id=16):
 	'''
 	#
 	# forecast based on seismic acceleration. specifically, for a set of data (a fault-section time-series),
@@ -480,10 +483,19 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	#     - the "_i-1" condition is fair because 1) we don't know the slope is changin until the even happens
 	#       and 2) in a real scenario, we'd have aftershocks, which woluld turn the post-seismic slope positive.
 	#
+	# parameters:
+	# m0: recurrence magnidue
+	# b_0: critical slope; issue alert for f_gt_lt(b,b_0)==True, aka, b>b_0 (see below)
+	# nyquist_factor: fraction of inter-event sequence length to sample
+	# do_plot: do plots ?
+	# fnum: plot on figure(fnum)...
 	# set_name: a name to give the set if ary_in is an array, not a string, or if we want to specify it.
 	# (we should use the plotting routine from vc_parser.plot_CFF_ary(), namely the top subfig. )
+	# f_gt_lt: function for greater/lesser evaluation... use operator.{gt, ge, lt, le}, or any two parameter input.
 	'''
 	#
+	if (ary_in==None or len(ary_in)==0) and section_id!=None:
+		ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id
 	if isinstance(ary_in, str):
 		CFF = numpy.load(ary_in)
 	else:
@@ -533,7 +545,8 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 		#mean_b = numpy.mean(running_b_sequence)
 		#this_b = mean_b
 		#
-		if this_b >= b_0:
+		#if this_b >= b_0:
+		if not f_gt_lt(this_b, b_0):		# abstracting the gt/lt option...
 			# null case
 			# if we've been collecting "alert" events, stop. if not, just troll along...
 			if len(alert_segments[-1])>0:
@@ -541,7 +554,8 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 				alert_segments+= [[]]
 		
 		else:
-			# accelerating case:
+			# f_gt_lt(this_b, b_0) is True
+			# accelerating case (if f_gt_lt = operator.lt):
 			#this_mag = CFF[-max_n:][i+1]['event_magnitude']
 			this_mag = CFF_dict[rw['event_year']]['event_magnitude']
 			#
@@ -640,14 +654,16 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 			#
 			# ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b']  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='m', zorder=1, alpha=.5)
 			#ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0.0 for x in trend_data], color='m', zorder=1, alpha=.25)
-		
+			#
 			# show the metric value:
-			ln_metric = ax_metric.fill_between(X,[y for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )			
+			#ln_metric = ax_metric.fill_between(X,[y for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
+			ln_metric = ax_metric.fill_between(X,[y for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [f_gt_lt(y,0.) for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
 			ax_metric.plot(X, [0.0 for y in Y if y<0], 'm-')
 			ax_metric.plot(X, [y for y in Y if y<0], 'm-')
 			#
 			# and just an "alert!" box:
-			ln_metric = ax_metric.fill_between(X,[min_metric for y in Y],y2=[0.0 for y in Y], color='m', alpha=.15, where = [y<0. for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
+			#ln_metric = ax_metric.fill_between(X,[min_metric for y in Y],y2=[0.0 for y in Y], color='m', alpha=.15, where = [y<0. for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
+			ln_metric = ax_metric.fill_between(X,[min_metric for y in Y],y2=[0.0 for y in Y], color='m', alpha=.15, where = [f_gt_lt(y,0.) for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
 			#
 			#ax_mags.fill_between(X, [min_mag for x in X], [m0 for x in X], zorder=5, alpha=.2, color='c')
 		#
@@ -677,7 +693,9 @@ def forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_
 	#return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments, 'ary_in_name':set_name, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 #
-def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, dump_file=None, n_cpus=None):
+def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, dump_file=None, n_cpus=None, f_gt_lt=operator.gt):
+	# (i think this is the production run function for the ROC diagram and fits).
+	#
 	# mpp implementation of simple_metric_optimizer() to optimize a set of forecasts. note that sections[] can include not only 
 	# individual fault segments but groups of segments like: sections = [25, 23, 30, 31, 32, 33, [30,31,32,33], ...] in the event that
 	# we want to do faultwise analysis. also, we'll use this trick to do the composite set, rather than use a "do_composite" flag or something.
@@ -708,7 +726,7 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	#
 	for i, sec_id in enumerate(sections):
 
-		pool_handlers += [P.apply_async(simple_metric_optimizer, kwds={'CFF':{'sections':sec_id, 'start_year':start_year}, 'm0':m0, 'b_min':b_min, 'b_max':b_max, 'd_b':d_b, 'nyquist_min':nyquist_min, 'nyquist_max':nyquist_max, 'd_nyquist':d_nyquist, 'nits':nits, 'keep_set':keep_set, 'set_name':section_names[i], 'dump_file':None})]
+		pool_handlers += [P.apply_async(simple_metric_optimizer, kwds={'CFF':{'sections':sec_id, 'start_year':start_year}, 'm0':m0, 'b_min':b_min, 'b_max':b_max, 'd_b':d_b, 'nyquist_min':nyquist_min, 'nyquist_max':nyquist_max, 'd_nyquist':d_nyquist, 'nits':nits, 'keep_set':keep_set, 'set_name':section_names[i], 'dump_file':None, 'f_gt_lt':f_gt_lt})]
 	P.close()
 	#
 	pool_results = [R.get()[0] for R in pool_handlers]
@@ -719,6 +737,7 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	# it.) do we really want to keep the alert segments? they're easy enough to recover given the pramset. let's just kill them.
 	#
 	# screw this. there are strings... or one string anyway, so we have to fix its length and all of that. do this alter (or not at all)
+	# ... or maybe we'll get the recarray; for string, the type is 's%d' % s_len or 'S%d' % s_len (i think).
 	#print pool_results[0]
 	#pool_results = numpy.rec.array([rw.values() for rw in pool_results], names=pool_results[0].keys(), formats = [type(x).__name__ for x in pool_results[0].itervalues()])
 	#
@@ -729,8 +748,11 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	#
 	return pool_results
 #
-def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, set_name='data_set', dump_file=None):
+def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, set_name='data_set', dump_file=None, f_gt_lt=operator.gt, f_score=None):
 	'''
+	# this does an MC thing to optimize a forecast metric for a CFF (presumably a section catalog like 'data/VC_CFF_timeseries_section_16.npy'
+	# or the data therein. it can be run independently or (it's primary purpose) wrapped by simple_mpp_optimizer()
+	#
 	#, opt_func=forecast_metric_1, opt_args=[], opt_kwargs={}):
 	
 	# a simple MC optimizer:
@@ -739,6 +761,10 @@ def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0,
 	# otherwise assume it's a ready-to-rock array.
 	#
 	# nits: mc nits
+	# f_gt_lt_operator: greater/lesser operator. if b<b_0 --> if operator.lt(b,b_0) --> (in general) --> if f_gt_lt(b, b_0)
+	# f_score: a two-parameter score function (which can be modified using a lambda function as necessary of course.
+	#          variables will be passed to f_score like score = f_score(H,F).
+	#          excellent choices inlcude: opeartor.sub(), opeartor.div()
 	#
 	#### save these for later...
 	# opt_func: optimization function
@@ -752,6 +778,9 @@ def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0,
 	# X=fc_data['total_alert_time']/fc_data['total_time']
 	# and then we use some sort of steepness metric...
 	'''
+	if f_score == None:
+		f_score = operator.div
+	#
 	opt_func = forecast_metric_1
 	# forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0)
 	#
@@ -783,18 +812,24 @@ def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0,
 		this_b   = b_min       + delta_b*R_b.random()
 		this_nyq = nyquist_min + delta_nyq*R_nyq.random()
 		#
-		fit_data = opt_func(ary_in=CFF, m0=m0, b_0=this_b, nyquist_factor=this_nyq, do_plot=False, set_name=set_name)
+		# this needs to be abstracted to take a set of prams...
+		fit_data = opt_func(ary_in=CFF, m0=m0, b_0=this_b, nyquist_factor=this_nyq, do_plot=False, set_name=set_name, f_gt_lt=f_gt_lt)
 		#
 		# get hits/falsies:
 		hit_rate = float(fit_data['n_predicted'])/(float(fit_data['n_predicted'])+float(fit_data['n_missed']))
-		alert_rate = float(fit_data['total_alert_time'])/float(fit_data['total_time'])
+		false_alarm_rate = float(fit_data['total_alert_time'])/float(fit_data['total_time'])		# 
 		#
-		# and some sort of metric. how'bout the trig metric:
-		# (but since we're just rank-ordering, the trig bit is not necessary)
-		#this_score = math.atan2(hit_rate, alert_rate)
-		this_score = hit_rate/alert_rate	# could also be hit_rate-alert_rate...
+		#
+		#this_score = hit_rate/alert_rate	# could also be hit_rate-alert_rate (see below).
+		this_score = f_score(hit_rate, false_alarm_rate)
+		#
+		# note: the more contemporary area-skill = ingegral(H(f)-f), aka the area between H(F) and H=F,
+		# can be emulated by:
+		# this _score = hit_rate-alert_rate		#, (which i think was our first metric) so we "integrate" under each point
+		#										# these should produce similar, but maybe not identical results.
+		#
 		fit_data['score']=this_score
-		print this_score, hit_rate, alert_rate
+		print this_score, hit_rate, false_alarm_rate
 		if this_score>best_score:
 			best_score=this_score
 			#best_prams = fit_data
@@ -937,7 +972,9 @@ def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2,
 	# this runs a fully composite optimization, which produces some not super believable... or optimal
 	# results. it seems that we would do better to optimize each fault independently.
 	# data_in: start with, and append, an existing data file.	
-
+	#
+	# ... and this can probably be removed as well, as it can be accomplished by creating a combined catalog and passing to 
+	# simple_metric_optimizer()
 	#
 	R_b   = random.Random()
 	R_nyq = random.Random()
@@ -1058,7 +1095,13 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 			# try this metric as well:
 			# (maximize the angle... or the sin of the angle of the ROC vector).
 			#print "using trig based score:"
-			this_score = math.sin(math.atan(rw['n_predicted']*rw['total_time']/(rw['total_alert_time']*(float(rw['n_predicted'])+rw['n_missed'])) ))
+			#this_score = math.sin(math.atan(rw['n_predicted']*rw['total_time']/(rw['total_alert_time']*(float(rw['n_predicted'])+rw['n_missed'])) ))
+			H = rw['n_predicted']/(float(rw['n_predicted'])+rw['n_missed'])
+			F = rw['total_alert_time']/float(rw['total_time'])		# stick a float() in there just to be sure we're doing float math.
+			#this_score = rw['n_predicted']*rw['total_time']/(rw['total_alert_time']*(float(rw['n_predicted'])+rw['n_missed']))	# H/F
+			this_score = H/F
+			#this_score = H-F
+			#
 			if len(fault_scores[rw['ary_in_name']])==0 or this_score>max(fault_scores[rw['ary_in_name']].iterkeys()):
 				fault_scores[rw['ary_in_name']][this_score] = rw	# index each row by the score for fast sorting.
 			#
@@ -1103,6 +1146,32 @@ def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyqu
 	
 	#
 	return scores_out
+
+def plot_best_ROC(scores_in=None, fignum=0, do_clf=True, plot_f_out=None):
+	# a (simplified?) ROC plotter for optimized (segment partitioned) sets. this should be pretty generalized so we pass
+	# a list of dicts (might trap other inputs as well later) and plot them. we'll sort out legends and stuff later.
+	# ... and maybe remove the 'best', since we only plot here; there is no fitting... and so maybe we should move this to the paper_figs
+	# script...
+	#
+	# here's the basic cascade of scores_in inputs:
+	if scores_in==None:
+		#scores_in = 'dumps/optimize_faultwise_best_scores.npy' # (i think).
+		scores_in = 'dumps/optimize_faultwise_trig_105_best_scores.npy'	# which i think is the same as the above, but more nits.
+																		# maybe we want to compare a few sets? also get a "default" set (see below).
+	if isinstance(scores_in, str):
+		scores_in = numpy.load(scores_in)
+	#
+	# did we get a list of dicts instead of a recarray?
+	if isinstance(scores_in[0], dict):
+		# this should work, but it has not yet been tested... but it probably won't work because of string types...
+		scores_in = numpy.rec.array([[val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in scores_in], names=[key for key,val in scores_in[0].iteritems() if not hasattr(val, '__len__')], formats = [type(x).__name__ for x in scores_in[0].itervalues() if not hasattr(x, '__len__')])
+		#
+		# sloppy tweak:
+		if 'b_0' not in (scores_in.dtype.names): col_name_subs['b_0']='b'
+		# 
+	#
+	
+	#
 
 def plot_best_opt_prams(scores_in=None, plot_f_out=None):
 	'''
@@ -1379,6 +1448,11 @@ def plot_bunch_o_metric_nyquist(all_the_data=None):
 	#
 	return all_the_data
 #
+##############################################
+# end ROC and predictability bits
+##################################
+#
+#
 def mean_recurrenceses(section_ids=[], m0=7.0, file_path_format='data/VC_CFF_timeseries_section_%d.npy'):
 	# wrapper script to plot a whole bunch of mean_recurrence data onto a single figure.
 	if section_ids == None or (hasattr(section_ids, '__len__' and len(section_ids)==0)):
@@ -1393,106 +1467,9 @@ def mean_recurrenceses(section_ids=[], m0=7.0, file_path_format='data/VC_CFF_tim
 	#
 	return None
 #
-def f_inv_weibull(P=None, t0=None, tau=None, beta=None):
-	# inverse (solving for t or delta_t):
-	#print "prams: ", P,t0,tau,beta
-	P,t0,tau,beta = [float(x) for x in [P,t0,tau,beta]]
-	#
-	return tau*((t0/tau)**beta - math.log(1.-P))**(1./beta)
-#
-def f_weibull(x=None, chi=1.0, beta=1.0, x0=None):
-	'''
-	# weibull distribution (for fitting).
-	# if different parameter ordering is necessary, as per specifics of fitting routine or something like that,
-	# use an anonymous "lambda" function. aka, the "func" pram: fitter(f_wieibul, prams) -->
-	# fitter(lambda x, chi, beta: f_weibull(x, chi, beta, my_x0_value), prams ...
-	# so, "lambda" takes the parameters x, chi, beta and passes them to f_weibull along with the externally defined my_x0_value.
-	# now, the fitting function looks like ([x], (variable prams) ), as expected by curve_fit().
-	'''
-	if x0==None: x0=0.0		# ... but we give it None so the fitting algorithm does not try to fit...
-	#
-	return 1.0 - numpy.exp( ((x0/chi)**beta) - ((x/chi)**beta))
-#
-def mcfitter(func=f_weibull, X=None, Y=None, prams_dict=None, nits=10**6, n_cpus=None):
-	# quick mc fitter MC fitter for tough functions.
-	# func: function fitting to
-	# X,Y: X and Y data
-	# prams dict is like {'pram_name':[min, max], ...}
-	#
-	if n_cpus==None:
-		try:
-			n_cpus = mpp.cpu_count()
-		except:
-			n_cpus = 1
-	#
-	if n_cpus>1:
-		# do MPP. parse into SPP jobs. call this function (quasi-recursively) with n_cpus = 1.
-		print "passing..."
-		#
-		print "doing mpp MC fit..."
-		if n_cpus==None: n_cpus = mpp.cpu_count()
-		#
-		results=[]
-		pool = mpp.Pool(n_cpus)
-		for i in xrange(n_cpus):
-			results+=[pool.apply_async(mcfitter, kwds={'func':f_weibull, 'X':X, 'Y':Y, 'prams_dict':prams_dict, 'nits':nits/n_cpus, 'n_cpus':1})]
-		pool.close()
-		#pool.join()
-		#
-		#Zmin, Z=[], []
-		Zmin, Z = results[0].get()
-		 
-		for j, result in enumerate(results):
-			if j==0: continue
-			#
-			a,b = result.get()
-			Zmin = numpy.append(Zmin, a)
-			Z    = numpy.append(Z, b)
-			#
-		Zmin.sort(order='chi_sqr')
-		#
-		return Zmin, Z
-	#
-	else:
-		#
-		# do SPP
-		pram_handler = {}
-		for key in prams_dict.keys():
-			pram_handler[key] = {'min':prams_dict[key][0], 'delta':prams_dict[key][1]-prams_dict[key][0]}
-			#
-			if pram_handler[key]['delta']==0: 
-				# choosing random numbers is expensive. if delta is zero, spoof random.Random() with "getter()" class
-				# that quickly return 0.
-				pram_handler[key]['rand']=getter(rand_val = 0.0)
-			else:
-				pram_handler[key]['rand']=random.Random()
-		#
-		this_prams = []
-		min_pramses = []	# list of min. parameters
-		pramses = []
-		N_x = len(X)
-		ndof = float(len(X) - len(prams_dict))
-		#
-		for i in xrange(nits):
-			this_prams_dict = {key:pram_handler[key]['min'] + pram_handler[key]['delta']*pram_handler[key]['rand'].random() for key in prams_dict.keys()}
-			#print this_prams_dict
-			chi_sqr = numpy.sum([(func(X[j], **this_prams_dict)-Y[j])**2. for j in xrange(N_x)])/ndof
-			#
-			#print chi_sqr, i
-			pramses += [[i] + [this_prams_dict[key] for key in this_prams_dict.keys()] + [chi_sqr]]
-			if i==0 or chi_sqr < min_pramses[-1][-1]:
-				min_pramses += [pramses[-1]]
-			#
-		# numpy.core.records.fromarrays(zip(*best_fit_array), names = ['section_id', 'tau', 'beta', 'sigma_tau', 'sigma_beta', 'mean_chi_sqr'], formats = [type(x).__name__ for x in best_fit_array[0]])
-		#
-		min_pramses = numpy.core.records.fromarrays(zip(*min_pramses), names = ['index'] + [key for key in prams_dict.keys()] + ['chi_sqr'], formats = [type(x).__name__ for x in min_pramses[0]])
-		pramses = numpy.core.records.fromarrays(zip(*pramses), names = ['index'] + [key for key in prams_dict.keys()] + ['chi_sqr'], formats = [type(x).__name__ for x in pramses[0]])
-		
-		#
-		return min_pramses, pramses	
-#
 def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, keep_figs=False, output_dir='CDF_figs'):
 	'''
+	# (these should be the non-conditional weibull plots, equivalent to cond_wiebul(t0=0).
 	# for each section_id, fetch the mean_recurrence data.
 	# 1) plot each cumulative probability
 	# 2) including a weibull fit.
@@ -1714,6 +1691,8 @@ def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_se
 	return best_fit_array
 	#return full_catalog
 #
+##################################################
+# development and diagnostic bits:
 #
 def non_converging_weibul_example(fnum0=7, nits=100000, n_cpus=None):
 	'''
@@ -1999,60 +1978,15 @@ def tau_t0_fig(section_ids=None, glob_pattern='VC_CDF_WT_figs/VC_CDF_WT_*.npy'):
 
 	#
 	return full_array
+###################################
+# end development and diagnostic bits
+###############################
 #
-'''
-# move this wrapper script to vc_paper_emc_figs.py (since it's basically a figure-script. if all works out ok, then delete this
-# commented section.
-def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, output_dir='expected_waiting_time_figs', do_local_fit=False):
-	# make a set of "Expected Waiting Time" figures.
-	# (wrapper for expected_waiting_time_t0() )
-	#
-	if os.path.isdir(output_dir)==False:
-		os.mkdir(output_dir)
-	#
-	if isinstance(section_ids, str):
-		if section_ids.upper()=='EMC':
-			section_ids = [{'EMC':list(napa_sections)}] + list(napa_sections)
-		if section_ids.lower() == 'napa':
-			section_ids = [{'Napa':list(napa_sections)}] + list(napa_sections)
-
-	#
-	if section_ids==None:
-		# get 'em all:
-		with h5py.File(sim_file) as vcdata:
-			section_ids=list(set(vcdata['block_info_table']['section_id']))
-		#
-	#
-	# now, for each section_id, get EWT and draw a picture.
-	for sec_id in section_ids:
-		# first, is sec_id a number or a list? expected_waiting_time_t0() expects a list of section_ids.
-		name_str = None
-		#
-		# handle the input a bit. we can provide just a list of section ids or section id lists or we can mix in some dicts:
-		#  [1,2,3, [4,5,6], 7, [8,9,10], {'teens':[14,15,16,17,18,19]}, ... ]
-		# 
-		# a list of lists (or mi
-		if isinstance(sec_id, dict):
-			# we've been given a dictionary and some instructions. 
-			# assume for now that it's a single pair.
-			for key,val in sec_id.iteritems():
-				# just keep the last one...
-				name_str = str(key)
-				sec_id=val
-		if not hasattr(sec_id, '__len__'): sec_id=[sec_id]
-		if name_str == None: name_str=str(*sec_id)
-		#
-		EWT = expected_waiting_time_t0(section_ids=sec_id, m0=m0, fits_data_file_CDF=fits_data_file_CDF, WT_catalog_format=WT_catalog_format, sim_file=sim_file, n_t0=n_t0, fnum=fnum, do_local_fit=do_local_fit)
-		#
-		plt.figure(fnum)
-		plt.title('Expected Waiting times: sections %s' % name_str)
-		plt.xlabel('Time since last $m>%.2f$ event' % m0)
-		plt.ylabel('Expected interval $\Delta t$')
-		#
-		plt.savefig('%s/EWT_m0_%s_section_%s.png' % (output_dir, str(m0).replace('.',''), name_str))
-'''
+#######################################
+# statistics figure scripts:
 #
 def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_CDF_Weibull_fits_dump.npy', WT_catalog_format='data/VC_CFF_timeseries_section_%d.npy', sim_file=default_sim_file, n_t0=10000, fnum=0, do_local_fit=True):
+	# (these really are EWT, post-nomenclature correction).
 	# do_local_fit: fit the weibull distribution along the way (for each time-step)? obviously, we get a better fit, but what
 	# does it mean? could be used for tabulated uncertainties. unfortunately, it seems to break down on the right hand side of the dist.
 	# ... and work out the details later...
@@ -2338,6 +2272,8 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	# this function will be removed and replaced by its more modular cousin: conditional_RI_figs()
 	# though note, the faultwise-aggregate functionality will not be automatic... but it will be easy to script separately if
 	# necessary.
+	# also note: aggregate processing (aka, processing a set of figures rather than a single figure) will be moved offline to 
+	# paper/figure specific scripts.
 	#
 	# deprication note: this script will probably be depricated and replaced with something a bit simpler. this script
 	# fits all the individual section_ids and compiles a collective catalog as it goes. 1) this complexity is not necessary,
@@ -2596,7 +2532,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 #def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None):
 def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None, keep_figs=False):
 	'''
-	# ... note as soon as we work out of these early yoder et al. 2015ab papers, we can dump def waiting_time_figs() entirely...)
+	# ... note as soon as we work out of these early yoder et al. 2015ab papers, we can dump def waiting_time_figs() entirely... (see above)
 	# ... and phase 2 of this retro-fit will be to separate this into a loop (which we'll move elsewhere) and a caller for a single cRI
 	#  figure. groups of figurues will be handled by a callign script.
 	#
@@ -2842,144 +2778,13 @@ def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 	#
 	#return best_fit_array
 	return best_fit_dict
+#
+##############################################################
+# VQ data mining, etc. type helper functions and scripts:
+#
+# map related stuff (that might get moved to vc_geodetic? maybe. this will all be reorganized in PyVQ
+#
 
-#
-def xy_to_lat_lon(x, y, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict'):
-	# for now, a simple x,y conversion. we should probably use at least a spherical distance formula.
-	# chi: degress to km conversion.
-	#
-	# we can build in conditionals later, but for now, assume we need y, chi, lon0, x, lat0
-	#
-	if lon0==None or lat0==None:
-		# get these from sim file:
-		if sim_file==None:
-			print "nothing to work with..."
-			return None
-		#
-		with h5py.File(sim_file) as vc_data:
-			lat0 = vc_data['base_lat_lon'][0]
-			lon0 = vc_data['base_lat_lon'][1]
-	#
-	deg2rad = 2.0*math.pi/360.
-	#
-	lat = lat0 + (y/1000.)/chi
-	lon = lon0 + (x/1000.)/(math.cos(deg2rad*lat)*chi)		# x,y standard in m?
-	#
-	if return_format=='tuple':
-		return lat, lon
-	elif return_format=='list':
-		return [lat, lon]
-	elif return_format=='lonlat_list':
-		return [lon, lat]
-	else:
-		return {'lat':lat, 'lon':lon}
-#
-def lat_lon_to_xy(lat, lon, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict'):
-	#
-	# these should probably also include a z component?
-	#
-	if return_format == None: return_format = 'tuple'
-	#
-	if lon0==None or lat0==None:
-		# get these from sim file:
-		if sim_file==None:
-			print "nothing to work with..."
-			return None
-		#
-		with h5py.File(sim_file) as vc_data:
-			lat0 = vc_data['base_lat_lon'][0]
-			lon0 = vc_data['base_lat_lon'][1]
-		#
-	#
-	deg2rad = 2*math.pi/360.
-	#
-	y = (lat-lat0)*chi * 1000.
-	x = (lon-lon0)*math.cos(lat*deg2rad)*chi * 1000.		# xy, standard is in meters?
-	#
-	if return_format=='tuple':
-		return x,y
-	elif return_format=='list':
-		return [x,y]
-	else:
-		return {'x':x, 'y':y}
-#
-def in_rec_array(rec_array, col_name, in_list, pipe=None):
-	# wrapper for MPP finding sub-sets in list. note this requires more specialized preparation than a simple :in_row_list()
-	# type function (to which we can map), but by containing the list comprehension, this should be pretty fast.
-	# is this the same as find_in()? not quite. find_in() is designed to use a numerical index and use pipe() to
-	# communicate back to a Process()
-	#
-	if pipe==None:
-		return [rw for rw in rec_array if rw[col_name] in in_list]
-	else:
-		# you can use this with a Process() and communicate with Pipe()s, but it's pretty slow (same as
-		# list comprehension in-line). somehow, porting this to a Pool() and using apply_async() runs 100x faster...
-		# even with just the single cpu. in fact, the 1-cpu implementation appears to run faster than n_cpus.
-		#
-		pipe.send([rw for rw in rec_array if rw[col_name] in in_list])
-#
-def in_rec_test(section_ids=None, sim_file=allcal_full_mks, n_cpus=None):
-	# results summary:
-	# 1) filter(), with a lambda: function, is a little bit slower than the list comprehension
-	# 2) Process() and Pipe() is pretty slow -- about the same as the in-line list comprehsnsion (if i recall, it's
-	#    the Pipe() part that is really slow. might be able to improve this by using direct reference to a structured array.
-	# 3) the list-comprehension approach is pretty slow as well (all of these 9-10 seconds for EMC faults.
-	# 4) using Pool() and apply_async() is almost 10x faster (about 1.1 seconds).
-	if n_cpus==None: n_cpus = mpp.cpu_count()
-	#
-	section_ids = (section_ids or emc_section_filter['filter'])
-	print "section_ids: ", section_ids
-	#
-	with h5py.File(sim_file) as vc_data:
-		if True:
-			print "len_0: %d" % len(vc_data['block_info_table'])
-			t0=time.time()
-			print t0
-			block_info = numpy.array([rw for rw in vc_data['block_info_table'] if rw['section_id'] in section_ids], dtype=vc_data['block_info_table'].dtype)
-			print "bi_len: %d" % len(block_info)
-			#
-			print time.time(), " :: ", time.time()-t0
-			t0=time.time()
-			#
-			#pipe_in, pipe_out = mpp.Pipe()
-			#proc = mpp.Process(target=in_rec_array, kwargs={'rec_array':vc_data['block_info_table'], 'col_name':'section_id', 'in_list':section_ids, 'pipe':pipe_out})
-			#proc.start()
-			#proc.join()
-			#
-			#block_info = numpy.array(pipe_in.recv(), dtype=vc_data['block_info_table'].dtype)
-			block_info = numpy.array(filter(lambda rw: rw['section_id'] in section_ids, vc_data['block_info_table']), dtype=vc_data['block_info_table'].dtype) 
-			print "bi_len: %d" % len(block_info)
-			#
-			print time.time(), " :: ", time.time()-t0
-		if True:
-			t0=time.time()
-			print t0
-			pool = mpp.Pool(n_cpus)
-			results = []
-			tbl = vc_data['block_info_table']
-			N_len = len(tbl)
-			dN = int(N_len/n_cpus)
-			#for i in xrange(n_cpus):
-			#
-			for i in xrange(n_cpus):
-				#
-				N_term = (1+i)*dN
-				if i==N_len-1: N_term = N_len
-				results+=[pool.apply_async(in_rec_array, args=(), kwds={'rec_array':tbl[(i)*dN:N_term], 'col_name':'section_id', 'in_list':section_ids})]
-				#
-			pool.close()
-			pool.join()
-			#
-			if len(results)>1:
-				block_info2 = numpy.array(reduce(numpy.append, [x.get() for x in results]), dtype=tbl.dtype)
-			else:
-				# reduce() will throw an error if you give it only one value.
-				block_info2 = results[0].get()
-			#
-			print "bi_len: %d" % len(block_info)
-			print time.time(), " :: ", time.time()-t0
-	return block_info, block_info2
-#
 def get_fault_model_extents(section_ids=None, sim_file=allcal_full_mks, n_cpus=None):
 	# note: this, presently, is fully guessing at the (x,y) <--> (lon,lat) conversion.
 	# note also: this could probably be sped up considerably by shifting the min(), max() to the MPP process, the basic strategy
@@ -3702,6 +3507,8 @@ def vc_ETAS_catalog(section_ids=None, sim_file=allcal_full_mks, start_year=None,
 	return vc_etas_catalog, sweeps_index
 	#
 
+
+# CFF and catalog management helper functions.
 #
 def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
 	# find mean, stdev Delta_t, N between m>=m0 events in ary_in.
@@ -3765,16 +3572,25 @@ def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_
 	#
 	return r_dict
 #
+#
 def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
-	# use record-breaking metric (?? mean slopes?) to detect trends in a time-series.
+	# get trend data for ary_in.
+	# main event: fit sub-sequences of length nyquist_len to a linear fit; keep the a,b fits. not that numpy.linalg.lstsq()
+	# return the fit as (slope, intercept), which has created a bit of a mess.
+	#
+	# also return record-breaking stats., though i don't think we're using them just yet.
+	#
 	if isinstance(ary_in, str)==True:
+		# ... and these are pre-calculated segment-time-series type recarrays, like:
+		# ary_in = 'data/VC_CFF_timeseries_section_125.npy'
 		ary_in = numpy.load(ary_in)
 	#
 	Xs = ary_in['event_year'][1:]
 	Ns = ary_in['event_number'][1:]
-	# note: this gives the relative interval interval = year_i/year_(i-1). ?? (and i have no idea where it came from.
-	# note also that it could end up producing a significant problem, since log(small)-log(small + dt_0) != log(big)-log(big +dt_0).
-	#intervals = numpy.array(map(math.log10, ary_in['event_year'])[1:]) - numpy.array(map(math.log10, ary_in['event_year'])[:-1])
+	# ok, here's the problem: numpy.linalg.lstsq() returns the fit as (slope, intercept), not (intercept, slope), as
+	# we interpreted. so this should still work out, since in this case the intercept indicates local slope with a bias, but we'll need
+	# do to some checking and fixing...
+	#
 	intervals = numpy.array([ary_in['event_year'][i]-ary_in['event_year'][i-1] for i in xrange(1, len(ary_in))])
 	
 	#return (intervals, ary_in)
@@ -3785,9 +3601,10 @@ def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
 	# first, get a fixed length line-fit:
 	#for i in xrange(nyqquist_len, len(ary_in)):
 	#	rw = ary_in[i]
+	#fitses = [numpy.linalg.lstsq(X_numpy[i-nyquist_len:i], intervals[i-nyquist_len:i])[0] for i in xrange(nyquist_len, len(ary_in))]
 	fitses = [numpy.linalg.lstsq(X_numpy[i-nyquist_len:i], intervals[i-nyquist_len:i])[0] for i in xrange(nyquist_len, len(ary_in))]
 	#
-	output_names = ['event_number', 'event_year', 'lin_fit_a', 'lin_fit_b', 'rb_ratio', 'interval_rate_ratio']
+	output_names = ['event_number', 'event_year', 'lin_fit_a', 'lin_fit_b', 'rb_ratio', 'interval_rate_ratio', 'intervals']
 	#
 	# get record-breaking intervals
 	nrbs=[]
@@ -3807,7 +3624,9 @@ def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
 		#
 	#nrbs = [None for i in xrange(nyquist_len)] + nrbs
 	#
-	outputs = [[Ns[i], Xs[i], fitses[i][0], fitses[i][1], nrbs[i], intervals[i]/mean_interval] for i in xrange(len(fitses))]
+	#outputs = [[Ns[i], Xs[i], fitses[i][0], fitses[i][1], nrbs[i], intervals[i]/mean_interval] for i in xrange(len(fitses))]
+	outputs = [[Ns[i], Xs[i], fitses[i][1], fitses[i][0], nrbs[i], intervals[i]/mean_interval, intervals[i]] for i in xrange(len(fitses))]
+	
 	#output_names += ['interval_rate_ratio']
 	print "lens:: ", len(nrbs), len(outputs)
 	#
@@ -3816,15 +3635,48 @@ def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
 	#
 	return outputs			
 #
-def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.npy', fnum=0, nyquist_factor=.5):
-	# this script is for some of the earlier CFF numpy array types. newer arrays will require different scripting.
+def plot_CFF_ary(ary_in=None, fnum=0, nyquist_factor=.5, gt_lt_eval=operator.lt, section_id=16):
+	'''
+	# this script is for some of the earlier CFF numpy array types. newer arrays may require different scripting. (but it seems to work ok).
+	# basics: plots the triple time-series figure with [intervals, magnitudes, alert], [CFF, Delta CFF (?)], and [mags,slopes] ].
+	# this was a development figure where be basically decided not to use CFF. and the alert figure got moved to ???.
 	# for older data sets (most likely):
 	#	# 2 cols: event_number, CFF_initial
 	#   # 3 cols: event_number, event_year, CFF_initial
 	#   # 4 cols: event_number, event_year, CFF_initial, CFF_final
 	#  later versions will include column names.
 	#
-	CFF = numpy.load(ary_in)
+	# ary_in: can be a numpy.recarray or a string/filename like: 'data/VC_CFF_timeseries_section_125.npy'
+	#   numpy array would be like numpy.load(ary_in)
+	#
+	# gt_lt_eval: how do we evaluate greter/less than? submit gt/lt functions: operator.{lt, le, gt, ge} or
+	# strings: {'le', 'leq', 'ge', 'geq'}, and we trap a few others as well.
+	#
+	# (this is primarily a development script and may need to be depricated).
+	#
+	'''
+	#
+	# are we going to be a greater to less than camp?
+	#gl_lt_eval = operator.lt		# "less than", "less that or equal", "greater than", "greater than or equal"
+	#gl_lt_eval = operator.le
+	#gl_lt_eval = operator.gt
+	#gt_lt_eval = operator.ge		# greater than or equal to; ge(4,5)=False, ge(4,4)=True, ge(4,3)=True
+	# and allow for string inputs:
+	if isinstance(gt_lt_eval, str):
+		gt_lt_eval = gt_lt_eval.lower()
+		if gt_lt_eval in ('lt', 'less', 'lessthan', 'less_than'): gl_lt_eval = operator.lt
+		if gt_lt_eval in ('lte', 'leq', 'lessthanorequal', 'less_than_or_equal'): gl_lt_eval = operator.le
+		if gt_lt_eval in ('ge', 'greater', 'greaterthan', 'greater_than'): gl_lt_eval = operator.gt
+		if gt_lt_eval in ('gte', 'geq', 'greaterthanorequal', 'greater_than_or_equal'): gl_lt_eval = operator.ge
+	#
+	if section_id!=None and (ary_in==None or len(ary_in)==0):
+		# guess the ary_in file name from section_id (and later on, trap for multiple section_id values):
+		ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id
+		
+	if isinstance(ary_in, str):
+		CFF = numpy.load(ary_in)
+	else:
+		CFF = ary_in
 	#
 	recurrence_data = mean_recurrence(ary_in=CFF, m0=7.0)
 	nyquist_len = int(nyquist_factor*recurrence_data['mean_dN_fault'])
@@ -3865,8 +3717,8 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.npy', fnum=0, nyquis
 		X_init = CFF['event_year']
 		X_finals = [x+.01 for x in X_init]	# this to show the stress drops after a mainshock (X_final is the time of the data point after the event).
 		#
-		Y0 = -1*CFF['cff_initial']
-		Y_final = -1*(CFF['cff_final'])
+		Y0 = -1.*CFF['cff_initial']
+		Y_final = -1.*(CFF['cff_final'])
 		
 		X = list(X_init) + list(X_finals)
 		X.sort()
@@ -3908,14 +3760,15 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.npy', fnum=0, nyquis
 		ax_mag.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='b', alpha=.9)
 		#
 		ax_trend.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], 'r-', zorder=5, alpha=.8)
-		ax_trend.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='r', zorder=2, alpha=.8)
+		#ax_trend.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='r', zorder=2, alpha=.8)
+		ax_trend.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], y2=[0.0 for x in trend_data], where=[gt_lt_eval(x['lin_fit_b'],0.) for x in trend_data], color='r', zorder=2, alpha=.8)
 		ax_trend.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
 		ax_trend.set_ylabel('(log) interval slope $b$')
 		#
 		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], 'r-', zorder=5, alpha=.8)
 		#
-		ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b']  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='m', zorder=1, alpha=.5)
-		ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0.0 for x in trend_data], color='m', zorder=1, alpha=.25)
+		ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b']  for x in trend_data], y2=[0.0 for x in trend_data], where=[gt_lt_eval(x['lin_fit_b'],0.) for x in trend_data], color='m', zorder=1, alpha=.5)
+		ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[gt_lt_eval(x['lin_fit_b'],0.) for x in trend_data], color='m', zorder=1, alpha=.25)
 		#		
 		ax_trend2.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
 		#
@@ -3975,11 +3828,13 @@ def plot_CFF_ary(ary_in='data/VC_CFF_timeseries_section_125.npy', fnum=0, nyquis
 		plt.plot(X_peaks, Y_peaks, '.-', zorder=5)				
 	#
 	return CFF
-#
-# end CFF calculators and helpers...	
+	
 #
 def get_EMC_CFF(sections=None, file_out_root='data/VC_CFF_timeseries_section'):
-	if sections==None: sections = [16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149]
+	# make pre-calculated CFF,event time-series for EMC sections.
+	# (wrapper script for get_CFF_on_section()  , so this maybe should move to vc_paper_emc_figs ?)
+	#if sections==None: sections = [16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149]
+	if sections==None: sections = emc_sections
 	#
 	event_sweeps_dict = None
 	#with h5py.File(sim_file) as vc_data:
@@ -4007,7 +3862,7 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 	#  blocks: dictionary of blocks indexed by event number: {<event_number>:[block_data, block_data, etc.], <>:[]}
 	# for runs of multiple instances, this can be pre-calculated and shared.
 	#
-	# 1) get events for the section (use "events_by_section")
+	# 1) get events for the section (use "events_by_section".. (?) get_event_time_series_on_section() (?) )
 	# 2) for each event, gather all the blocks (use the event_sweep_table).
 	# 3) for each block-sweep in the event, add the local CFF (aka, add the shear_init + mu*normal_init for each entry in the event.
 	# 4) time (year) of the event can be taken from the event_table.
@@ -4023,10 +3878,6 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 	#col_dict = {}
 	#map(col_dict.__setitem__, events[0], range(len(events[0])))
 	#col_dict = {event:i for i, event in enumerate(events[0])}
-	#
-	# pre-load blocks data:
-	# (actually, we don't need this all the required data are in "sweeps").
-	#blocks_data = get_blocks_info_dict(sim_file=sim_file, block_ids=None)
 	#
 	# so, events is a time series of events (earthquakes) on a particular fault section.
 	# for each event, the normal/shear stresses are calculated.
@@ -4137,6 +3988,229 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 	#
 	return CFF
 #
+#
+def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
+	# ... and "time_series" is implied.
+	# get time series of stress on a block. plot 2 axes on one plot: normal_stress, shear_stress.
+	# note: the CFF, what we'll ultimately want, is:
+	# CFF_j = shear_stress_j(t) - mu_j*normal_stress_j(t)
+	#
+	events = get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=section_id, n_cpus=n_cpus)
+	col_dict = {}
+	map(col_dict.__setitem__, events[0], range(len(events[0])))
+	#
+	# each time step has an initial + final stress value.
+	ts_single = []
+	mags = []
+	ts = []
+	shear_stress  = []
+	normal_stress = []
+	ave_slip = []
+	for rw in events[1:]:
+		ts += [rw[col_dict['event_year']], rw[col_dict['event_year']]]
+		ts_single += [rw[col_dict['event_year']]]
+		mags += [rw[col_dict['event_magnitude']]]
+		shear_stress += [rw[col_dict['event_shear_init']], rw[col_dict['event_shear_final']]]
+		normal_stress += [rw[col_dict['event_normal_init']], rw[col_dict['event_normal_final']]]
+		ave_slip += ['event_average_slip']
+	#
+	#
+	# plotting bits:
+	myfig = plt.figure(fignum)
+	myfig.clf()
+	#
+	myfig.add_axes([.05, .05, .9, .4], label='shear')
+	myfig.add_axes([.05, .5, .9, .4], sharex=myfig.axes[0])
+	#
+	#ax = plt.gca()
+	for ax in myfig.axes:
+		ax.set_xscale('linear')
+		ax.set_yscale('log')
+		ax.set_ylabel('stress (VC units)', size=14)
+		#
+	#
+	# let's look at peak values...
+	upper_shear_init = get_peaks(events[1:], col=col_dict['event_shear_init'], peak_type='upper')
+	upper_shear_final = get_peaks(events[1:], col=col_dict['event_shear_final'], peak_type='upper')
+	#print "lens: ", len(upper_shear_init), len(upper_shear_final)
+	#print upper_shear_init[-5:]
+	#print upper_shear_final[-5:]
+	lower_shear_init = get_peaks(events[1:], col=col_dict['event_shear_init'], peak_type='lower')
+	lower_shear_final = get_peaks(events[1:], col=col_dict['event_shear_final'], peak_type='lower')
+	#
+	upper_normal_init = get_peaks(events[1:], col=col_dict['event_normal_init'], peak_type='upper')
+	upper_normal_final = get_peaks(events[1:], col=col_dict['event_normal_final'], peak_type='upper')
+	lower_normal_init = get_peaks(events[1:], col=col_dict['event_normal_init'], peak_type='lower')
+	lower_normal_final = get_peaks(events[1:], col=col_dict['event_normal_final'], peak_type='lower')
+	#
+	ax = myfig.axes[0]
+	ax.plot(ts, shear_stress, '.-', label='shear stress')
+	for tbl, col,lbl in [(upper_shear_init, 'event_shear_init', 'init_upper'), (upper_shear_final, 'event_shear_final', 'final_upper'), (lower_shear_init, 'event_shear_init', 'init_lower'), (lower_shear_final, 'event_shear_final', 'final_lower')]:
+		#ax.plot(map(operator.itemgetter(col_dict['event_year'], upper_shear_init)), map(operator.itemgetter(col_dict['event_shear_init'], upper_shear_init)),
+		#print tbl[0]
+		X = map(operator.itemgetter(col_dict['event_year']), tbl)
+		Y = map(operator.itemgetter(col_dict[col]), tbl)
+		ax.plot(X, Y, '--.', label=lbl)
+	#
+	ax2 = ax.twinx()
+	ax2.set_yscale('linear')
+	ax2.plot(ts_single, mags, 'o')
+	#
+	ax.set_xlabel('time (year)', size=14)
+	#
+	ax = myfig.axes[1]
+	ax.plot(ts, normal_stress, '.-', label='normal stress')
+	for tbl, col, lbl in [(upper_normal_init, 'event_normal_init', 'init_upper'), (upper_normal_final, 'event_normal_final', 'final_upper'), (lower_normal_init, 'event_normal_init', 'init_lower'), (lower_normal_final, 'event_normal_final', 'final_lower')]:
+		X = map(operator.itemgetter(col_dict['event_year']), tbl)
+		Y = map(operator.itemgetter(col_dict[col]), tbl)
+		ax.plot(X, Y, '--.', label=lbl)
+	#
+	for ax in myfig.axes:
+		ax.legend(loc=0, numpoints=1)
+	#	
+#
+#
+# end CFF calculators and helpers...
+#
+##############################################
+# technical bits and helper functions:
+#
+def xy_to_lat_lon(x, y, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict'):
+	# for now, a simple x,y conversion. we should probably use at least a spherical distance formula.
+	# chi: degress to km conversion.
+	#
+	# we can build in conditionals later, but for now, assume we need y, chi, lon0, x, lat0
+	#
+	if lon0==None or lat0==None:
+		# get these from sim file:
+		if sim_file==None:
+			print "nothing to work with..."
+			return None
+		#
+		with h5py.File(sim_file) as vc_data:
+			lat0 = vc_data['base_lat_lon'][0]
+			lon0 = vc_data['base_lat_lon'][1]
+	#
+	deg2rad = 2.0*math.pi/360.
+	#
+	lat = lat0 + (y/1000.)/chi
+	lon = lon0 + (x/1000.)/(math.cos(deg2rad*lat)*chi)		# x,y standard in m?
+	#
+	if return_format=='tuple':
+		return lat, lon
+	elif return_format=='list':
+		return [lat, lon]
+	elif return_format=='lonlat_list':
+		return [lon, lat]
+	else:
+		return {'lat':lat, 'lon':lon}
+#
+def lat_lon_to_xy(lat, lon, sim_file=allcal_full_mks, lat0=None, lon0=None, chi=111.1, return_format='dict'):
+	#
+	# these should probably also include a z component?
+	#
+	if return_format == None: return_format = 'tuple'
+	#
+	if lon0==None or lat0==None:
+		# get these from sim file:
+		if sim_file==None:
+			print "nothing to work with..."
+			return None
+		#
+		with h5py.File(sim_file) as vc_data:
+			lat0 = vc_data['base_lat_lon'][0]
+			lon0 = vc_data['base_lat_lon'][1]
+		#
+	#
+	deg2rad = 2*math.pi/360.
+	#
+	y = (lat-lat0)*chi * 1000.
+	x = (lon-lon0)*math.cos(lat*deg2rad)*chi * 1000.		# xy, standard is in meters?
+	#
+	if return_format=='tuple':
+		return x,y
+	elif return_format=='list':
+		return [x,y]
+	else:
+		return {'x':x, 'y':y}
+#
+def in_rec_array(rec_array, col_name, in_list, pipe=None):
+	# wrapper for MPP finding sub-sets in list. note this requires more specialized preparation than a simple :in_row_list()
+	# type function (to which we can map), but by containing the list comprehension, this should be pretty fast.
+	# is this the same as find_in()? not quite. find_in() is designed to use a numerical index and use pipe() to
+	# communicate back to a Process()
+	#
+	if pipe==None:
+		return [rw for rw in rec_array if rw[col_name] in in_list]
+	else:
+		# you can use this with a Process() and communicate with Pipe()s, but it's pretty slow (same as
+		# list comprehension in-line). somehow, porting this to a Pool() and using apply_async() runs 100x faster...
+		# even with just the single cpu. in fact, the 1-cpu implementation appears to run faster than n_cpus.
+		#
+		pipe.send([rw for rw in rec_array if rw[col_name] in in_list])
+#
+def in_rec_test(section_ids=None, sim_file=allcal_full_mks, n_cpus=None):
+	# results summary:
+	# 1) filter(), with a lambda: function, is a little bit slower than the list comprehension
+	# 2) Process() and Pipe() is pretty slow -- about the same as the in-line list comprehsnsion (if i recall, it's
+	#    the Pipe() part that is really slow. might be able to improve this by using direct reference to a structured array.
+	# 3) the list-comprehension approach is pretty slow as well (all of these 9-10 seconds for EMC faults.
+	# 4) using Pool() and apply_async() is almost 10x faster (about 1.1 seconds).
+	if n_cpus==None: n_cpus = mpp.cpu_count()
+	#
+	section_ids = (section_ids or emc_section_filter['filter'])
+	print "section_ids: ", section_ids
+	#
+	with h5py.File(sim_file) as vc_data:
+		if True:
+			print "len_0: %d" % len(vc_data['block_info_table'])
+			t0=time.time()
+			print t0
+			block_info = numpy.array([rw for rw in vc_data['block_info_table'] if rw['section_id'] in section_ids], dtype=vc_data['block_info_table'].dtype)
+			print "bi_len: %d" % len(block_info)
+			#
+			print time.time(), " :: ", time.time()-t0
+			t0=time.time()
+			#
+			#pipe_in, pipe_out = mpp.Pipe()
+			#proc = mpp.Process(target=in_rec_array, kwargs={'rec_array':vc_data['block_info_table'], 'col_name':'section_id', 'in_list':section_ids, 'pipe':pipe_out})
+			#proc.start()
+			#proc.join()
+			#
+			#block_info = numpy.array(pipe_in.recv(), dtype=vc_data['block_info_table'].dtype)
+			block_info = numpy.array(filter(lambda rw: rw['section_id'] in section_ids, vc_data['block_info_table']), dtype=vc_data['block_info_table'].dtype) 
+			print "bi_len: %d" % len(block_info)
+			#
+			print time.time(), " :: ", time.time()-t0
+		if True:
+			t0=time.time()
+			print t0
+			pool = mpp.Pool(n_cpus)
+			results = []
+			tbl = vc_data['block_info_table']
+			N_len = len(tbl)
+			dN = int(N_len/n_cpus)
+			#for i in xrange(n_cpus):
+			#
+			for i in xrange(n_cpus):
+				#
+				N_term = (1+i)*dN
+				if i==N_len-1: N_term = N_len
+				results+=[pool.apply_async(in_rec_array, args=(), kwds={'rec_array':tbl[(i)*dN:N_term], 'col_name':'section_id', 'in_list':section_ids})]
+				#
+			pool.close()
+			pool.join()
+			#
+			if len(results)>1:
+				block_info2 = numpy.array(reduce(numpy.append, [x.get() for x in results]), dtype=tbl.dtype)
+			else:
+				# reduce() will throw an error if you give it only one value.
+				block_info2 = results[0].get()
+			#
+			print "bi_len: %d" % len(block_info)
+			print time.time(), " :: ", time.time()-t0
+	return block_info, block_info2
+#
 def make_structured_arrays(file_profile = 'data/VC_CFF_timeseries_section_*.npy'):
 	# wrapper to convert a bunch of normal arrays or maybe lists to numpy structured arrays (numpy.recarray).
 	# (aka, this is a one time, or at least special occasion, script. with the exception that it might be instructive
@@ -4150,7 +4224,7 @@ def make_structured_arrays(file_profile = 'data/VC_CFF_timeseries_section_*.npy'
 			print "successful..."
 		except:
 			print "failed to 'fix' file %s. it might have already been converted..." % g
-
+#
 def fix_CFF_in_struct_arrays(file_profile = 'data/VC_CFF_timeseries_section_*.npy', h5file = allcal_full_mks):
 	# ALMOST CERTAINLY A ONE-TIME JOB SCRIPT...
 	#
@@ -4486,87 +4560,7 @@ def index_dict_test(N=10**6):
 		'''
 		#
 	return None
-#
-def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
-	# ... and "time_series" is implied.
-	# get time series of stress on a block. plot 2 axes on one plot: normal_stress, shear_stress.
-	# note: the CFF, what we'll ultimately want, is:
-	# CFF_j = shear_stress_j(t) - mu_j*normal_stress_j(t)
-	#
-	events = get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=section_id, n_cpus=n_cpus)
-	col_dict = {}
-	map(col_dict.__setitem__, events[0], range(len(events[0])))
-	#
-	# each time step has an initial + final stress value.
-	ts_single = []
-	mags = []
-	ts = []
-	shear_stress  = []
-	normal_stress = []
-	ave_slip = []
-	for rw in events[1:]:
-		ts += [rw[col_dict['event_year']], rw[col_dict['event_year']]]
-		ts_single += [rw[col_dict['event_year']]]
-		mags += [rw[col_dict['event_magnitude']]]
-		shear_stress += [rw[col_dict['event_shear_init']], rw[col_dict['event_shear_final']]]
-		normal_stress += [rw[col_dict['event_normal_init']], rw[col_dict['event_normal_final']]]
-		ave_slip += ['event_average_slip']
-	#
-	#
-	# plotting bits:
-	myfig = plt.figure(fignum)
-	myfig.clf()
-	#
-	myfig.add_axes([.05, .05, .9, .4], label='shear')
-	myfig.add_axes([.05, .5, .9, .4], sharex=myfig.axes[0])
-	#
-	#ax = plt.gca()
-	for ax in myfig.axes:
-		ax.set_xscale('linear')
-		ax.set_yscale('log')
-		ax.set_ylabel('stress (VC units)', size=14)
-		#
-	#
-	# let's look at peak values...
-	upper_shear_init = get_peaks(events[1:], col=col_dict['event_shear_init'], peak_type='upper')
-	upper_shear_final = get_peaks(events[1:], col=col_dict['event_shear_final'], peak_type='upper')
-	#print "lens: ", len(upper_shear_init), len(upper_shear_final)
-	#print upper_shear_init[-5:]
-	#print upper_shear_final[-5:]
-	lower_shear_init = get_peaks(events[1:], col=col_dict['event_shear_init'], peak_type='lower')
-	lower_shear_final = get_peaks(events[1:], col=col_dict['event_shear_final'], peak_type='lower')
-	#
-	upper_normal_init = get_peaks(events[1:], col=col_dict['event_normal_init'], peak_type='upper')
-	upper_normal_final = get_peaks(events[1:], col=col_dict['event_normal_final'], peak_type='upper')
-	lower_normal_init = get_peaks(events[1:], col=col_dict['event_normal_init'], peak_type='lower')
-	lower_normal_final = get_peaks(events[1:], col=col_dict['event_normal_final'], peak_type='lower')
-	#
-	ax = myfig.axes[0]
-	ax.plot(ts, shear_stress, '.-', label='shear stress')
-	for tbl, col,lbl in [(upper_shear_init, 'event_shear_init', 'init_upper'), (upper_shear_final, 'event_shear_final', 'final_upper'), (lower_shear_init, 'event_shear_init', 'init_lower'), (lower_shear_final, 'event_shear_final', 'final_lower')]:
-		#ax.plot(map(operator.itemgetter(col_dict['event_year'], upper_shear_init)), map(operator.itemgetter(col_dict['event_shear_init'], upper_shear_init)),
-		#print tbl[0]
-		X = map(operator.itemgetter(col_dict['event_year']), tbl)
-		Y = map(operator.itemgetter(col_dict[col]), tbl)
-		ax.plot(X, Y, '--.', label=lbl)
-	#
-	ax2 = ax.twinx()
-	ax2.set_yscale('linear')
-	ax2.plot(ts_single, mags, 'o')
-	#
-	ax.set_xlabel('time (year)', size=14)
-	#
-	ax = myfig.axes[1]
-	ax.plot(ts, normal_stress, '.-', label='normal stress')
-	for tbl, col, lbl in [(upper_normal_init, 'event_normal_init', 'init_upper'), (upper_normal_final, 'event_normal_final', 'final_upper'), (lower_normal_init, 'event_normal_init', 'init_lower'), (lower_normal_final, 'event_normal_final', 'final_lower')]:
-		X = map(operator.itemgetter(col_dict['event_year']), tbl)
-		Y = map(operator.itemgetter(col_dict[col]), tbl)
-		ax.plot(X, Y, '--.', label=lbl)
-	#
-	for ax in myfig.axes:
-		ax.legend(loc=0, numpoints=1)
-	#	
-#
+
 # helper functions:
 #
 def tmp_test():
@@ -4732,7 +4726,106 @@ def _worker_in_table(src_table, test_table, test_col, target_Q):
 	# note we must be passed a 1-D vector test_table. 
 	target_Q.put([x for x in src_table if x[test_col] in test_table])
 	#return [x for x in src_table if src_table[test_col] in test_table]
+#
+#
+def f_inv_weibull(P=None, t0=None, tau=None, beta=None):
+	# inverse (solving for t or delta_t):
+	#print "prams: ", P,t0,tau,beta
+	P,t0,tau,beta = [float(x) for x in [P,t0,tau,beta]]
+	#
+	return tau*((t0/tau)**beta - math.log(1.-P))**(1./beta)
+#
+def f_weibull(x=None, chi=1.0, beta=1.0, x0=None):
+	'''
+	# weibull distribution (for fitting).
+	# if different parameter ordering is necessary, as per specifics of fitting routine or something like that,
+	# use an anonymous "lambda" function. aka, the "func" pram: fitter(f_wieibul, prams) -->
+	# fitter(lambda x, chi, beta: f_weibull(x, chi, beta, my_x0_value), prams ...
+	# so, "lambda" takes the parameters x, chi, beta and passes them to f_weibull along with the externally defined my_x0_value.
+	# now, the fitting function looks like ([x], (variable prams) ), as expected by curve_fit().
+	'''
+	if x0==None: x0=0.0		# ... but we give it None so the fitting algorithm does not try to fit...
+	#
+	return 1.0 - numpy.exp( ((x0/chi)**beta) - ((x/chi)**beta))
+#
+def mcfitter(func=f_weibull, X=None, Y=None, prams_dict=None, nits=10**6, n_cpus=None):
+	# quick mc fitter MC fitter for tough functions.
+	# func: function fitting to
+	# X,Y: X and Y data
+	# prams dict is like {'pram_name':[min, max], ...}
+	#
+	if n_cpus==None:
+		try:
+			n_cpus = mpp.cpu_count()
+		except:
+			n_cpus = 1
+	#
+	if n_cpus>1:
+		# do MPP. parse into SPP jobs. call this function (quasi-recursively) with n_cpus = 1.
+		print "passing..."
+		#
+		print "doing mpp MC fit..."
+		if n_cpus==None: n_cpus = mpp.cpu_count()
+		#
+		results=[]
+		pool = mpp.Pool(n_cpus)
+		for i in xrange(n_cpus):
+			results+=[pool.apply_async(mcfitter, kwds={'func':f_weibull, 'X':X, 'Y':Y, 'prams_dict':prams_dict, 'nits':nits/n_cpus, 'n_cpus':1})]
+		pool.close()
+		#pool.join()
+		#
+		#Zmin, Z=[], []
+		Zmin, Z = results[0].get()
+		 
+		for j, result in enumerate(results):
+			if j==0: continue
+			#
+			a,b = result.get()
+			Zmin = numpy.append(Zmin, a)
+			Z    = numpy.append(Z, b)
+			#
+		Zmin.sort(order='chi_sqr')
+		#
+		return Zmin, Z
+	#
+	else:
+		#
+		# do SPP
+		pram_handler = {}
+		for key in prams_dict.keys():
+			pram_handler[key] = {'min':prams_dict[key][0], 'delta':prams_dict[key][1]-prams_dict[key][0]}
+			#
+			if pram_handler[key]['delta']==0: 
+				# choosing random numbers is expensive. if delta is zero, spoof random.Random() with "getter()" class
+				# that quickly return 0.
+				pram_handler[key]['rand']=getter(rand_val = 0.0)
+			else:
+				pram_handler[key]['rand']=random.Random()
+		#
+		this_prams = []
+		min_pramses = []	# list of min. parameters
+		pramses = []
+		N_x = len(X)
+		ndof = float(len(X) - len(prams_dict))
+		#
+		for i in xrange(nits):
+			this_prams_dict = {key:pram_handler[key]['min'] + pram_handler[key]['delta']*pram_handler[key]['rand'].random() for key in prams_dict.keys()}
+			#print this_prams_dict
+			chi_sqr = numpy.sum([(func(X[j], **this_prams_dict)-Y[j])**2. for j in xrange(N_x)])/ndof
+			#
+			#print chi_sqr, i
+			pramses += [[i] + [this_prams_dict[key] for key in this_prams_dict.keys()] + [chi_sqr]]
+			if i==0 or chi_sqr < min_pramses[-1][-1]:
+				min_pramses += [pramses[-1]]
+			#
+		# numpy.core.records.fromarrays(zip(*best_fit_array), names = ['section_id', 'tau', 'beta', 'sigma_tau', 'sigma_beta', 'mean_chi_sqr'], formats = [type(x).__name__ for x in best_fit_array[0]])
+		#
+		min_pramses = numpy.core.records.fromarrays(zip(*min_pramses), names = ['index'] + [key for key in prams_dict.keys()] + ['chi_sqr'], formats = [type(x).__name__ for x in min_pramses[0]])
+		pramses = numpy.core.records.fromarrays(zip(*pramses), names = ['index'] + [key for key in prams_dict.keys()] + ['chi_sqr'], formats = [type(x).__name__ for x in pramses[0]])
 		
+		#
+		return min_pramses, pramses	
+#		
 	
 	
 			

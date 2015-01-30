@@ -873,8 +873,20 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 	#plt.plot(zip(*bestXY)[0],zip(*bestXY)[1], '-')
 	#
 	if dump_file!=None:
+		# we'll want (optionally) to save all the data, not just the best_prams. cPickle seems to be a bit twitchy
+		# (seems to not recognize how to encode an embeded list-object and runs away, probably writing all the
+		# memory in the world to the output file -- and so, the line below .dump([best, all]) probably
+		# effectively fails (??). SO, if keep_set==True: dump up to three lists separately:
+		# best_prams, all_prams{minus alerts list}, alerts list
 		with open(dump_file, 'w') as f:
-			cPickle.dump([best_prams, all_prams], f)
+			#cPickle.dump([best_prams, all_prams], f)
+			cPickle.dump(best_prams)
+		if keep_set:
+			all_prams_dump_file = dump_file.replace('.npy', '_allprams.npy')	# for a cheap fix...
+			with open(all_prams_dump_file, 'w') as f:
+				# alerts key will be: 'alert_segments'
+				#cPickle.dump(
+				pass
 	#
 	print "[from simple_metric_optimizer()]: finished optimizing (%s)" % (best_prams)
 	return best_prams, all_prams
@@ -884,6 +896,8 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None):
 	'''
 	# simple ROC diagram. see the optimized one...
+	# also note that the parameter list for forecast_metric_1() has changed, so generally speaking this 
+	# function needs some maintenance or to be retired.
 	#
 	# scatter plot of hit_ratio vs alert_time_ratio for as many data as we throw at it.
 	# note, this uses a single value(s) for (b_0, nyquist_factor). see optimized versions as well.
@@ -1964,8 +1978,8 @@ def hazard_function_fitting_test(section_id=16, file_path_pattern='data/VC_CFF_t
 #
 def tau_t0_fig(section_ids=None, glob_pattern='VC_CDF_WT_figs/VC_CDF_WT_*.npy'):
 	# plot tau vs t0 and t0_index (which would be a fractional t0... how' bout vs t0 and ts t0/tau.
-	# basically, we expect a break where teh weibull distribution stops fitting. we will specifically
-	# be seeing the difference betewwn converging (n_max -> 600) and MC fits (in this case, 100000 iterations).
+	# basically, we expect a break where the weibull distribution stops fitting. we will specifically
+	# be seeing the difference beteewn converging (n_max -> 600) and MC fits (in this case, 100000 iterations).
 	#
 	# general take-away talking points: we see a change (fits break, beta --> big, etc. for \tau_r>1 t_0r>1).
 	#

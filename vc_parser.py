@@ -699,7 +699,7 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments, 'ary_in_name':set_name, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 #
 def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, dump_file=None, n_cpus=None, f_gt_lt=operator.gt):
-	# (i think this is the production run function for the ROC diagram and fits).
+	# (production run function for the ROC diagram and fits).
 	#
 	# mpp implementation of simple_metric_optimizer() to optimize a set of forecasts. note that sections[] can include not only 
 	# individual fault segments but groups of segments like: sections = [25, 23, 30, 31, 32, 33, [30,31,32,33], ...] in the event that
@@ -717,6 +717,7 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	if n_cpus==None: n_cpus = mpp.cpu_count()
 	P = mpp.Pool()
 	pool_handlers = []
+	pool_results = []
 	#
 	if section_names == None:
 		section_names = []
@@ -728,7 +729,6 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 			#
 		#
 	#
-	#
 	print "simple_mpp: assign jobs to pool"
 	for i, sec_id in enumerate(sections):
 		#
@@ -736,9 +736,9 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	P.close()
 	#
 	print "simple mpp: fetch results ([R.get() for R in pool_handlers] )"
+	# this (list comprehension approach) fails silently and awkwardly if no data are returned.
 	#pool_results = [R.get()[0] for R in pool_handlers]
-	#pool_results = [R.get()[0] for R in pool_handlers]
-	pool_results = []
+	#	
 	for R in pool_handlers:
 		R_return = R.get()
 		if hasattr(R_return, '__len__'):
@@ -766,7 +766,7 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	#
 	return pool_results
 #
-def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, set_name='data_set', dump_file=None, f_gt_lt=operator.gt, f_score=None):
+def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, set_name='data_set', dump_file=None, f_gt_lt=operator.gt, f_score=operator.div, section_id=16):
 	'''
 	# this does an MC thing to optimize a forecast metric for a CFF (presumably a section catalog like 'data/VC_CFF_timeseries_section_16.npy'
 	# or the data therein. it can be run independently or (it's primary purpose) wrapped by simple_mpp_optimizer()
@@ -801,6 +801,9 @@ def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0,
 	#
 	opt_func = forecast_metric_1
 	# forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0)
+	#
+	if section_id!=None and CFF==None:
+		CFF = combine_section_CFFs(section_id)
 	#
 	if isinstance(CFF, dict):
 		# for now, assume have the proper call signature in the key-val pairs
@@ -949,6 +952,50 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 	resultses[0] = {key:val for key,val in resultses[0].iteritems() if key!='alert_segments'}	# a little bit faster and more elegant...
 	return resultses
 #
+def plot_ROC_optimized_prams(opt_data=None, fignum=0, section_id=None, nits=1000):
+	# make some plots for ROC optimization. opt_data should be the return value from something like:
+	# opts_124=vc_parser.simple_metric_optimizer(nits=100, b_min=-.15, b_max=.25, keep_set=True, section_id=124)[1]
+	# where the [1] gives the results from the full space explored by the MC simulation (and it's pretty huge since it includes
+	# all the "alerts" sections).
+	#
+	if isinstance(opt_data, str): opt_data=numpy.load(opt_data)
+	if opt_data==None and section_id!=None:
+		opt_data = simple_metric_optimizer(section_id=section_id, keep_set=True, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, nits=nits, f_gt_lt=operator.gt)[1]
+	#
+	b_vals = [rw['b'] for rw in opt_data]
+	alpha_vals = [rw['nyquist_factor'] for rw in opt_data]
+	scores = [rw['score'] for rw in opt_data]		# ... or we might calc our own score, just to be sure.
+	H,F = [], []
+	scores_lin  = []
+	scores_geom = []
+	#
+	for rw in opt_data:
+		H += [float(rw['n_predicted'])/(rw['n_predicted'] + rw['n_missed'])]
+		F += [rw['total_alert_time']/rw['total_time']]
+		scores_lin += [H[-1]-F[-1]]
+		scores_geom += [float(H[-1])/F[-1]]
+	#
+	f = plt.figure(fignum)
+	plt.clf()
+	#
+	ax3d = f.add_subplot(111, projection='3d')
+	ax3d.plot(b_vals, alpha_vals, scores_lin, '.')
+	ax3d.set_xlabel('threshold slope, $b_0$')
+	ax3d.set_ylabel('nyquist_factor')
+	#ax3d.set_zlabel('ROC metric, (Percent Predicted) - (false alarm)')
+	ax3d.set_zlabel('ROC metric, (H-F)')
+	#
+	f2=plt.figure(fignum+1)
+	plt.clf()
+	ax3d2 = f2.add_subplot(111, projection='3d')
+	ax3d2.plot(b_vals, alpha_vals, scores_geom, '.')
+	ax3d2.set_xlabel('threshold slope, $b_0$')
+	ax3d2.set_ylabel('nyquist_factor')
+	#ax3d.set_zlabel('ROC metric, (Percent Predicted) - (false alarm)')
+	ax3d2.set_zlabel('ROC metric, (H/F)')
+	
+	
+#
 def plot_aggregate_metric(scores_in, n_top=None):
 	# make a pretty (3d) plot of the aggregate type optimizer solutions.
 	if isinstance(scores_in, str):
@@ -990,7 +1037,7 @@ def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2,
 	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
 	# this runs a fully composite optimization, which produces some not super believable... or optimal
 	# results. it seems that we would do better to optimize each fault independently.
-	# data_in: start with, and append, an existing data file.	
+	# data_in: start with, and append, an existing data file.
 	#
 	# ... and this can probably be removed as well, as it can be accomplished by creating a combined catalog and passing to 
 	# simple_metric_optimizer()
@@ -1368,6 +1415,7 @@ def plot_best_opt_prams(scores_in=None, plot_f_out=None):
 #
 def bunch_o_metric_1(nyquist_factor=0.425556):
 	# a bunch of metric 1 data...
+	# (this function can probably be removed).
 	my_b = .1
 	all_the_data = {}
 	while my_b>-.1:

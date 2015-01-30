@@ -682,10 +682,15 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 		ax_metric.set_ylim(ymin=1.15*min_metric, ymax = -min_metric/10.)
 	#
 	print "preliminary report:"
-	print "alert time: %f / %f :: %f " % (total_alert_time, total_total_time, total_alert_time/total_total_time)
-	print "n_predicted: %d, n_missed: %d (%f )" % (n_predicted, n_missed, float(n_predicted)/(float(n_predicted)+n_missed))
-	print "total: %f " % (float(n_predicted)/(float(n_predicted)+n_missed) - total_alert_time/total_total_time)
-		
+	H = float(n_predicted)/(float(n_predicted)+n_missed)
+	F = total_alert_time/total_total_time
+	#print "alert time: %f / %f :: %f " % (total_alert_time, total_total_time, total_alert_time/total_total_time)
+	#print "n_predicted: %d, n_missed: %d (%f )" % (n_predicted, n_missed, float(n_predicted)/(float(n_predicted)+n_missed))
+	#print "score: H-F: %f " % (float(n_predicted)/(float(n_predicted)+n_missed) - total_alert_time/total_total_time)
+	print "alert time: %f / %f :: %f " % (total_alert_time, total_total_time, F)
+	print "n_predicted: %d, n_missed: %d (%f )" % (n_predicted, n_missed, H)
+	print "score: H-F, H/F: %f / %f " % (H-F, H/F)
+
 	
 	#
 	#return alert_segments
@@ -724,12 +729,25 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 		#
 	#
 	#
+	print "simple_mpp: assign jobs to pool"
 	for i, sec_id in enumerate(sections):
-
+		#
 		pool_handlers += [P.apply_async(simple_metric_optimizer, kwds={'CFF':{'sections':sec_id, 'start_year':start_year}, 'm0':m0, 'b_min':b_min, 'b_max':b_max, 'd_b':d_b, 'nyquist_min':nyquist_min, 'nyquist_max':nyquist_max, 'd_nyquist':d_nyquist, 'nits':nits, 'keep_set':keep_set, 'set_name':section_names[i], 'dump_file':None, 'f_gt_lt':f_gt_lt})]
 	P.close()
 	#
-	pool_results = [R.get()[0] for R in pool_handlers]
+	print "simple mpp: fetch results ([R.get() for R in pool_handlers] )"
+	#pool_results = [R.get()[0] for R in pool_handlers]
+	#pool_results = [R.get()[0] for R in pool_handlers]
+	pool_results = []
+	for R in pool_handlers:
+		R_return = R.get()
+		if hasattr(R_return, '__len__'):
+			pool_results+=[R_return[0]]
+		else:
+			pool_results+=[None]
+		#pool_results+=[R.get()[0]]
+	
+	print "results fetched."
 	#
 	# make a recarray:
 	#
@@ -855,6 +873,7 @@ def simple_metric_optimizer(CFF='data/VC_CFF_timeseries_section_16.npy', m0=7.0,
 		with open(dump_file, 'w') as f:
 			cPickle.dump([best_prams, all_prams], f)
 	#
+	print "[from simple_metric_optimizer()]: finished optimizing (%s)" % (best_prams)
 	return best_prams, all_prams
 
 	
@@ -1167,10 +1186,27 @@ def plot_best_ROC(scores_in=None, fignum=0, do_clf=True, plot_f_out=None):
 		scores_in = numpy.rec.array([[val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in scores_in], names=[key for key,val in scores_in[0].iteritems() if not hasattr(val, '__len__')], formats = [type(x).__name__ for x in scores_in[0].itervalues() if not hasattr(x, '__len__')])
 		#
 		# sloppy tweak:
-		if 'b_0' not in (scores_in.dtype.names): col_name_subs['b_0']='b'
+		#if 'b_0' not in (scores_in.dtype.names): col_name_subs['b_0']='b'
 		# 
 	#
-	
+	F = [scores_in['total_alert_time'][i]/t for i, t in enumerate(scores_in['total_time'])]
+	H = [float(N)/(float(N)+scores_in['n_missed'][i]) for i, N in enumerate(scores_in['n_predicted'])]
+	#print "key:%s, <F>=%f, <H>=%f" % (key, numpy.mean(X), numpy.mean(Y))
+	#print numpy.mean(b_col), numpy.mean(nq_col)
+	#
+	# calculate the total/mean score. we'll just calc the score since we can't necesssarily depend on the scoring
+	# metric to remain constant.
+	#mean_score = numpy.mean(numpy.array(H)/numpy.array(F))		# this might not be right; note we allow for different scoring functions.
+	mean_score = numpy.mean(scores_in['score'])				# is 'score' part of the data set?
+	#
+	plt.figure(fignum)
+	if do_clf:
+		plt.clf()
+		plt.plot([0., 1.], [0., 1.], 'b-', lw=2, alpha=.8, zorder=0)
+	#plt.plot(F,H, label='%s: $<H/F>=%.3f$' % (key, mean_score), **datas['plot_kwargs'])
+	#plt.plot(numpy.mean(F), numpy.mean(H), '*', ms=18, alpha=.75, color=datas['plot_kwargs']['color'], zorder=datas['plot_kwargs']['zorder'])
+	plt.plot(F,H, 'o', label='%s: $<H/F>=%.3f$' % ('F', mean_score) )
+	plt.plot(numpy.mean(F), numpy.mean(H), '*', ms=18, alpha=.75)
 	#
 
 def plot_best_opt_prams(scores_in=None, plot_f_out=None):

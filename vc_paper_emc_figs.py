@@ -4,6 +4,11 @@
 # functions, etc. directly from there maybe, but mostly we'll be calling from those scripts in very specific, not
 # portable ways. in the end, we want to push a button and have all the datasets, figs, etc. come out (mabye with a bit of layering).
 '''
+# to run headless, use this:
+#import matplotlib
+#matplotlib.use('Agg')
+#import pylab as plt
+
 from vc_parser import *
 from vc_geodetic import *
 import vc_geodetic
@@ -492,7 +497,42 @@ def create_ROC_figs_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0
 		plt.figure(fnum+1)
 		plt.title('Raw ROC for Section %s' % sec_str)
 		plt.savefig('%s/roc_raw_sec_%s_nits_%d.png' % (output_dir, sec_str, nits))
-	
+
+
+def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_lt_detail'):
+	'''
+	# for LT metric (acceleration): 
+	#create a whole slew of ROC data. this will include the optimized "best fit" (using whatever metric) and also the raw, full MC output.
+	# (note we could do this with simple_mpp_optimizer(), but for now let's just run some modest size figs (say nits=2500) or so
+	# for proof of concept.
+	#
+	#call like: simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, set_name='data_set', dump_file=None, f_gt_lt=operator.gt, f_score=operator.div, section_id=16)
+	#
+	# note also that we can provide section_id lists like section_id=[1,2,3], and simple_metric_optimizer() will use combine_section_CFFs()
+	# to assemble an aggregate catalog.
+	#
+	'''
+	#
+	#
+	for sec_id in section_ids:
+		if isinstance(sec_id, float): sec_id=int(sec_id)
+		if isinstance(sec_id, int): sec_id=[sec_id]
+		#
+		sec_str = '_'.join([str(x) for x in sec_id])
+		#
+		f_output_name = '%s/roc_sec_%s_nits_%d.npy' % (output_dir, sec_str, nits)
+		#
+		opt_datas, raw_datas = simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.25, b_max=.25, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name, f_gt_lt=operator.lt, f_score=operator.div, section_id=sec_id)
+		
+		#return raw_datas
+		# for now, put this here (get it done the first time). later, we'll move this off-line and use pre-calculated data, etc.
+		plotted = plot_section_ROC_curve(roc_data=raw_datas, section_id=None, fignum=fnum, num_points=num_roc_points)
+		plt.figure(fnum)
+		plt.title('Optimal ROC (PSA) for Section %s' % sec_str)
+		plt.savefig('%s/roc_psa_opt_sec_%s_nits_%d.png' % (output_dir, sec_str, nits))
+		plt.figure(fnum+1)
+		plt.title('Raw ROC (PSA) for Section %s' % sec_str)
+		plt.savefig('%s/roc_psa_raw_sec_%s_nits_%d.png' % (output_dir, sec_str, nits))	
 ###################################
 #
 # IAGS paper (short, letter bit for IAGS special publication):

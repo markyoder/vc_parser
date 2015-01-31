@@ -867,7 +867,8 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 			
 		#
 		if keep_set:
-			all_prams+=[fit_data]
+			#all_prams+=[fit_data]
+			all_prams += [{key:val for key,val in fit_data.iteritems() if key!='alert_segments'}]
 		#
 	#
 	#plt.plot(zip(*bestXY)[0],zip(*bestXY)[1], '-')
@@ -880,13 +881,16 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 		# best_prams, all_prams{minus alerts list}, alerts list
 		with open(dump_file, 'w') as f:
 			#cPickle.dump([best_prams, all_prams], f)
-			cPickle.dump(best_prams)
+			cPickle.dump(best_prams, f)
 		if keep_set:
 			all_prams_dump_file = dump_file.replace('.npy', '_allprams.npy')	# for a cheap fix...
 			with open(all_prams_dump_file, 'w') as f:
 				# alerts key will be: 'alert_segments'
 				#cPickle.dump(
-				pass
+				cPickle.dump([{key:val for key,val in rw.iteritems() if key!='alert_segments'} for rw in all_prams], f)
+			#
+			# ... and for now, let's forego the alert_segments lists. it's probably just as fast to reproduce them...unless we want to
+			# save archives for some reason.
 	#
 	print "[from simple_metric_optimizer()]: finished optimizing (%s)" % (best_prams)
 	return best_prams, all_prams
@@ -965,6 +969,66 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 	#if resultses[0].has_key('alert_segments'): [x.pop('alert_segments') for x in resultses]
 	resultses[0] = {key:val for key,val in resultses[0].iteritems() if key!='alert_segments'}	# a little bit faster and more elegant...
 	return resultses
+#
+def plot_section_ROC_curve(roc_data=None, section_id=None, fignum=0, num_points=100):
+	# construct an ROC curve for a section (or more generally, a collection of ROC optimizer data collected by some unknown parsing).
+	# roc_data input is the 'full_pram' set from simple_metric_optimizer()[1] or the output file (which can be a string-filename
+	# or a roc_data = numpy.load(roc_data); see for example numpy.load('dumps/roc_detail_data/roc_sec_16_allprams.npy')
+	#
+	# ... and later on, code up something for section_id so we can build a roc_data set on demand, if necessary.
+	#
+	if isinstance(roc_data, str): roc_data = numpy.load(roc_data)
+	if isinstance(roc_data[0],dict):
+		# list of dicts. let's turn it into a rec-array.
+		col_names = [key for key,val in roc_data[0].iteritems() if not isinstance(val,str)]		#roc_data[0].keys()
+		lst_data = [[rw[key] for key in col_names] for rw in roc_data]
+		for i,rw in enumerate(roc_data):
+			H = float(rw['n_predicted'])/(rw['n_predicted'] + rw['n_missed'])
+			F = float(rw['total_alert_time'])/rw['total_time']
+			score_lin = H-F
+			score_geom = H/F
+			#
+			lst_data[i] += [H,F, score_lin, score_geom]
+		col_formats = [type(roc_data[0][key]).__name__ for key in col_names]
+		col_names += ['H', 'F', 'score_lin', 'score_geom']
+		while len(col_formats)<len(col_names): col_formats+=[type(1.0).__name__]
+		#
+		rec_data = numpy.core.records.fromarrays(zip(*lst_data), names=col_names, formats = col_formats)
+		#rec_data = numpy.core.records.fromarrays(zip(*[[rw[key] for key in col_names] for rw in roc_data]), names=col_names, formats = [type(roc_data[0][key]).__name__ for key in col_names])
+		#
+		# now we have a rec-array object like [[total_time, b, alpha, n_missed, alert_time, n_predicted, score, H, F, score_lin, score_geom] ]
+		# we want to bin these by F and plot the max value for each bin (or the distribution or whatever). H,F are always 0<{F,H}<1
+		#
+		#rec_data.sort(order='F')
+		bin_size=1.0/num_points
+		#
+		roc_curve_data = [[] for x in xrange(num_points)]
+		#roc_curve_data = {x:{'F':bin_size*x, 'rws':[]}}	# let's just start with it crayon simple.
+		
+		for i,rw in enumerate(rec_data):
+			bin_num = int(rw['F']/bin_size)
+			roc_curve_data[bin_num]+=[i]
+		#
+		roc_X = numpy.arange(0., 1.+bin_size, bin_size)
+		#roc_Y = [None] + [len(x) for j,x in enumerate(roc_curve_data)]
+		roc_Y = [None] + [max([rec_data['H'][i] for i in rw]) if len(rw)>0 else None for j,rw in enumerate(roc_curve_data)]
+		#
+		plt.figure(fignum)
+		plt.clf()
+		plt.plot(roc_X, roc_Y, '.-', zorder=1)
+		plt.plot([0., 1.], [0., 1.], 'r-', lw=2, zorder=0)
+		plt.xlabel('False alarm rate $F$')
+		plt.ylabel('Hit rate $H$')
+		
+		plt.figure(fignum+1)
+		plt.clf()
+		plt.plot(rec_data['F'], rec_data['H'], '.')
+		plt.plot([0., 1.], [0., 1.], 'r-', lw=2, zorder=0)
+		plt.xlabel('False alarm rate $F$')
+		plt.ylabel('Hit rate $H$')
+		
+	#return rec_data	
+	return roc_curve_data
 #
 def plot_ROC_optimized_prams(opt_data=None, fignum=0, section_id=None, nits=1000):
 	# make some plots for ROC optimization. opt_data should be the return value from something like:

@@ -6,6 +6,7 @@ matplotlib.use('Agg')
 import pylab as plt
 
 import multiprocessing as mpp
+import vc_parser
 
 import vc_paper_emc_figs as vpp
 
@@ -22,7 +23,7 @@ if __name__ == '__main__':
 	jobs = []
 	
 	p1 = mpp.Process(target=f1)
-	jobs.append(p)
+	jobs.append(p1)
 	p1.start()
 	#
 	p2 = mpp.Process(target=f2)

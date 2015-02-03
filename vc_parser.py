@@ -578,7 +578,7 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 			#
 		#
 	#
-	while len(alert_segments[-1])==0: alert_segments.pop()
+	while len(alert_segments)>0 and len(alert_segments[-1])==0: alert_segments.pop()
 	#
 	# now, calculate total alert time:
 	total_alert_time = 0.0
@@ -830,6 +830,7 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 	#plt.plot(range(2), range(2), '-')
 	#bestXY = []
 	for i in xrange(nits):
+		print "optimizer n_iteration: %d" % i
 		this_b   = b_min       + delta_b*R_b.random()
 		this_nyq = nyquist_min + delta_nyq*R_nyq.random()
 		#
@@ -840,9 +841,19 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 		hit_rate = float(fit_data['n_predicted'])/(float(fit_data['n_predicted'])+float(fit_data['n_missed']))
 		false_alarm_rate = float(fit_data['total_alert_time'])/float(fit_data['total_time'])		# 
 		#
+		#print "H,F: ", hit_rate, false_alarm_rate
 		#
-		#this_score = hit_rate/alert_rate	# could also be hit_rate-alert_rate (see below).
-		this_score = f_score(hit_rate, false_alarm_rate)
+		# and there are cases where we get zero alert time, which results in an error using geometric score algorithms
+		# (aka, s=H/F). so we'll handle this as best we can. what about a None value? or, just move on? None might throw an error
+		# when we cast into recarrays. numpy.nan? we'll see...
+		#
+		try:
+			#this_score = hit_rate/alert_rate	# could also be hit_rate-alert_rate (see below).
+			this_score = f_score(hit_rate, false_alarm_rate)
+		except:
+			print "***************\nscore exception\n****************"
+			#this_score = None
+			continue
 		#
 		# note: the more contemporary area-skill = ingegral(H(f)-f), aka the area between H(F) and H=F,
 		# can be emulated by:
@@ -970,7 +981,7 @@ def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7
 	resultses[0] = {key:val for key,val in resultses[0].iteritems() if key!='alert_segments'}	# a little bit faster and more elegant...
 	return resultses
 #
-def plot_section_ROC_curve(roc_data=None, section_id=None, fignum=0, num_points=100):
+def plot_section_ROC_curve(roc_data=None, section_id=None, fignum=0, num_points=100, do_clf=True, label_str=None, markers='.-'):
 	# construct an ROC curve for a section (or more generally, a collection of ROC optimizer data collected by some unknown parsing).
 	# roc_data input is the 'full_pram' set from simple_metric_optimizer()[1] or the output file (which can be a string-filename
 	# or a roc_data = numpy.load(roc_data); see for example numpy.load('dumps/roc_detail_data/roc_sec_16_allprams.npy')
@@ -984,11 +995,19 @@ def plot_section_ROC_curve(roc_data=None, section_id=None, fignum=0, num_points=
 		lst_data = [[rw[key] for key in col_names] for rw in roc_data]
 		for i,rw in enumerate(roc_data):
 			H = float(rw['n_predicted'])/(rw['n_predicted'] + rw['n_missed'])
-			F = float(rw['total_alert_time'])/rw['total_time']
+			if rw['total_time']!=0.:
+				F = float(rw['total_alert_time'])/rw['total_time']
+			else:
+				F=numpy.nan
+			#
 			score_lin = H-F
 			score_geom = H/F
 			#
 			lst_data[i] += [H,F, score_lin, score_geom]
+			#for j in xrange(lst_data[i]):
+			#	if lst_data[i][j]==None: lst_data[i][j]=numpy.nan
+			lst_data[i] = [x if x!=None else numpy.nan for x in lst_data[i]]
+			#
 		col_formats = [type(roc_data[0][key]).__name__ for key in col_names]
 		col_names += ['H', 'F', 'score_lin', 'score_geom']
 		while len(col_formats)<len(col_names): col_formats+=[type(1.0).__name__]
@@ -1013,16 +1032,25 @@ def plot_section_ROC_curve(roc_data=None, section_id=None, fignum=0, num_points=
 		#roc_Y = [None] + [len(x) for j,x in enumerate(roc_curve_data)]
 		roc_Y = [None] + [max([rec_data['H'][i] for i in rw]) if len(rw)>0 else None for j,rw in enumerate(roc_curve_data)]
 		#
+		#roc_X, roc_Y = zip(*[[x,y] for x,y in zip(roc_X, roc_Y) if not (numpy.isnan(x) or numpy.isnan(y))])
+		#
 		plt.figure(fignum)
-		plt.clf()
-		plt.plot(roc_X, roc_Y, '.-', zorder=1)
+		if do_clf: plt.clf()
+		if label_str!=None:
+			curve_1 = plt.plot(roc_X, roc_Y, markers, zorder=1)
+		else:
+			curve_1 = plt.plot(roc_X, roc_Y, markers, zorder=1, label=label_str)
+		# 
 		plt.plot([0., 1.], [0., 1.], 'r-', lw=2, zorder=0)
 		plt.xlabel('False alarm rate $F$')
 		plt.ylabel('Hit rate $H$')
 		
 		plt.figure(fignum+1)
-		plt.clf()
-		plt.plot(rec_data['F'], rec_data['H'], '.')
+		if do_clf: plt.clf()
+		if label_str!=None:
+			plt.plot(rec_data['F'], rec_data['H'], '.')
+		else:
+			plt.plot(rec_data['F'], rec_data['H'], '.', label=label_str)		# ... and there's a better way to do this using plt.legend()...
 		plt.plot([0., 1.], [0., 1.], 'r-', lw=2, zorder=0)
 		plt.xlabel('False alarm rate $F$')
 		plt.ylabel('Hit rate $H$')
@@ -1030,13 +1058,115 @@ def plot_section_ROC_curve(roc_data=None, section_id=None, fignum=0, num_points=
 	#return rec_data	
 	return roc_curve_data
 #
-def plot_ROC_optimized_prams(opt_data=None, fignum=0, section_id=None, nits=1000):
+def plot_ROC(roc_array=None, section_id=16, fignum=0, num_points=100, do_clf=True, file_format='dumps/roc_detail_data/roc_sec_%d_nits_2500_allprams.npy', marker_str='.-', label_str='data'):
+	#
+	# roc_array should be from get_ROC_from_optimizer(), or equivalent. we'll want to thoroughly trap the input eventually.
+	#
+	if roc_array==None and section_id!=None: roc_array=get_ROC_from_optimizer(section_id=section_id, file_format=file_format)
+	if isinstance(roc_array[0], dict) or isinstance(roc_array,str): roc_array=get_ROC_from_optimizer(opt_data=roc_array)
+	#
+	# for now, just plot the ROC. the idea is to allow custom plotting -- plot multiple ROCs (and other stuff) on the same figure.
+	#
+	plt.figure(fignum)
+	if do_clf: plt.clf()
+	#
+	plt.plot(roc_array['F'], roc_array['H'], marker_str, label=label_str)
+	#
+	return roc_array
+#
+def randomize_CFF(CFF_in=None, section_id=None):
+	R=random.Random()
+	if CFF_in==None and section_id!=None:
+		CFF_in = vc_parser.combine_section_CFFs(sec_id)
+	#
+	CFF_rand=CFF_in.copy()
+	#
+	intervals = (CFF_in['event_year'][1:] - CFF_in['event_year'][0:-1]).tolist()
+	intervals.sort(key=lambda x:R.random())
+	random.shuffle(CFF_rand)
+	CFF_rand['event_year'][0]=0.0
+	for j,rw in enumerate(CFF_rand[1:]):
+		CFF_rand[j+1]['event_year'] = CFF_rand[j]['event_year'] + intervals[j]
+	#
+	return CFF_rand
+#
+def random_like_CFF(CFF_in=None, section_id=None):
+	# a different randomizer. instead of just mixing up a given sequence, create a random seqeunce 'like' the input.
+	# in this case, it should have the same length and span approximately the same time-frame.
+	R=random.Random()
+	if CFF_in==None and section_id!=None:
+		CFF_in = combine_section_CFFs(section_id)
+	#
+	mean_interval = (max(CFF_in['event_year'])-min(CFF_in['event_year']))/float(len(CFF_in))
+	#
+	CFF_rand=CFF_in.copy()
+	CFF_rand[0]['event_year']=min(CFF_in['event_year'])
+	#
+	for j,rw in enumerate(CFF_rand[1:]):
+		CFF_rand['event_year'][j+1]=CFF_rand[j]['event_year'] + mean_interval*R.random()
+	#
+	return CFF_rand
+	
+	#
+	
+
+#
+def get_ROC_from_optimizer(opt_data=None, section_id=16, file_format='dumps/roc_detail_data/roc_sec_%d_nits_2500_allprams.npy'):
+	'''
+	# moduar ROC plotting:
+	# input optimization output, return a rec_array ready for ROC plotting.
+	#
+	# provide opt_data as a string --> file name of optimization data set, list-o-dictionaries, each dict. is an optimization instance
+	# (aka, from a monte-carlo method). OR,
+	# opt_data=None; use section_id + file_format to load an optimization output file. see first couple-o-lines below.
+	'''
+	if isinstance(opt_data, str):
+		opt_data=numpy.load(opt_data)
+	#
+	if opt_data==None and section_id!=None:
+		opt_data = numpy.load(file_format % section_id)
+	#
+	type_dict={type('abc').__name__:'S128'}
+	# let's go ahead and compile everything here. we might use this to analyize the b_0 and nyquist_factor dependencies as well.
+	# first, make a list, then a recarray... (eventually, we want to reorganize this so we can allow a list of dicts. or recarray seamlessly).
+	col_names = opt_data[0].keys() + ['H', 'F', 'score_lin', 'score_geom']
+	#
+	#roc_datas = [[val for key,val in rw.iteritems()] for rw in opt_data]
+	roc_datas = []
+	for i,rw in enumerate(opt_data):
+		new_row = [val for key,val in rw.iteritems()]
+		H = float(rw['n_predicted'])/(float(rw['n_predicted']) + rw['n_missed'])
+		if rw['total_time']!=0.:
+			F = rw['total_alert_time']/rw['total_time']
+		else:
+			F=None
+		new_row += [H,F,H-F, H/F]
+		#
+		roc_datas += [new_row]
+
+	#
+	formats = [type(x).__name__ if not isinstance(x,str) else 'S128' for x in roc_datas[0]]
+	
+	# numpy.core.records.fromarrays(zip(*total_scores), names=['b_0', 'nyquist_factor', 'score', 'stdev'], formats = [type(x).__name__ for x in total_scores[0]])
+	roc_datas = numpy.core.records.fromarrays(zip(*roc_datas), names=col_names, formats=formats)
+	#
+	
+	
+	return roc_datas
+	
+#
+def plot_ROC_optimized_prams(roc_data=None, fignum=0, section_id=None, nits=1000):
+	'''
 	# make some plots for ROC optimization. opt_data should be the return value from something like:
 	# opts_124=vc_parser.simple_metric_optimizer(nits=100, b_min=-.15, b_max=.25, keep_set=True, section_id=124)[1]
 	# where the [1] gives the results from the full space explored by the MC simulation (and it's pretty huge since it includes
 	# all the "alerts" sections).
 	#
-	if isinstance(opt_data, str): opt_data=numpy.load(opt_data)
+	# roc_data: optimization data, namely the full parameter space output from simple_metric_optimizer(keep_set=True) {plus a bunch of
+	# other inputs).
+	'''
+	#
+	if isinstance(roc_data, str): opt_data=numpy.load(opt_data)
 	if opt_data==None and section_id!=None:
 		opt_data = simple_metric_optimizer(section_id=section_id, keep_set=True, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, nits=nits, f_gt_lt=operator.gt)[1]
 	#

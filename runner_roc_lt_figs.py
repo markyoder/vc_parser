@@ -12,10 +12,10 @@ import vc_paper_emc_figs as vpp
 
 
 def f1():
-	a=vpp.create_ROC_figs_LT_data(section_ids = vpp.vc_parser.emc_sections, nits=2500, num_roc_points=100)
+	a=vpp.create_ROC_figs_LT_data(section_ids = vpp.vc_parser.emc_sections, nits=500, num_roc_points=100, output_dir='dumps/gji_roc_gt_500')
 
 def f2():
-	a=vpp.create_ROC_figs_data(section_ids = vpp.vc_parser.emc_sections, nits=2500, num_roc_points=100)
+	a=vpp.create_ROC_figs_data(section_ids = vpp.vc_parser.emc_sections, nits=500, num_roc_points=100, output_dir='dumps/gji_roc_lt_500')
 
 if __name__ == '__main__':
 	#print "executing..."

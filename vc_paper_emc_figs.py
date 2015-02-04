@@ -497,21 +497,17 @@ def create_ROC_figs_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0
 		#CFF_rand = vc_parser.randomize_CFF(section_id=sec_id)
 		#
 		# this draws intervals from a uniform distribution and assigns t_i = t_{i-1} + <dt>*random().
-		CFF_rand = random_like_CFF(CFF_in=None, section_id=sec_id)
-		#CFF_rand = vc_parser.combine_section_CFFs(sec_id)
-		#intervals_rand = (CFF_rand['event_year'][1:] - CFF_rand['event_year'][0:-1]).tolist()
-		#intervals_rand.sort(key=lambda x:R.random())
-		#random.shuffle(CFF_rand)
-		#CFF_rand['event_year'][0]=0.0
-		#for j,rw in enumerate(CFF_rand[1:]):
-		#	CFF_rand[j+1]['event_year'] = CFF_rand[j]['event_year'] + intervals_rand[j]
+		
+		#CFF_rand = vc_parser.random_like_CFF(CFF_in=None, section_id=sec_id)
+		
 		#
-		opt_datas_rand, raw_datas_rand = simple_metric_optimizer(CFF=CFF_rand, m0=7.0, b_min=-.25, b_max=.25, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name_rand, f_gt_lt=operator.gt, f_score=operator.div, section_id=None)
+		#opt_datas_rand, raw_datas_rand = simple_metric_optimizer(CFF=CFF_rand, m0=7.0, b_min=-.25, b_max=.25, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name_rand, f_gt_lt=operator.gt, f_score=operator.div, section_id=None)
 		
 		#return raw_datas
 		# for now, put this here (get it done the first time). later, we'll move this off-line and use pre-calculated data, etc.
 		plotted = plot_section_ROC_curve(roc_data=raw_datas, section_id=None, fignum=fnum, num_points=num_roc_points, label_str='section_id: %s' % sec_str, markers='.-')
-		plotted_rand = plot_section_ROC_curve(roc_data=raw_datas_rand, section_id=None, fignum=fnum, do_clf=False, num_points=num_roc_points, label_str='(random)', markers='.')
+		
+		#plotted_rand = plot_section_ROC_curve(roc_data=raw_datas_rand, section_id=None, fignum=fnum, do_clf=False, num_points=num_roc_points, label_str='(random)', markers='.')
 		plt.figure(fnum)
 		plt.title('Optimal ROC for Section %s' % sec_str)
 		plt.savefig('%s/roc_opt_sec_%s_nits_%d.png' % (output_dir, sec_str, nits))
@@ -534,7 +530,6 @@ def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 	#
 	'''
 	#
-	#
 	R=random.Random()
 	for sec_id in section_ids:
 		if isinstance(sec_id, float): sec_id=int(sec_id)
@@ -548,15 +543,15 @@ def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 		opt_datas, raw_datas = simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.25, b_max=.25, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name, f_gt_lt=operator.lt, f_score=operator.div, section_id=sec_id)
 		#
 		# now, randomize this catalog and plot to show contrast:
-		CFF_rand = random_like_CFF(CFF_in=None, section_id=sec_id)
+		#CFF_rand = vc_parser.random_like_CFF(CFF_in=None, section_id=sec_id)
 		#
-		opt_datas_rand, raw_datas_rand = simple_metric_optimizer(CFF=CFF_rand, m0=7.0, b_min=-.25, b_max=.25, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name_rand, f_gt_lt=operator.lt, f_score=operator.div, section_id=None)
+		#opt_datas_rand, raw_datas_rand = simple_metric_optimizer(CFF=CFF_rand, m0=7.0, b_min=-.25, b_max=.25, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name_rand, f_gt_lt=operator.lt, f_score=operator.div, section_id=None)
 		
 		
 		#return raw_datas
 		# for now, put this here (get it done the first time). later, we'll move this off-line and use pre-calculated data, etc.
 		plotted =      plot_section_ROC_curve(roc_data=raw_datas, section_id=None, fignum=fnum, num_points=num_roc_points, markers='.-')
-		plotted_rand = plot_section_ROC_curve(roc_data=raw_datas_rand, section_id=None, fignum=fnum, do_clf=False, num_points=num_roc_points, label_str='(random)',markers='.')
+		#plotted_rand = plot_section_ROC_curve(roc_data=raw_datas_rand, section_id=None, fignum=fnum, do_clf=False, num_points=num_roc_points, label_str='(random)',markers='.')
 		plt.figure(fnum)
 		plt.title('Optimal ROC (PSA) for Section %s' % sec_str)
 		plt.legend(loc=0, numpoints=1)

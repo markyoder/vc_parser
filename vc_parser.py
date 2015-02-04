@@ -470,7 +470,269 @@ def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_sect
 #
 # ROC and predictability bits.
 #
+def get_random_forecast_set(CFF=None, section_id=16, m0=7.0, P_min=0., P_max=1.0, set_name=None, nits=1000, format='dict', do_roc_plot=False, fignum=0):
+	'''
+	# get a set of random forecasts, for comparison to real forecasts. return as list of dicts.
+	'''
+	R=random.Random()
+	P_min = max(0.0, P_min)
+	P_max = min(1.0, P_max)
+	#
+	
+	if (CFF==None or len(CFF)==0) and section_id!=None:
+		CFF = combine_section_CFFs(sections=section_id)
+	if isinstance(CFF, str):
+		CFF = numpy.load(ary_in)
+	#
+	roc_prams = []
+	for j in xrange(nits):
+		this_P = P_min + (P_max-P_min)*R.random()
+		print "this_P: ", this_P
+		fc = forecast_metric_random_1(ary_in=CFF, m0=m0, do_plot=False, set_name=set_name, section_id=None, P=this_P)
+		fc_eval = evaluate_alert_segments(alert_segments=fc, CFF=CFF, do_plot=False)
+		fc_eval['P']=this_P
+		roc_prams+=[fc_eval]
+	#
+	return_object = roc_prams
+	#
+	if format in ('array', 'rec', 'recarray'):
+		lst_prams = [[val for val in rw.itervalues()] for rw in roc_prams]
+		col_names = roc_prams[0].keys()
+		col_formats = [type(x).__name__ for x in lst_prams[0]]
+		#
+		roc_prams_ary = numpy.core.records.fromarrays(zip(*lst_prams), names=roc_prams[0].keys(), formats=[type(x).__name__ for x in lst_prams[0]])
+		return_object = roc_prams_ary
+	#
+	if do_roc_plot:
+		plt.figure(fignum)
+		plt.clf()
+		plt.plot(roc_prams_ary['F'], roc_prams_ary['H'], '.', zorder=2)
+		plt.plot([0., 1.], [0., 1.], '-', lw=2, zorder=1)
+		#
+		f=plt.figure(fignum+1)
+		plt.clf()
+		ax3d = f.add_axes([.1, .1, .8, .8], projection='3d')
+		ax3d.plot(roc_prams_ary['P'], roc_prams_ary['F'], roc_prams_ary['H'], '.')
+		ax3d.set_xlabel('Probability $P$')
+		ax3d.set_ylabel('False Alarm Rate $F$')
+		ax3d.set_zlabel('Hit Rate $H$')
+		ax3d.plot([0., 1.], [0., 1.], [0., 1.], '-', lw=2)
+		
+	#
+	return return_object
+#
+def forecast_metric_random_1(ary_in=None, m0=7.0, do_plot=False, fnum=0, set_name=None, section_id=16, P=.5, R=None):
+	'''
+	# a random forecast. for now, let's leave the array alone. we'll just use it to get the correct length, etc.
+	# assign a random forecast by randomly choosing to turn off/on the forecast alert... i suppose with some probability.
+	#
+	# R: random number generator. can be None and we'll get one...
+	#
+	# basically: 
+	#  - keep track of alert on/off statis
+	#  - at each step:
+	#    - if alert is on: turn off with probability Q
+	#    - if alert if off: turn on with probability P
+	# this should be equivalent to (right?) at each step, alert status is ON with probability P, OFF with probability Q.
+	# then, use: evaluate_alert_segments() to get basic hit/false alarm stats.
+	# 
+	#
+	'''
+	#
+	if P==None: P=.5
+	if R==None: R=random.Random()
+	print "from fcr1: P=%f" % P
+	#Q = 1.0-P
+	#
+	# handle catalog inputs:
+	#
+	if (ary_in==None or len(ary_in)==0) and section_id!=None:
+		#ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id
+		ary_in = combine_section_CFFs(sections=section_id)
+	if isinstance(ary_in, str):
+		CFF = numpy.load(ary_in)
+	else:
+		# otherwise, assume we've been passed a proper CFF object:
+		CFF = ary_in
+		# give the set a name  so we don't return the whole input data object...
+		if set_name==None: set_name='unnamed_CFF'
+	#
+	if set_name==None:
+		# still none? must be a string type ary_in...
+		set_name=ary_in
+	#
+	alert_segments = []
+	alert_status=False
+	this_b = None		# holder variable to make these alert_segments look more like a real alert metric.
+	for i,rw in enumerate(CFF):
+		r = R.random()
+		#
+		#print "diag: ", r, alert_status
+		#
+		if alert_status==True and r>P:
+			# alert is on and we cancel it...
+			alert_status=False
+			alert_segments[-1]
+			alert_segments[-1]+=[[rw['event_year'], this_b]]
+			#alert_segments += [[]]
+		if alert_status==False and r<=P:
+			alert_status=True
+			alert_segments +=[ [[rw['event_year'], this_b]] ]
+		#
+	if alert_status==True:
+		alert_segments[-1] += [[rw['event_year'], this_b]]
+	while len(alert_segments[-1])<2: alert_segments.pop(-1)
+	#
+	#return alert_segments
+	#
+	# plot it up:
+	if do_plot:
+		plt.figure(0)
+		plt.clf()
+		for rw in alert_segments:
+			plt.plot([rw[0][0], rw[1][0]], [0.,0.], 'o-')
+	#
+	return alert_segments	
+#
+def evaluate_alert_segments(alert_segments=None, CFF=None, section_id=None, m0=7.0, do_plot=True, fnum=0):
+	# given a set of alert segments and a CFF, evaluate the alerts:
+	# ... and let's just do this the hard way; for each earthquake see if its in an alert bin. going forward, we'll want to index this.
+	if CFF==None and section_id!=None:
+		CFF=combine_section_CFFs(sections=section_id)
+	#
+	total_alert_time = 0.0
+	total_total_time = CFF[-1]['event_year'] - CFF[0]['event_year']
+	#
+	for alert_segment in alert_segments:
+		total_alert_time += (alert_segment[-1][0] - alert_segment[0][0])
+	#
+	# and prediction success:
+	n_predicted = 0
+	n_missed = 0
+	n_total = 0
+	#
+	# was an alert issued at the time of an m>m0 event?
+	# we should clean this up, but for now, make and use dictionaries...
+	#alert_dict = {x[0]:x[1] for x in 
+	#
+	#alert_dict = {}
+	#for seg in alert_segments:
+	#	#
+	#	for rw in seg:
+	#		alert_dict[rw[0]] = rw[1]		# this is a bit odd, but i think it works because
+	#										# of how the initial metric was implemented. namely, we terminate an alert
+	#										# when we get an m>m0, so we have an entry in the dict.
+	#
+	j_alert_start = 0
+	for i, rw in enumerate(CFF):
+		if rw['event_magnitude']<m0: continue
+		n_total+=1
+		#
+		# this is a really dumb way to do this (because we're keying off a float). what about keying off a float.as_integer_ratio() ??
+		#
+		# otherwise, its a big one. we need two conditions:
+		# 1) the alert was active during the event.
+		# 2) the alert had already been issued.
+		
+		#CFF_index = rw['event_number']
+		#prev_year = CFF[i-1]['event_year']
+		
+		#if alert_dict.has_key(rw['event_year']):
+		#if alert_dict.has_key(rw['event_year']) and alert_dict.has_key(prev_year):
+		# note: this is keying off a float index, so it has potential to be unreliable.
+		#
+		#if alert_dict.has_key(rw['event_year']):						
+		#	n_predicted += 1
+		#else:
+		#	n_missed += 1
+		while rw['event_year']>alert_segments[j_alert_start][1][0] and j_alert_start<(len(alert_segments)-1): j_alert_start+=1
+		#
+		for alert in alert_segments[j_alert_start:]:
+			if rw['event_year'] > alert[0][0] and rw['event_year'] <= alert[1][0]:
+				n_predicted +=1
+				#n_missed -=1
+				break
 
+	n_missed = n_total-n_predicted
+	
+	#
+	#
+	if do_plot:
+		# diagnostic plots of forecast metric:
+		plt.figure(fnum)
+		plt.clf()
+		plt.title('General Forecast Metric')
+		#
+		ax_mags = plt.gca()
+		ax_metric = ax_mags.twinx()		
+		#
+		ax_ints = ax_metric.twinx()
+		ax_ints.set_yscale('log')
+		ax_metric.set_yscale('linear')
+		#
+		min_mag = min(CFF['event_magnitude'])
+		max_mag = max(CFF['event_magnitude'])
+		intervals = [x-CFF['event_year'][i] for i,x in enumerate(CFF['event_year'][1:])]
+		#
+		#metric_pad_factor = min_mag
+		#metric_pad_factor = 0.
+		#min_metric = 0.
+		min_metric = alert_segments[0][0][1]
+		max_metric = alert_segments[0][0][1]
+		#
+		# do a quick spin to get min/max values and other useful stats:
+		for segment in alert_segments:
+			X,Y = zip(*segment)
+			min_metric = min(min(Y), min_metric)
+			max_matric = max(max(Y), max_metric)
+		#
+		for segment in alert_segments:
+			X,Y = zip(*segment)
+			min_metric = min(min(Y), min_metric)
+			#
+			# ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b']  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='m', zorder=1, alpha=.5)
+			#ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0.0 for x in trend_data], color='m', zorder=1, alpha=.25)
+			#
+			# show the metric value:
+			#ln_metric = ax_metric.fill_between(X,[y for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
+			#ln_metric = ax_metric.fill_between(X,[y for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [f_gt_lt(y,0.) for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
+			ax_metric.plot(X, [0.0 for y in Y if y<0], 'm-')
+			ax_metric.plot(X, [y for y in Y if y<0], 'm-')
+			#
+			# and just an "alert!" box:
+			#ln_metric = ax_metric.fill_between(X,[min_metric for y in Y],y2=[0.0 for y in Y], color='m', alpha=.15, where = [y<0. for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
+			#ln_metric = ax_metric.fill_between(X,[min_metric for y in Y],y2=[0.0 for y in Y], color='m', alpha=.15, where = [f_gt_lt(y,0.) for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
+			#
+			#ax_mags.fill_between(X, [min_mag for x in X], [m0 for x in X], zorder=5, alpha=.2, color='c')
+		#
+		ln_ints = ax_ints.plot(CFF['event_year'][1:], intervals, 'b.-', lw=2, ms=7, label='Intervals $\Delta t = t_i - t_{i-1}$')
+		#ax_metric.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
+		ln_mags = ax_mags.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='g', alpha=.7, lw=1.5, label='magnitudes')
+		X_big_mags, Y_big_mags = zip(*[[x['event_year'], x['event_magnitude']] for x in CFF if x['event_magnitude']>m0])
+		ax_mags.vlines(X_big_mags, [min_mag for x in Y_big_mags], Y_big_mags, color='r', alpha=.9, lw=2.75)
+		#
+		# cosmetics:
+		ax_mags.set_xlabel('Event Year $t$')
+		ax_ints.set_ylabel('Inter-event interval $\Delta t$')
+		ax_metric.yaxis.set_ticks([])
+		ax_mags.set_ylabel('Earthquake magnitude $m$')
+		#
+		ax_metric.set_ylim(ymin=1.15*min_metric, ymax = -min_metric/10.)
+	#
+	print "preliminary report:"
+	H = float(n_predicted)/(float(n_predicted)+n_missed)
+	F = total_alert_time/total_total_time
+	#print "alert time: %f / %f :: %f " % (total_alert_time, total_total_time, total_alert_time/total_total_time)
+	#print "n_predicted: %d, n_missed: %d (%f )" % (n_predicted, n_missed, float(n_predicted)/(float(n_predicted)+n_missed))
+	#print "score: H-F: %f " % (float(n_predicted)/(float(n_predicted)+n_missed) - total_alert_time/total_total_time)
+	print "alert time: %f / %f :: %f " % (total_alert_time, total_total_time, F)
+	print "n_predicted: %d, n_missed: %d (%f )" % (n_predicted, n_missed, H)
+	print "score: H-F, H/F: %f / %f " % (H-F, H/F)
+	#
+	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'H':H, 'F':F}
+	#, 'ary_in_name':set_name, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
+	# ... and we might add some sort of returned parameters (from the metric component), but for now, keep it simple.
+#
 def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.gt, section_id=16):
 	'''
 	#
@@ -568,13 +830,12 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 				#
 				# generalize language a bit:
 				alert_segments[-1]+=[[trend_data[i+1]['event_year'], this_b]]
-				pass
+				#pass
 				#
 			if this_mag>=m0:
 				# this is "the" earthquake. add this entry (it's probably already there) from the previous entry.
-				#alert_segments[-1]+=[[trend_data[i]['event_year'], trend_data[i]['lin_fit_b']]]
+				#
 				alert_segments[-1]+=[[trend_data[i]['event_year'], this_b]]
-				#running_b_sequence=[]
 			#
 		#
 	#
@@ -590,18 +851,23 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 	# and prediction success:
 	n_predicted = 0
 	n_missed = 0
+	n_total = 0
 	#
 	# was an alert issued at the time of an m>m0 event?
 	# we should clean this up, but for now, make and use dictionaries...
 	#alert_dict = {x[0]:x[1] for x in 
-	alert_dict = {}
-	for seg in alert_segments:
-		#
-		for rw in seg:
-			alert_dict[rw[0]] = rw[1]
 	#
+	# this approach is problematic and i think might be producing some artifact effects.
+	#alert_dict = {}
+	#for seg in alert_segments:
+	#	#
+	#	for rw in seg:
+	#		alert_dict[rw[0]] = rw[1]
+	#
+	j_alert_start=0
 	for i, rw in enumerate(CFF):
 		if rw['event_magnitude']<m0: continue
+		n_total+=1
 		#
 		# this is a really dumb way to do this, so fix it:
 		#
@@ -612,10 +878,25 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 		prev_year = CFF[i-1]['event_year']
 		#if alert_dict.has_key(rw['event_year']):
 		#if alert_dict.has_key(rw['event_year']) and alert_dict.has_key(prev_year):
-		if alert_dict.has_key(rw['event_year']):						
-			n_predicted += 1
-		else:
-			n_missed += 1
+		#
+		## note: this is keying off a float index, so it has potential to be unreliable.
+		#if alert_dict.has_key(rw['event_year']):						
+		#	n_predicted += 1
+		#else:
+		#	n_missed += 1
+		#
+		#try:
+		#	while len(alert_segments)>j_alert_start and rw['event_year']>alert_segments[j_alert_start][1][0] and j_alert_start<(len(alert_segments)-1): j_alert_start+=1
+		#except:
+		#	print "alert indexing error. ", len(alert_segments)
+		#
+		for alert in alert_segments[j_alert_start:]:
+			if rw['event_year'] > alert[0][0] and rw['event_year'] <= alert[1][0]:
+				n_predicted +=1
+				#n_missed -=1
+				break
+
+	n_missed = n_total-n_predicted
 	
 	#
 	#
@@ -658,8 +939,8 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 			# show the metric value:
 			#ln_metric = ax_metric.fill_between(X,[y for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [y<0. for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
 			ln_metric = ax_metric.fill_between(X,[y for y in Y],y2=[0.0 for y in Y], color='m', alpha=.3, where = [f_gt_lt(y,0.) for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
-			ax_metric.plot(X, [0.0 for y in Y if y<0], 'm-')
-			ax_metric.plot(X, [y for y in Y if y<0], 'm-')
+			ax_metric.plot([x for i,x in enumerate(X) if Y[i]<0], [0.0 for y in Y if y<0], 'm-')
+			ax_metric.plot([x for i,x in enumerate(X) if Y[i]<0], [y for y in Y if y<0], 'm-')
 			#
 			# and just an "alert!" box:
 			#ln_metric = ax_metric.fill_between(X,[min_metric for y in Y],y2=[0.0 for y in Y], color='m', alpha=.15, where = [y<0. for y in Y], zorder=7, label='Hazard metric: $\\eta (b)$' )
@@ -682,7 +963,8 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 		ax_metric.set_ylim(ymin=1.15*min_metric, ymax = -min_metric/10.)
 	#
 	print "preliminary report:"
-	H = float(n_predicted)/(float(n_predicted)+n_missed)
+	#H = float(n_predicted)/(float(n_predicted)+n_missed)
+	H=float(n_predicted)/float(n_total)
 	F = total_alert_time/total_total_time
 	#print "alert time: %f / %f :: %f " % (total_alert_time, total_total_time, total_alert_time/total_total_time)
 	#print "n_predicted: %d, n_missed: %d (%f )" % (n_predicted, n_missed, float(n_predicted)/(float(n_predicted)+n_missed))
@@ -766,7 +1048,7 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	#
 	return pool_results
 #
-def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, set_name='data_set', dump_file=None, f_gt_lt=operator.gt, f_score=operator.div, section_id=16):
+def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=False, set_name='data_set', dump_file=None, f_gt_lt=operator.gt, f_score=operator.div, section_id=16, opt_func=forecast_metric_1):
 	'''
 	# this does an MC thing to optimize a forecast metric for a CFF (presumably a section catalog like 'data/VC_CFF_timeseries_section_16.npy'
 	# or the data therein. it can be run independently or (it's primary purpose) wrapped by simple_mpp_optimizer()
@@ -799,7 +1081,7 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 	if f_score == None:
 		f_score = operator.div
 	#
-	opt_func = forecast_metric_1
+	#opt_func = forecast_metric_1
 	# forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0)
 	#
 	if section_id!=None and CFF==None:
@@ -1101,15 +1383,37 @@ def random_like_CFF(CFF_in=None, section_id=None):
 	#
 	CFF_rand=CFF_in.copy()
 	CFF_rand[0]['event_year']=min(CFF_in['event_year'])
+	CFF_rand[0]['event_number']=0
 	#
 	for j,rw in enumerate(CFF_rand[1:]):
 		CFF_rand['event_year'][j+1]=CFF_rand[j]['event_year'] + mean_interval*R.random()
+		CFF_rand['event_number'][j+1]=j+1
 	#
 	return CFF_rand
 	
 	#
+def random_like_CFF_2(CFF_in=None, section_id=None):
+	# a different randomizer. instead of just mixing up a given sequence, create a random seqeunce 'like' the input.
+	# in this case, it should have the same length and span approximately the same time-frame.
+	R=random.Random()
+	if CFF_in==None and section_id!=None:
+		CFF_in = combine_section_CFFs(section_id)
+	#
+	mean_interval = (max(CFF_in['event_year'])-min(CFF_in['event_year']))/float(len(CFF_in))
+	mags = sorted(CFF_in['event_magnitude'].tolist(), key=lambda x: R.random())
+	#return mags, CFF_in['event_magnitude'].tolist()
+	times =[min(CFF_in['event_year'])]
+	#
+	for j, m in enumerate(mags[1:]):
+		times += [times[-1]+R.random()*mean_interval]
+	#
+	print len(times), len(mags)
+	#
+	ary_out = numpy.core.records.fromarrays([range(len(mags)), times, mags ], names=['event_number', 'event_year', 'event_magnitude'], formats = ['int', 'float', 'float'])
+	#
+	return ary_out
 	
-
+	#
 #
 def get_ROC_from_optimizer(opt_data=None, section_id=16, file_format='dumps/roc_detail_data/roc_sec_%d_nits_2500_allprams.npy'):
 	'''
@@ -3920,12 +4224,58 @@ def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
 	outputs = [[Ns[i], Xs[i], fitses[i][1], fitses[i][0], nrbs[i], intervals[i]/mean_interval, intervals[i]] for i in xrange(len(fitses))]
 	
 	#output_names += ['interval_rate_ratio']
-	print "lens:: ", len(nrbs), len(outputs)
+	#print "lens:: ", len(nrbs), len(outputs)
 	#
 	#CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final'], formats=[type(x).__name__ for x in CFF[0]])
 	outputs = numpy.core.records.fromarrays(zip(*outputs), names=output_names, formats = [type(x).__name__ for x in outputs[0]])
 	#
 	return outputs			
+#
+def plot_trend(CFF_in=None, section_ids=[16], nyquist_len=10, fignum=0, do_clf=True, m0=7.0):
+	# diagnostic tool for CFF interval fitting.
+	# CFF in: a CFF array. for simpler operation (and reference), provide a section_id; the script will pull a CFF from
+	# the standard place.
+	# nyquist_len: length of subsequence to sample.
+	#
+	if CFF_in==None:
+		if not hasattr(section_ids, '__len__'): section_ids=[section_ids]
+		#
+		CFF_in=combine_section_CFFs(sections=section_ids)
+	#
+	intervals = CFF_in['event_year'][1:]-CFF_in['event_year'][:-1]
+	trends = get_trend_analysis(ary_in=CFF_in, nyquist_len=nyquist_len)
+	#
+	f=plt.figure(fignum)
+	if do_clf: plt.clf()
+	ax_main = f.add_axes([.1, .45, .85, .5])
+	ax_b    = f.add_axes([.1, .05, .85, .3], sharex=ax_main)
+	#
+	ax_main.plot(CFF_in['event_year'][1:], intervals, '.-')
+	XX_t, YY_t = [], []
+	for i,t in enumerate(trends):
+		X_t = [CFF_in['event_year'][i+1], CFF_in['event_year'][i + nyquist_len]]
+		Y_t = [t['lin_fit_a'] + t['lin_fit_b']*X_t[-2], t['lin_fit_a'] + t['lin_fit_b']*X_t[-1]]
+		#ax_main.plot(X_t, Y_t, '.-')
+		#XX_t += [CFF_in['event_year'][i + nyquist_len -1], CFF_in['event_year'][i + nyquist_len]]
+		#YY_t += [t['lin_fit_a'] + t['lin_fit_b']*X_t[-2], t['lin_fit_a'] + t['lin_fit_b']*X_t[-1]]
+		XX_t += [CFF_in['event_year'][i + nyquist_len]]
+		YY_t += [t['lin_fit_a'] + t['lin_fit_b']*X_t[-1]]
+		#
+	ax_main.plot(XX_t, YY_t, 'g-')
+	ax_b.plot(trends['event_year'], trends['lin_fit_b'], '.-', zorder=3)
+	ax_b.plot([trends['event_year'][0],trends['event_year'][-1]], [0., 0.], 'k', zorder=0)
+	ax_main.plot([trends['event_year'][0],trends['event_year'][-1]], [0., 0.], 'k', zorder=0)
+	#
+	# plot large events:
+	max_dt = max(intervals)
+	min_dt = min(intervals)
+	max_b  = max(trends['lin_fit_b'])
+	min_b = min(trends['lin_fit_b'])
+	#
+	for rw in CFF_in:
+		if rw['event_magnitude']<m0: continue
+		ax_main.plot([rw['event_year'], rw['event_year']], [min_dt, max_dt], 'r-', lw=2, alpha=.7, zorder=4)
+		ax_b.plot([rw['event_year'], rw['event_year']], [min_b, max_b], 'r-', lw=2, alpha=.7, zorder=4)
 #
 def plot_CFF_ary(ary_in=None, fnum=0, nyquist_factor=.5, gt_lt_eval=operator.lt, section_id=16):
 	'''

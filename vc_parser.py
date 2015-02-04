@@ -603,8 +603,17 @@ def evaluate_alert_segments(alert_segments=None, CFF=None, section_id=None, m0=7
 	total_alert_time = 0.0
 	total_total_time = CFF[-1]['event_year'] - CFF[0]['event_year']
 	#
+	# initial versions of this use an alert_segments format like [ [ [t_1, alert_val_1], [t2, alert_val_2] ]...]
+	# for most purposes, we want to simplify this to : [ [t1, t2], ...]
+	if hasattr(alert_segments[0][0], '__len__'):
+		# we have the original list-list format.
+		for i,rw in enumerate(alert_segments):
+			alert_segments[i][0] = alert_segments[i][0][0]
+			alert_segments[i][1] = alert_segments[i][1][0]
+	#
 	for alert_segment in alert_segments:
-		total_alert_time += (alert_segment[-1][0] - alert_segment[0][0])
+		#total_alert_time += (alert_segment[-1][0] - alert_segment[0][0])
+		total_alert_time += (alert_segment[-1] - alert_segment[0])
 	#
 	# and prediction success:
 	n_predicted = 0
@@ -645,10 +654,12 @@ def evaluate_alert_segments(alert_segments=None, CFF=None, section_id=None, m0=7
 		#	n_predicted += 1
 		#else:
 		#	n_missed += 1
-		while rw['event_year']>alert_segments[j_alert_start][1][0] and j_alert_start<(len(alert_segments)-1): j_alert_start+=1
+		#while rw['event_year']>alert_segments[j_alert_start][1][0] and j_alert_start<(len(alert_segments)-1): j_alert_start+=1
+		while rw['event_year']>alert_segments[j_alert_start][-1] and j_alert_start<(len(alert_segments)-1): j_alert_start+=1
 		#
 		for alert in alert_segments[j_alert_start:]:
-			if rw['event_year'] > alert[0][0] and rw['event_year'] <= alert[1][0]:
+			#if rw['event_year'] > alert[0][0] and rw['event_year'] <= alert[1][0]:
+			if rw['event_year'] > alert[0] and rw['event_year'] <= alert[1]:
 				n_predicted +=1
 				#n_missed -=1
 				break
@@ -677,18 +688,22 @@ def evaluate_alert_segments(alert_segments=None, CFF=None, section_id=None, m0=7
 		#metric_pad_factor = min_mag
 		#metric_pad_factor = 0.
 		#min_metric = 0.
-		min_metric = alert_segments[0][0][1]
-		max_metric = alert_segments[0][0][1]
+		#min_metric = alert_segments[0][0][1]
+		#max_metric = alert_segments[0][0][1]
+		min_metric=0.
+		max_metric=1.
 		#
 		# do a quick spin to get min/max values and other useful stats:
-		for segment in alert_segments:
-			X,Y = zip(*segment)
-			min_metric = min(min(Y), min_metric)
-			max_matric = max(max(Y), max_metric)
+		#for segment in alert_segments:
+		#	X,Y = zip(*segment)
+		#	min_metric = min(min(Y), min_metric)
+		#	max_matric = max(max(Y), max_metric)
 		#
 		for segment in alert_segments:
-			X,Y = zip(*segment)
-			min_metric = min(min(Y), min_metric)
+			#X,Y = zip(*segment)
+			#min_metric = min(min(Y), min_metric)
+			X = segment
+			Y = [1. for x in X]
 			#
 			# ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b']  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='m', zorder=1, alpha=.5)
 			#ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0.0 for x in trend_data], color='m', zorder=1, alpha=.25)
@@ -885,20 +900,18 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 		#else:
 		#	n_missed += 1
 		#
-		#try:
-		#	while len(alert_segments)>j_alert_start and rw['event_year']>alert_segments[j_alert_start][1][0] and j_alert_start<(len(alert_segments)-1): j_alert_start+=1
-		#except:
-		#	print "alert indexing error. ", len(alert_segments)
+		try:
+			while len(alert_segments)>j_alert_start and rw['event_year']>alert_segments[j_alert_start][-1][0] and j_alert_start<(len(alert_segments)-1): j_alert_start+=1
+		except:
+			print "alert indexing error. ", len(alert_segments)
 		#
 		for alert in alert_segments[j_alert_start:]:
-			if rw['event_year'] > alert[0][0] and rw['event_year'] <= alert[1][0]:
+			if rw['event_year'] > alert[0][0] and rw['event_year'] <= alert[-1][0]:
 				n_predicted +=1
 				#n_missed -=1
 				break
 
 	n_missed = n_total-n_predicted
-	
-	#
 	#
 	if do_plot:
 		# diagnostic plots of forecast metric:

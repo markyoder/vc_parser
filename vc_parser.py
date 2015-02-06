@@ -471,7 +471,7 @@ def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_sect
 ##########################################
 # ROC and predictability bits.
 #
-def get_random_forecast_set(CFF=None, section_id=16, m0=7.0, P_min=0., P_max=1.0, set_name=None, nits=1000, format='dict', do_roc_plot=False, fignum=0):
+def get_random_forecast_set(CFF=None, section_id=16, m0=7.0, P_min=0., P_max=1.0, set_name=None, nits=1000, format='recarray', do_roc_plot=False, fignum=0):
 	'''
 	# get a set of random forecasts, for comparison to real forecasts. return as list of dicts.
 	'''
@@ -1399,22 +1399,27 @@ def plot_section_ROC_curve(roc_data=None, section_id=None, fignum=0, num_points=
 		col_names = [key for key,val in roc_data[0].iteritems() if not isinstance(val,str)]		#roc_data[0].keys()
 		lst_data = [[rw[key] for key in col_names] for rw in roc_data]
 		for i,rw in enumerate(roc_data):
-			H = float(rw['n_predicted'])/(rw['n_predicted'] + rw['n_missed'])
-			if rw['total_time']!=0.:
-				F = float(rw['total_alert_time'])/rw['total_time']
-			else:
-				F=numpy.nan
+			# H,F are pre-calculated now...
+			#H = float(rw['n_predicted'])/(rw['n_predicted'] + rw['n_missed'])
+			#if rw['total_time']!=0.:
+			#	F = float(rw['total_alert_time'])/rw['total_time']
+			#else:
+			#	F=numpy.nan
+			H=rw['H']
+			F=rw['F']
 			#
 			score_lin = H-F
 			score_geom = H/F
 			#
-			lst_data[i] += [H,F, score_lin, score_geom]
+			#lst_data[i] += [H,F, score_lin, score_geom]
+			lst_data[i] += [score_lin, score_geom]
 			#for j in xrange(lst_data[i]):
 			#	if lst_data[i][j]==None: lst_data[i][j]=numpy.nan
 			lst_data[i] = [x if x!=None else numpy.nan for x in lst_data[i]]
 			#
 		col_formats = [type(roc_data[0][key]).__name__ for key in col_names]
-		col_names += ['H', 'F', 'score_lin', 'score_geom']
+		#col_names += ['H', 'F', 'score_lin', 'score_geom']
+		col_names += ['score_lin', 'score_geom']
 		while len(col_formats)<len(col_names): col_formats+=[type(1.0).__name__]
 		#
 		rec_data = numpy.core.records.fromarrays(zip(*lst_data), names=col_names, formats = col_formats)

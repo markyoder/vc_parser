@@ -582,7 +582,7 @@ def forecast_random_1(ary_in=None, m0=7.0, do_plot=False, fnum=0, set_name=None,
 		#
 	if alert_status==True:
 		alert_segments[-1] += [[rw['event_year'], this_b]]
-	while len(alert_segments[-1])<2: alert_segments.pop(-1)
+	while len(alert_segments)>0 and len(alert_segments[-1])<2: alert_segments.pop(-1)
 	#
 	#return alert_segments
 	#
@@ -603,6 +603,10 @@ def evaluate_alert_segments(alert_segments=None, CFF=None, section_id=None, m0=7
 	#
 	total_alert_time = 0.0
 	total_total_time = CFF[-1]['event_year'] - CFF[0]['event_year']
+	#
+	# first, did we get any segments? it's possible (especially for a short catalog), to return zero segments.
+	if len(alert_segments)==0:
+		return {'total_alert_time': 0., 'total_time':0., 'n_predicted':0., 'n_missed':0., 'H':None, 'F':None}
 	#
 	# initial versions of this use an alert_segments format like [ [ [t_1, alert_val_1], [t2, alert_val_2] ]...]
 	# for most purposes, we want to simplify this to : [ [t1, t2], ...]
@@ -745,10 +749,11 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 	# [ [time, alert_value]
 	'''
 	#
-	# copied (mostly) from the first half of forecast_metric_1():
+	# copied (mostly) from the first half of forecast_metric_1() (which can probably be removed at this point).:
 	#
 	if (ary_in==None or len(ary_in)==0) and section_id!=None:
-		ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id
+		#ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id
+		CFF=combine_section_CFFs(section_id)		# ... and this function knows to use the string format above...
 	if isinstance(ary_in, str):
 		CFF = numpy.load(ary_in)
 	else:
@@ -759,7 +764,7 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 	#
 	if set_name==None:
 		# still none? must be a string type ary_in...
-		set_name=ary_in
+		set_name=str(ary_in)
 	#
 	recurrence_data = mean_recurrence(ary_in=CFF, m0=m0)
 	nyquist_len = max(int(nyquist_factor*recurrence_data['mean_dN_fault']), 2)
@@ -770,7 +775,7 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 	#CFF_dict = {x['event_year']:x for x in CFF}
 	CFF_dict = {x['event_number']:x for x in CFF}
 	
-	print "trend lengths: ", len(trend_data), len(CFF), nyquist_len
+	#print "trend lengths: ", len(trend_data), len(CFF), nyquist_len
 	max_n = len(trend_data)
 	#
 	# trend_data includes columns: ['event_number', 'event_year', 'lin_fit_a', 'lin_fit_b', 'rb_ratio', 'interval_rate_ratios']
@@ -1196,7 +1201,8 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 	# and then we use some sort of steepness metric...
 	'''
 	if f_score == None:
-		f_score = operator.div
+		#f_score = operator.div
+		f_score = operator.sub
 	#
 	#opt_func = forecast_metric_1
 	# forecast_metric_1(ary_in='data/VC_CFF_timeseries_section_16.npy', m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0)
@@ -1205,7 +1211,7 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 		CFF = combine_section_CFFs(section_id)
 	#
 	if isinstance(CFF, dict):
-		# for now, assume have the proper call signature in the key-val pairs
+		# for now, assume have the proper call signature in the key-val pairs (this will contain section/catalog names and stuff like that).
 		CFF = combine_section_CFFs(**CFF)
 	#
 	if isinstance(CFF, str):
@@ -1234,6 +1240,7 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 		this_nyq = nyquist_min + delta_nyq*R_nyq.random()
 		#
 		# this needs to be abstracted to take a set of prams...
+		# so eventually we'd want something like opt_func(**opt_prams)
 		#fit_data = opt_func(ary_in=CFF, m0=m0, b_0=this_b, nyquist_factor=this_nyq, do_plot=False, set_name=set_name, f_gt_lt=f_gt_lt)
 		alert_segments = opt_func(ary_in=CFF, m0=m0, b_0=this_b, nyquist_factor=this_nyq, do_plot=False, set_name=set_name, f_gt_lt=f_gt_lt)
 		fit_data = evaluate_alert_segments(alert_segments=alert_segments, CFF=CFF, do_plot=False)
@@ -1241,12 +1248,15 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 		fit_data['nyquist_factor']=this_nyq
 		#
 		# get hits/falsies:
-		#hit_rate = float(fit_data['n_predicted'])/(float(fit_data['n_predicted'])+float(fit_data['n_missed']))
-		#false_alarm_rate = float(fit_data['total_alert_time'])/float(fit_data['total_time'])		# 
-		hit_rate = fit_data['H']
-		false_alarm_rate = fit_data['F']
+		if fit_data.has_key('H'):
+			hit_rate = fit_data['H']
+		else:
+			hit_rate = float(fit_data['n_predicted'])/(float(fit_data['n_predicted'])+float(fit_data['n_missed']))
 		#
-		#print "H,F: ", hit_rate, false_alarm_rate
+		if hit_rate.has_key('F'):
+			false_alarm_rate = fit_data['F']
+		else:
+			false_alarm_rate = float(fit_data['total_alert_time'])/float(fit_data['total_time'])		# 
 		#
 		# and there are cases where we get zero alert time, which results in an error using geometric score algorithms
 		# (aka, s=H/F). so we'll handle this as best we can. what about a None value? or, just move on? None might throw an error
@@ -1422,50 +1432,48 @@ def plot_section_ROC_curve(roc_data=None, section_id=None, fignum=0, num_points=
 		col_names += ['score_lin', 'score_geom']
 		while len(col_formats)<len(col_names): col_formats+=[type(1.0).__name__]
 		#
-		rec_data = numpy.core.records.fromarrays(zip(*lst_data), names=col_names, formats = col_formats)
-		#rec_data = numpy.core.records.fromarrays(zip(*[[rw[key] for key in col_names] for rw in roc_data]), names=col_names, formats = [type(roc_data[0][key]).__name__ for key in col_names])
+		roc_data = numpy.core.records.fromarrays(zip(*lst_data), names=col_names, formats = col_formats)
 		#
-		# now we have a rec-array object like [[total_time, b, alpha, n_missed, alert_time, n_predicted, score, H, F, score_lin, score_geom] ]
-		# we want to bin these by F and plot the max value for each bin (or the distribution or whatever). H,F are always 0<{F,H}<1
-		#
-		#rec_data.sort(order='F')
-		bin_size=1.0/num_points
-		#
-		roc_curve_data = [[] for x in xrange(num_points)]
-		#roc_curve_data = {x:{'F':bin_size*x, 'rws':[]}}	# let's just start with it crayon simple.
+	# now we have a rec-array object like [[total_time, b, alpha, n_missed, alert_time, n_predicted, score, H, F, score_lin, score_geom] ]
+	# we want to bin these by F and plot the max value for each bin (or the distribution or whatever). H,F are always 0<{F,H}<1
+	#
+	bin_size=1.0/num_points
+	#
+	roc_curve_data = [[] for x in xrange(num_points)]
+	#roc_curve_data = {x:{'F':bin_size*x, 'rws':[]}}	# let's just start with it crayon simple.
+	
+	for i,rw in enumerate(roc_data):
+		bin_num = int(rw['F']/bin_size)
+		roc_curve_data[bin_num]+=[i]
+	#
+	roc_X = numpy.arange(0., 1.+bin_size, bin_size)
+	#roc_Y = [None] + [len(x) for j,x in enumerate(roc_curve_data)]
+	roc_Y = [None] + [max([roc_data['H'][i] for i in rw]) if len(rw)>0 else None for j,rw in enumerate(roc_curve_data)]
+	#
+	#roc_X, roc_Y = zip(*[[x,y] for x,y in zip(roc_X, roc_Y) if not (numpy.isnan(x) or numpy.isnan(y))])
+	#
+	plt.figure(fignum)
+	if do_clf: plt.clf()
+	if label_str!=None:
+		curve_1 = plt.plot(roc_X, roc_Y, markers, zorder=1)
+	else:
+		curve_1 = plt.plot(roc_X, roc_Y, markers, zorder=1, label=label_str)
+	# 
+	plt.plot([0., 1.], [0., 1.], 'r-', lw=2, zorder=0)
+	plt.xlabel('False alarm rate $F$')
+	plt.ylabel('Hit rate $H$')
+	
+	plt.figure(fignum+1)
+	if do_clf: plt.clf()
+	if label_str!=None:
+		plt.plot(roc_data['F'], roc_data['H'], '.')
+	else:
+		plt.plot(roc_data['F'], roc_data['H'], '.', label=label_str)		# ... and there's a better way to do this using plt.legend()...
+	plt.plot([0., 1.], [0., 1.], 'r-', lw=2, zorder=0)
+	plt.xlabel('False alarm rate $F$')
+	plt.ylabel('Hit rate $H$')
 		
-		for i,rw in enumerate(rec_data):
-			bin_num = int(rw['F']/bin_size)
-			roc_curve_data[bin_num]+=[i]
-		#
-		roc_X = numpy.arange(0., 1.+bin_size, bin_size)
-		#roc_Y = [None] + [len(x) for j,x in enumerate(roc_curve_data)]
-		roc_Y = [None] + [max([rec_data['H'][i] for i in rw]) if len(rw)>0 else None for j,rw in enumerate(roc_curve_data)]
-		#
-		#roc_X, roc_Y = zip(*[[x,y] for x,y in zip(roc_X, roc_Y) if not (numpy.isnan(x) or numpy.isnan(y))])
-		#
-		plt.figure(fignum)
-		if do_clf: plt.clf()
-		if label_str!=None:
-			curve_1 = plt.plot(roc_X, roc_Y, markers, zorder=1)
-		else:
-			curve_1 = plt.plot(roc_X, roc_Y, markers, zorder=1, label=label_str)
-		# 
-		plt.plot([0., 1.], [0., 1.], 'r-', lw=2, zorder=0)
-		plt.xlabel('False alarm rate $F$')
-		plt.ylabel('Hit rate $H$')
-		
-		plt.figure(fignum+1)
-		if do_clf: plt.clf()
-		if label_str!=None:
-			plt.plot(rec_data['F'], rec_data['H'], '.')
-		else:
-			plt.plot(rec_data['F'], rec_data['H'], '.', label=label_str)		# ... and there's a better way to do this using plt.legend()...
-		plt.plot([0., 1.], [0., 1.], 'r-', lw=2, zorder=0)
-		plt.xlabel('False alarm rate $F$')
-		plt.ylabel('Hit rate $H$')
-		
-	#return rec_data	
+	#return roc_data	
 	return roc_curve_data
 #
 def plot_ROC(roc_array=None, section_id=16, fignum=0, num_points=100, do_clf=True, file_format='dumps/roc_detail_data/roc_sec_%d_nits_2500_allprams.npy', marker_str='.-', label_str='data'):

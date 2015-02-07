@@ -463,7 +463,87 @@ def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_C
 		plt.ylabel('Expected interval $\Delta t$')
 		#
 		plt.savefig('%s/EWT_m0_%s_section_%s.png' % (output_dir, str(m0).replace('.',''), name_str))
+#
+# plotting helper functions:
+def roc_figure(roc_data=None, roc_random=None, CFF=None, section_id=None, fignum=0, do_clf=True, label_str=None, title_str=None, markers='.-', n_rand=1000, m0=7.0, bin_size=.1):
+	# construct an ROC curve for a section (or more generally, a collection of ROC optimizer data collected by some unknown parsing).
+	# roc_data input is the 'full_pram' set from simple_metric_optimizer()[1] or the output file (which can be a string-filename
+	# or a roc_data = numpy.load(roc_data); see for example numpy.load('dumps/roc_detail_data/roc_sec_16_allprams.npy')
+	#
+	# ... and later on, code up something for section_id so we can build a roc_data set on demand, if necessary.
+	#
+	if label_str==None:
+		label_str = 'Forecast score'
+	#
+	if isinstance(roc_data, str): roc_data = numpy.load(roc_data)
+	#
+	if isinstance(roc_data[0],dict):
+		# list of dicts. let's turn it into a rec-array.
+		col_names = [key for key,val in roc_data[0].iteritems() if not isinstance(val,str)]		#roc_data[0].keys()
+		#lst_data = [[rw[key] for key in col_names] for rw in roc_data]
+		roc_data = numpy.core.records.fromarrays(zip(*[[rw[key] for key in col_names] for rw in roc_data]), names=col_names, formats=[type(roc_data[0][key]).__name__ for key in col_names])
+	#
+	# and a random forecast:
+	if roc_random==None: roc_random = vc_parser.get_random_forecast_set(CFF=CFF, section_id=section_id, m0=m0, P_min=.05, P_max=1.0, set_name=None, nits=n_rand, format='recarray', do_roc_plot=False, fignum=None)
+	#
+	# bin up the data for aggregate curves:
+	num_points = int(1.0/bin_size)
+	roc_curve_data = [[] for x in xrange(num_points)]
+	roc_curve_rand = [[] for x in xrange(num_points)]
+	#
+	for i,rw in enumerate(roc_data):
+		bin_num = min(num_points-1, int(rw['F']/bin_size))
+		roc_curve_data[bin_num]+=[i]
+	#
+	for i,rw in enumerate(roc_random):
+		bin_num = min(num_points-1, int(rw['F']/bin_size))
+		#print bin_num
+		roc_curve_rand[bin_num]+=[i]
+	# so now, we have groups of row indices for each bin.
+	#
+	roc_X = numpy.arange(0., 1.+bin_size, bin_size)
+	#roc_Y = [None] + [len(x) for j,x in enumerate(roc_curve_data)]
+	roc_data_max = [0.] + [max([roc_data['H'][i] for i in rw]) if len(rw)>0 else None for j,rw in enumerate(roc_curve_data)]
+	#roc_min_random = [0.] + [min([roc_random['H'][i] for i in rw]) if len(rw)>0 else None for j,rw in enumerate(roc_curve_rand)]
+	#roc_max_random = [0.] + [max([roc_random['H'][i] for i in rw]) if len(rw)>0 else None for j,rw in enumerate(roc_curve_rand)]
+	
+	roc_rand_std  = [0.] + [numpy.std([roc_random['H'][i] for i in rw]) if len(rw)>0 else None for j,rw in enumerate(roc_curve_rand)]
+	#roc_rand_mean = [0.] + [numpy.mean([roc_random['H'][i] for i in rw]) if len(rw)>0 else None for j,rw in enumerate(roc_curve_rand)]
+	roc_rand_mean = roc_X
+	roc_min_random = [x-v for x,v in zip(roc_rand_mean, roc_rand_std)]
+	roc_max_random = [x+v for x,v in zip(roc_rand_mean, roc_rand_std)]
+	#
+	max_lin = sorted([[h,f, h-f] for h,f in zip(roc_data['H'], roc_data['F'])], key=lambda x:x[2])[-1]
+	#max_geom = sorted([[h,f, h/f] for h,f in zip(roc_data['H'], roc_data['F'])], key=lambda x:x[2])[-1]
+	#
+	plt.ion()
+	plt.figure(fignum)
+	plt.clf()
+	plt.plot(range(2), range(2), 'r-', lw=2, zorder=4)
+	plt.plot(roc_data['F'], roc_data['H'], 'b.', alpha=.8, zorder=3, label=label_str)
+	#print roc_X, roc_data_max
+	plt.plot(roc_X, [x+.02 if x!=None else None for x in roc_data_max], 'b-', lw=2.0, zorder=4)
+	#
+	plt.plot([max_lin[1]], [max_lin[0]], 'r*', ms=18, label='max(h-f)', zorder=5)
+	#plt.plot([max_geom[1]], [max_geom[0]], 'm*', ms=18, label='max(h/f)', zorder=5)
+	#
+	plt.plot(roc_random['F'], roc_random['H'], 'g.', alpha=.5, zorder=2, label='Random forecast')
+	plt.plot(roc_X, roc_min_random, 'g-', alpha=.6, zorder=2,lw=1.5)
+	plt.plot(roc_X, roc_max_random, 'g-', alpha=.6, zorder=2, lw=1.5)
+	plt.fill_between(roc_X, roc_min_random, roc_max_random, color='g', alpha=.2)
+	#
+	plt.xlabel('False Alarm Rate $F$')
+	plt.ylabel('Hit Rate $H$')
+	plt.legend(loc=0, numpoints=1)
+	if title_str!=None: plt.title(title_str)
+	
+	#
+	return roc_data, roc_random
+		
 
+#####
+# data and preliminary figures:
+#
 def create_ROC_figs_GT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_gt_detail', m0=7.0):
 	'''
 	# create a whole slew of ROC data. this will include the optimized "best fit" (using whatever metric) and also the raw, full MC output.
@@ -490,7 +570,7 @@ def create_ROC_figs_GT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 		f_output_name_rand = '%s/roc_sec_rand_%s_nits_%d.npy' % (output_dir, sec_str, nits)
 		#
 		CFF = vc_parser.combine_section_CFFs(sec_id)
-		opt_datas, raw_datas = simple_metric_optimizer(CFF=CFF, m0=m0, b_min=-.25, b_max=.25, d_b=.01, nyquist_min=.2, nyquist_max=1.5, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name, f_gt_lt=operator.gt, f_score=operator.div, section_id=sec_id)
+		opt_datas, raw_datas = simple_metric_optimizer(CFF=CFF, m0=m0, b_min=-.25, b_max=.25, d_b=.01, nyquist_min=.2, nyquist_max=1.5, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name, f_gt_lt=operator.gt, f_score=operator.sub, section_id=sec_id, opt_func=vc_parser.psa_forecast_1)
 		#
 		# random forecast: literally chooses alert segments at random. lines up really nicely on H=F.
 		roc_random = vc_parser.get_random_forecast_set(CFF=CFF, section_id=sec_id, m0=m0, P_min=0., P_max=1.0, set_name=None, nits=nits, format='recarray', do_roc_plot=False, fignum=None)
@@ -508,7 +588,7 @@ def create_ROC_figs_GT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 		
 		#return raw_datas
 		# for now, put this here (get it done the first time). later, we'll move this off-line and use pre-calculated data, etc.
-		plotted = plot_section_ROC_curve(roc_data=raw_datas, section_id=None, fignum=fnum, num_points=num_roc_points, label_str='section_id: %s' % sec_str, markers='.-')
+		plotted = plot_section_ROC_curve(roc_data=raw_datas, section_id=None, fignum=fnum, num_points=num_roc_points, label_str='PSQ forecast', markers='.-')
 		
 		#plotted_rand = plot_section_ROC_curve(roc_data=raw_datas_rand, section_id=None, fignum=fnum, do_clf=False, num_points=num_roc_points, label_str='(random)', markers='.')
 		#
@@ -548,7 +628,7 @@ def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 		#
 		CFF = vc_parser.combine_section_CFFs(sec_id)
 		#
-		opt_datas, raw_datas = simple_metric_optimizer(CFF=CFF, section_id=sec_id, m0=m0, b_min=-.25, b_max=.25, d_b=.01, nyquist_min=.2, nyquist_max=1.2, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name, f_gt_lt=operator.lt, f_score=operator.div)
+		opt_datas, raw_datas = simple_metric_optimizer(CFF=CFF, section_id=sec_id, m0=m0, b_min=-.25, b_max=.25, d_b=.01, nyquist_min=.2, nyquist_max=1.2, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name, f_gt_lt=operator.lt, f_score=operator.sub, opt_func=vc_parser.psa_forecast_1)
 		#
 		roc_random = vc_parser.get_random_forecast_set(CFF=CFF, section_id=sec_id, m0=m0, P_min=0., P_max=1.0, set_name=None, nits=nits, format='recarray', do_roc_plot=False, fignum=None)
 		#
@@ -560,7 +640,7 @@ def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 		
 		#return raw_datas
 		# for now, put this here (get it done the first time). later, we'll move this off-line and use pre-calculated data, etc.
-		plotted =      plot_section_ROC_curve(roc_data=raw_datas, section_id=None, fignum=fnum, num_points=num_roc_points, markers='.-')
+		plotted =      plot_section_ROC_curve(roc_data=raw_datas, section_id=None, fignum=fnum, num_points=num_roc_points, markers='.-', label_str='PSA forecast')
 		#plotted_rand = plot_section_ROC_curve(roc_data=raw_datas_rand, section_id=None, fignum=fnum, do_clf=False, num_points=num_roc_points, label_str='(random)',markers='.')
 		plt.figure(fnum)
 		plt.plot(roc_random['F'], roc_random['H'], '.', alpha=.6, zorder=1, label='Random forecast')

@@ -1253,7 +1253,7 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 		else:
 			hit_rate = float(fit_data['n_predicted'])/(float(fit_data['n_predicted'])+float(fit_data['n_missed']))
 		#
-		if hit_rate.has_key('F'):
+		if fit_data.has_key('F'):
 			false_alarm_rate = fit_data['F']
 		else:
 			false_alarm_rate = float(fit_data['total_alert_time'])/float(fit_data['total_time'])		# 

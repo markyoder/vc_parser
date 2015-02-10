@@ -740,7 +740,7 @@ def evaluate_alert_segments(alert_segments=None, CFF=None, section_id=None, m0=7
 	#, 'ary_in_name':set_name, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 	# ... and we might add some sort of returned parameters (from the metric component), but for now, keep it simple.
 #
-def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.gt, section_id=16, detail=False):
+def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.lt, section_id=16, detail=False):
 	'''
 	# a simplified version of forecast_metric_1.
 	# output only the alert segments; then use evaluate_alert_segments() to get ROC data.
@@ -752,8 +752,10 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 	# copied (mostly) from the first half of forecast_metric_1() (which can probably be removed at this point).:
 	#
 	if (ary_in==None or len(ary_in)==0) and section_id!=None:
-		#ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id
-		CFF=combine_section_CFFs(section_id)		# ... and this function knows to use the string format above...
+		#ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id		
+		ary_in=combine_section_CFFs(section_id)		# ... and this function knows to use the string format above...
+		#											# ... and note we do CFF=ary_in in the if-else clause below...
+		#
 	if isinstance(ary_in, str):
 		CFF = numpy.load(ary_in)
 	else:
@@ -766,16 +768,19 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 		# still none? must be a string type ary_in...
 		set_name=str(ary_in)
 	#
+	#print "get recurrence...** %d **" % len(CFF)
 	recurrence_data = mean_recurrence(ary_in=CFF, m0=m0)
 	nyquist_len = max(int(nyquist_factor*recurrence_data['mean_dN_fault']), 2)
 	nyquist_time = nyquist_factor*recurrence_data['mean_dT']
+	#
+	#print "recurrenced. get trend data..."
 	#
 	trend_data = get_trend_analysis(ary_in=CFF, nyquist_len = nyquist_len, nyquist_time=nyquist_time)
 	#trend_data_dict = {trend_data['event_year']:x for x in trend_data}
 	#CFF_dict = {x['event_year']:x for x in CFF}
 	CFF_dict = {x['event_number']:x for x in CFF}
 	
-	#print "trend lengths: ", len(trend_data), len(CFF), nyquist_len
+	print "trend lengths: ", len(trend_data), len(CFF), nyquist_len
 	max_n = len(trend_data)
 	#
 	# trend_data includes columns: ['event_number', 'event_year', 'lin_fit_a', 'lin_fit_b', 'rb_ratio', 'interval_rate_ratios']
@@ -853,8 +858,113 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 	#
 	return alert_segments
 #
+def check_psa_metric(section_id=16, m0=7.0, fignum=0, nyquist_factor=.5):
+	CFF = combine_section_CFFs(section_id)
+	recurrence_data = mean_recurrence(ary_in=CFF, m0=m0)
+	# get opt. data:
+	opt_data = numpy.load('dumps/gji_roc_lt_500/roc_sec_lt_%d_nits_1000_allprams.npy' % section_id)
+	opt_data.sort(key=lambda x: (x['H']-x['F']))
+	best_fits = opt_data[-1]
+	b_0 = best_fits['b']
+	nyquist_factor = best_fits['nyquist_factor']
+	#
+	nyquist_len = max(int(nyquist_factor*recurrence_data['mean_dN_fault']), 2)
+	#nyquist_len = best_fits['nyquist_factor']
+	
+	fc=psa_forecast_1(ary_in=CFF, f_gt_lt=operator.lt, b_0=b_0, nyquist_factor=nyquist_factor)
+	trends = get_trend_analysis(ary_in=CFF, nyquist_len=nyquist_len)
+	#
+	# see that CFF, trends line up. basically, see that the interval values match for the two data sets. match the data-sets up by event_date
+	# and/or event_id. note that, in the future, using a dict. with {'event_number':[stuff...]} might be a bit more fool-proof for various
+	# analyses.
+	j_cff = 0
+	j_trends = 0
+	#
+	while CFF[j_cff]['event_year']< trends[j_trends]['event_year']: j_cff+=1
+	while trends[j_trends]['event_year']<CFF[j_cff]['event_year']: j_trends+=1
+	print "CFF, trends match: %d, %d :: %f" % (j_cff, j_trends, CFF[j_cff]['event_year']-CFF[j_cff-1]['event_year'])
+	print CFF[j_cff]
+	print trends[j_trends]
+	#
+	# see that the intervals are the same:
+	print "checking intervals..."
+	for k_cff,k_trends in zip(xrange(j_cff, len(CFF)), xrange(j_trends, len(trends))):
+		interval_cff = CFF[k_cff]['event_year']-CFF[k_cff-1]['event_year']
+		if interval_cff!=trends['intervals'][k_trends]:
+			print "intervals: %f, %f *** %s ***" % (interval_cff, trends['intervals'][k_trends], interval_cff==trends['intervals'][k_trends])
+		#
+	print "finished interval agreement check. now, check for fit agreement."
+	
+	for k_cff,k_trends in zip(xrange(j_cff, len(CFF)), xrange(j_trends, len(trends))):
+		# fitting algorithm is like: b,a = numpy.linalg.lstsq([X,w], Y)
+		b_trends = trends['lin_fit_b'][k_trends]
+		a_trends = trends['lin_fit_a'][k_trends]
+		#
+		Y = [x for x in CFF['event_year'][k_cff+1-nyquist_len:k_cff+1]-CFF['event_year'][k_cff-nyquist_len:k_cff]]	# so. like T[1:10] - T[0:9]
+		#																											 for alpha=10
+		X = [[x,1.0] for x in CFF['event_year'][k_cff+1-nyquist_len:k_cff+1]]
+		b,a = numpy.linalg.lstsq(X,Y)[0]
+		#
+		if b!=b_trends or a!=a_trends: print "b: %f/%f, a: %f/%f" % (b_trends, a_trends, b, a)
+		#if k_cff>j_cff + 10: break
+	print 'fit agreement finished. you should see any case where b!=b_trends (aka, local fit != (pre)scripted fit).'
+	
+	print '****'
+	#
+	fc_lens = [len(x) for x in fc]
+	fc_lens.sort()
+	#fc_delta_ts_2 = [max(x)-min(x) for x in fc]
+	fc_delta_ts = [x[-1]-x[0] for x in fc]
+	#if fc_delta_ts!=fc_delta_ts_2:
+	#	print 'problem with delta ts'
+	#	return fc_delta_ts, fc_delta_ts_2
+	fc_delta_ts.sort()
+	
+	#
+	print 'finished. now do some plotting...'
+	
+	#
+	m0s = zip(*[[rw['event_year'], rw['event_magnitude']] for rw in CFF if rw['event_magnitude']>m0])
+	y_top=1.5
+	y_bottom = -1.5
+	#
+	plt.figure(fignum)
+	plt.clf()
+	plt.ion()
+	plt.plot([CFF['event_year'][0], CFF['event_year'][-1]], [0., 0.], 'k-', zorder=0)
+	plt.plot([CFF['event_year'][0], CFF['event_year'][-1]], [b_0, b_0], 'k--', zorder=0)
+	
+	plt.plot(trends['event_year'], trends['lin_fit_b'], '-')
+	plt.vlines(m0s[0], -1.5, 1.5, color='r', lw=2, linestyle='solid')
+	#
+	for rw in fc:
+		plt.fill_between([min(rw), max(rw)], [y_bottom, y_bottom], [y_top, y_top], color='m', alpha=.2, zorder=6)
+	#
+	plt.figure(fignum+1)
+	plt.clf()
+	ax_n = plt.gca()
+	#ax_n.set_yscale('log')
+	#ax_n.set_xscale('log')
+	ax_n.plot(fc_lens, [x/float(len(fc_lens)) for x in xrange(1, len(fc_lens)+1)], 'b.-', label='alert sequence length')
+	ax_n.legend(loc='best', numpoints=1)
+	ax_n.set_xlabel('alert segment lengths $n$')
+	#
+	ax_dt = plt.twiny(plt.gca())
+	#ax_dt.set_yscale('log')
+	#ax_dt.set_xscale('log')
+	ax_dt.plot(fc_delta_ts, [x/float(len(fc_delta_ts)) for x in xrange(1, len(fc_delta_ts)+1)], 'g.-', label='alert intervals $\\Delta t$')
+	ax_dt.legend(loc='best', numpoints=1)
+	ax_dt.set_xlabel('Alert durations $\\Delta t$')
+	#
+	#plt.ylabel('cumulative count $N$')
+	ax_n.set_ylabel('Cumulative probability $P(N)$ that $len(alert)<n$')
+	ax_dt.set_ylabel('Cumulative probability $P(N)$ that $\\Delta t(alert)<\\Delta t$')
+	
+	#
+#
 def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.gt, section_id=16):
 	'''
+	# depricated:
 	# this can be tossed in exchange for the more generalized format:
 	# x = psa_forecast_1(CFF)		# (and other forecast metrics can be substituted of course)
 	# y = evaluate_alert_segments(x,CFF)
@@ -4382,6 +4492,13 @@ def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
 		#
 		fits += [{key:val for key,val in zip(output_names, [rw['event_number'], rw['event_year'], rw['intervals']] +list(this_fit))}]
 	'''
+	# so notes on calculating fitses (when we check this for the upteenth time...:
+	# fitses is a list of dicts; each dict. contains keys from output_names above; looks like
+	# [{'event_number': xx, 'event_year': xx , 'intervals': (which is just one interval value), 'lin_fit_b': xx, 'lin_fit_a': xx} ]
+	# note the whole set spins through intervals[nyquist_len-1:], so the first value we can fit and forward.
+	# then, the index j starts at 0, so an interval is like rw['event_year']-intervals[j]['event_year'] (aka, j starts at 0; but
+	# the intervals[] index (say k) starts at nyquist_len-1.
+	#
 	fitses = [{key:val for key,val in zip(output_names, [rw['event_number'], rw['event_year'], rw['intervals']] + list(numpy.linalg.lstsq([[x,1.0] for x in intervals['event_year'][j:j+nyquist_len]], intervals['intervals'][j:j+nyquist_len])[0]))} for j,rw in enumerate(intervals[nyquist_len-1:])]
 	#
 	

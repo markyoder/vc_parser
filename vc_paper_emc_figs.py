@@ -474,6 +474,8 @@ def roc_figure(roc_data=None, roc_random=None, CFF=None, section_id=None, fignum
 	#
 	if label_str==None:
 		label_str = 'Forecast score'
+	if roc_data==None:
+		roc_data = 'dumps/gji_roc_lt_500/roc_sec_lt_16_nits_1000_allprams.npy'
 	#
 	if isinstance(roc_data, str): roc_data = numpy.load(roc_data)
 	#
@@ -524,7 +526,7 @@ def roc_figure(roc_data=None, roc_random=None, CFF=None, section_id=None, fignum
 	#print roc_X, roc_data_max
 	plt.plot(roc_X, [x+.02 if x!=None else None for x in roc_data_max], 'b-', lw=2.0, zorder=4)
 	#
-	plt.plot([max_lin[1]], [max_lin[0]], 'r*', ms=18, label='max(h-f)', zorder=5)
+	plt.plot([max_lin[1]], [max_lin[0]], 'r*', ms=18, label='max(H-F)', zorder=5)
 	#plt.plot([max_geom[1]], [max_geom[0]], 'm*', ms=18, label='max(h/f)', zorder=5)
 	#
 	plt.plot(roc_random['F'], roc_random['H'], 'g.', alpha=.5, zorder=2, label='Random forecast')

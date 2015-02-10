@@ -596,6 +596,9 @@ def forecast_random_1(ary_in=None, m0=7.0, do_plot=False, fnum=0, set_name=None,
 	return alert_segments	
 #
 def evaluate_alert_segments(alert_segments=None, CFF=None, section_id=None, m0=7.0, do_plot=True, fnum=0):
+	# generic alert analyzier:
+	# this should be used by all alert/forecast algorithms. basically, produce a forecast as alert segments
+	# like [ [t_0_0, t_0_1, t_0_2, t_0_3], [t_1_0, t_1_1, t_1_2], etc. ] so each alert exists for t>t_j_0 and t<=t_j_-1
 	# given a set of alert segments and a CFF, evaluate the alerts:
 	# ... and let's just do this the hard way; for each earthquake see if its in an alert bin. going forward, we'll want to index this.
 	if CFF==None and section_id!=None:
@@ -961,6 +964,11 @@ def check_psa_metric(section_id=16, m0=7.0, fignum=0, nyquist_factor=.5):
 	ax_dt.set_ylabel('Cumulative probability $P(N)$ that $\\Delta t(alert)<\\Delta t$')
 	
 	#
+def plot_best_roc():
+	# some plots of best ROC parameters -- trying to make sense of all this...
+	my_files = glob.glob('dumps/gji_roc_lt/500/roc_sec_lt_*_allprams.npy')
+	return my_files
+	
 #
 def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.gt, section_id=16):
 	'''
@@ -4531,89 +4539,7 @@ def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
 	outputs = numpy.core.records.fromarrays(zip(*[ [fit[key] for key in output_names] for j,fit in enumerate(fitses) ]), names=output_names, formats = [type(fitses[0][key]).__name__ for key in output_names])
 	#
 
-	return outputs
-'''
-#
-def get_trend_analysis(ary_in=None, nyquist_len=10, nyquist_time=None):
-	# get trend data for ary_in.
-	# main event: fit sub-sequences of length nyquist_len to a linear fit; keep the a,b fits. not that numpy.linalg.lstsq()
-	# return the fit as (slope, intercept), which has created a bit of a mess.
-	#
-	# also return record-breaking stats., though i don't think we're using them just yet.
-	#
-	if isinstance(ary_in, str)==True:
-		# ... and these are pre-calculated segment-time-series type recarrays, like:
-		# ary_in = 'data/VC_CFF_timeseries_section_125.npy'
-		ary_in = numpy.load(ary_in)
-	#
-	Xs = ary_in['event_year'][1:]
-	Ns = ary_in['event_number'][1:]
-	# ok, here's the problem: numpy.linalg.lstsq() returns the fit as (slope, intercept), not (intercept, slope), as
-	# we interpreted. so this should still work out, since in this case the intercept indicates local slope with a bias, but we'll need
-	# do to some checking and fixing...
-	#
-	intervals = numpy.array([ary_in['event_year'][i]-ary_in['event_year'][i-1] for i in xrange(1, len(ary_in))])
-	# note: Xs, Ns, intervals, and X_numpy (below) line up 1:1.
-	#
-	#return (intervals, ary_in)
-	#mean_interval_1 = numpy.mean(intervals)		# careful: this is the mean interval for all magnitudes, not just m>m0.
-	mean_interval = (max(ary_in['event_year'])-min(ary_in['event_year']))/float(len(ary_in['event_year'])-1)	# "-1" --> interval, not event.
-	#print "mean interval vals: ", mean_interval_1, mean_interval
-	#
-	X_numpy = numpy.array([[x, 1.0] for x in Xs])	# [ [x, w]...] pairs for numpy.linalg.lstsq()
-	output_names = ['event_number', 'event_year', 'lin_fit_a', 'lin_fit_b', 'rb_ratio', 'interval_rate_ratio', 'intervals']
-	
-	# first, get a fixed length line-fit:
-	#for i in xrange(nyqquist_len, len(ary_in)):
-	#	rw = ary_in[i]
-	#
-	#fitses = [numpy.linalg.lstsq(X_numpy[i-nyquist_len:i], intervals[i-nyquist_len:i])[0] for i in xrange(nyquist_len, len(ary_in))]
-	#
-	#fitses = [list([Ns[i-1], Xs[i-1]]) + list(numpy.linalg.lstsq(X_numpy[i-nyquist_len:i], intervals[i-nyquist_len:i])[0]) for i in xrange(nyquist_len, len(intervals))]
-	#
-	# let's be explicit:
-	# ... and i'm pretty sure this is phase-shifting the output...
-	fitses = [{key:val for key,val in zip(['event_number', 'event_year', 'lin_fit_b', 'lin_fit_a'], [Ns[i-1], Xs[i-1]] + list(numpy.linalg.lstsq(X_numpy[i-nyquist_len:i], intervals[i-nyquist_len:i])[0]))} for i in xrange(nyquist_len, len(intervals))]
-	#
-	#return fitses
-	#
-	# so fitses should be indexed to line up with Xs[nyquist_len-1]
-	#
-	# get record-breaking intervals
-	nrbs=[]
-	#output_names += ['rb_ratio']
-	for i in xrange(nyquist_len, len(intervals)):
-		#
-		nrbs_up=[intervals[i-nyquist_len]]
-		nrbs_dn=[intervals[i-nyquist_len]]
-		#
-		#for j, interval in enumerate(intervals[i-nyquist_len:i]):
-		for j, interval in enumerate(intervals[i-nyquist_len+1:i]):
-			# note on "+1": we've already assigned/evaluated i-nyquist_len.
-			if interval > nrbs_up[-1]: nrbs_up+=[interval]
-			if interval < nrbs_dn[-1]: nrbs_dn+=[interval]
-		#
-		nrbs += [math.log10(float(len(nrbs_up))/float(len(nrbs_dn)))]
-		#rb_ratio = float(len(nrbs_up))/float(len(nrbs_dn))
-		#outputs[i]+=[rb_ratio]
-		#
-	#nrbs = [None for i in xrange(nyquist_len)] + nrbs
-	print "lens: ", len(fitses), len(intervals), len(nrbs)
-	#
-	#outputs = [[Ns[i], Xs[i], fitses[i][1], fitses[i][0], nrbs[i], intervals[i]/mean_interval, intervals[i]] for i in xrange(len(fitses))]
-	#outputs = [[fitses[i][0], fitses[i][1], fitses[i][3], fitses[i][2], nrbs[i], intervals[i]/mean_interval, intervals[i]] for i in xrange(len(fitses))]
-	
-	outputs = [ [fit[key] for key in output_names[0:4]] + [nrbs[i], intervals[i+nyquist_len]/mean_interval, intervals[i+nyquist_len]] for i,fit in enumerate(fitses)]
-	#
-	#output_names += ['interval_rate_ratio']
-	#print "lens:: ", len(nrbs), len(outputs)
-	#
-	#CFF = numpy.core.records.fromarrays(CFF.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final'], formats=[type(x).__name__ for x in CFF[0]])
-	
-	outputs = numpy.core.records.fromarrays(zip(*outputs), names=output_names, formats = [type(x).__name__ for x in outputs[0]])
-	#
-	return outputs
-'''		
+	return outputs	
 #
 def plot_trend(CFF_in=None, section_ids=[16], nyquist_len=10, fignum=0, do_clf=True, m0=7.0):
 	# diagnostic tool for CFF interval fitting.

@@ -964,9 +964,62 @@ def check_psa_metric(section_id=16, m0=7.0, fignum=0, nyquist_factor=.5):
 	ax_dt.set_ylabel('Cumulative probability $P(N)$ that $\\Delta t(alert)<\\Delta t$')
 	
 	#
-def plot_best_roc():
+def plot_best_roc(n_rank=5):
 	# some plots of best ROC parameters -- trying to make sense of all this...
-	my_files = glob.glob('dumps/gji_roc_lt/500/roc_sec_lt_*_allprams.npy')
+	my_files = glob.iglob('dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy')
+	colors_ =  mpl.rcParams['axes.color_cycle']
+	#
+	plt.figure(0)
+	plt.clf()
+	plt.plot(range(2), range(2), 'r-',lw=2, zorder=1)
+	#
+	col_names = ['H', 'F','b', 'nyquist_factor']
+	my_lists = {key:[] for key in col_names}
+	for j, fl in enumerate(my_files):
+		this_color = colors_[j%len(colors_)]
+		roc = numpy.load(fl)
+		roc.sort(key=lambda x:x['H']-x['F'])
+		#
+		[my_lists[key].append(roc[-1][key]) for key in col_names]
+		#
+		f = [rw['F'] for i,rw in enumerate(roc[-n_rank-1:])]
+		h = [rw['H'] for i,rw in enumerate(roc[-n_rank-1:])]
+		#
+		fh=zip(f,h)
+		fh.sort(key=lambda x: x[0])
+		f,h = zip(*fh)
+		#
+		plt.plot(f,h, '-', color=this_color)
+		plt.plot(f,h, 'o', color=this_color, alpha=.35)
+		plt.plot([f[0], f[-1]], [h[0], h[-1]], 'o', color=this_color)
+	#
+	plt.figure(1)
+	plt.clf()
+	plt.plot(my_lists['F'], my_lists['H'], 'o', zorder=2)
+	plt.plot(range(2), range(2), 'r-',lw=2, zorder=1)
+	#
+	f=plt.figure(2)
+	plt.clf()
+	ax=f.add_subplot(111, projection='3d')
+	scores = [h-f for h,f in zip(my_lists['H'], my_lists['F'])]
+	ax.plot(my_lists['b'], my_lists['nyquist_factor'], scores, '.')
+	ax.set_xlabel('b')
+	ax.set_ylabel('nyqist factor')
+	ax.set_zlabel('score')
+	
+	plt.figure(3)
+	plt.clf()
+	plt.plot(my_lists['nyquist_factor'], scores, 'o')
+	plt.xlabel('nyquist factor')
+	plt.ylabel('score $H-F$')
+	
+	plt.figure(4)
+	plt.clf()
+	plt.plot(my_lists['b'], scores, 'o')
+	plt.xlabel('$b_0$')
+	plt.ylabel('score $H-F$')
+	
+
 	return my_files
 	
 #

@@ -363,7 +363,30 @@ def EMC_WT_dist_Appendix(wt_dir='figs_gji/pri', output_file = 'figs_gji/pri/appe
 		f.write('\\end{document}')
 		#
 	#
-
+def gji_forecast_fig(fignum=0, section_id=16, f_out = 'dumps/figs_gji/forecast_section_16.png', time_range=(13400., 14850.) ):
+	#
+	# "earthquake predictability" forecast time-series figure:
+	#
+	A=vc_parser.plot_psa_metric_figure(section_id=section_id, fignum=fignum)
+	#
+	# axes are added in order "rate", then "b", then "mags" clones 'rate'
+	#f=plt.gcf()
+	f = plt.figure(fignum)
+	ax_b = f.axes[1]
+	ax_rate = f.axes[0]
+	#ax_mags = f.axes[2]	# but maybe this is handled internally, and no axis object is actualyl created? becasue this gives "index out of range".
+	#
+	ax_rate.set_xlim(time_range)		 # but note that these all share the same x values
+	ax_b.set_ylim(-1.7, 1.25)
+	#
+	plt.draw()
+	#
+	# now, save the file.
+	path_name = os.path.dirname(f_out)
+	if not os.path.isdir(path_name): os.makedirs(path_name)
+	plt.savefig(f_out)
+	#
+	return f
 
 #def EMC_exp_WT_Appendix(wt_dir='expected_waiting_time_figs', wt_prob_dir='VC_WT_probs_20150109', output_file = 'appendix_exp_wt.tex', section_ids=vc_parser.emc_sections):
 def EMC_exp_WT_Appendix(wt_dir='\WTexpfigs', wt_prob_dir='\WTPfigs', output_file = 'vc_appendix_emc_PRI.tex', section_ids=vc_parser.emc_sections):
@@ -464,8 +487,114 @@ def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_C
 		#
 		plt.savefig('%s/EWT_m0_%s_section_%s.png' % (output_dir, str(m0).replace('.',''), name_str))
 #
+#
+def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5):
+	# some plots of best ROC parameters:
+	# ROC for best optimized forecasts:
+	#   1)simple plot, only best fit, 
+	#   2)more complex fit with top n=5 fits for each fault segment
+	#  3) 3-d fig of score vs (b, alpha)
+	#  extra figs:
+	#  4) score vs b
+	#  5) score vs alpha (these don't show much of a pattern except that most segments have b_optimal >0. nyquist is 
+	#     pretty evenly distributed .2 < alpha <1.2 . it might be a good idea to explore alpha > 1.2.
+	#
+	my_files = glob.iglob('dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy')
+	colors_ =  mpl.rcParams['axes.color_cycle']
+	#
+	plt.figure(0)
+	plt.clf()
+	plt.plot(range(2), range(2), 'r-',lw=2, zorder=1)
+	#
+	mean_H=0.
+	mean_F=0.
+	total_n_predicted=0.
+	total_n = 0.
+	total_t_alert = 0.
+	total_t = 0.
+	#
+	# for reference, 'default' roc with b=0, alpha=.5 (or whatever we comeup with later)
+	roc_default = ROC_single_prams(section_ids=emc_sections, b_0=b_0, nyquist_factor=nyquist_factor, m0=7.0, fignum=None)
+	#
+	col_names = ['H', 'F','b', 'nyquist_factor']
+	my_lists = {key:[] for key in col_names}
+	for j, fl in enumerate(my_files):
+		this_color = colors_[j%len(colors_)]
+		roc = numpy.load(fl)
+		roc.sort(key=lambda x:x['H']-x['F'])
+		#
+		[my_lists[key].append(roc[-1][key]) for key in col_names]
+		#
+		f = [rw['F'] for i,rw in enumerate(roc[-n_rank-1:])]
+		h = [rw['H'] for i,rw in enumerate(roc[-n_rank-1:])]
+		#
+		mean_H+=numpy.mean(h)
+		mean_F+=numpy.mean(f)
+		#
+		fh=zip(f,h)
+		fh.sort(key=lambda x: x[0])
+		f,h = zip(*fh)
+		#
+		plt.plot(f,h, '-', color=this_color)
+		plt.plot(f,h, 'o', color=this_color, alpha=.35)
+		plt.plot([f[0], f[-1]], [h[0], h[-1]], 'o', color=this_color)
+	#
+	mean_H/=(float(j+1))
+	mean_F/=(float(j+1))
+	print "mean_H,mean_F: ", mean_H, mean_F
+	plt.plot([mean_F], [mean_H], 'r*', ms=15, zorder=4, alpha=.9)
+	plt.plot([mean_F], [mean_H], 'k*', ms=18, zorder=3, alpha=.9)
+	#
+	plt.plot([rw['F'] for rw in roc_default.itervalues()], [rw['H'] for rw in roc_default.itervalues()], 'gs', zorder=1, alpha=.8, label='default ($b_0=%.2f$, $\\alpha_n=%.2f$)' % (b_0, nyquist_factor))
+	#
+	plt.xlabel('False alarm rate $F$')
+	plt.ylabel('Hit rate $H$')
+	if save_figs: plt.savefig('dumps/figs_gji/ROC_EMC_faultwise_n_%d.png' % n_rank)
+	#
+	plt.figure(1)
+	plt.clf()
+	plt.plot(my_lists['F'], my_lists['H'], 'bo', zorder=2, label='optimized')
+	plt.plot([rw['F'] for rw in roc_default.itervalues()], [rw['H'] for rw in roc_default.itervalues()], 'gs', zorder=1, alpha=.8, label='default ($b_0=%.2f$, $\\alpha_n=%.2f$' % (b_0, nyquist_factor))
+	plt.plot([numpy.mean(my_lists['F'])], [numpy.mean(my_lists['H'])], 'r*', ms=15, zorder=3, label='mean $(<F>, <H>)$')
+	plt.plot([numpy.mean(my_lists['F'])], [numpy.mean(my_lists['H'])], 'k*', ms=18, zorder=2)
+	plt.plot(range(2), range(2), 'r-',lw=2, zorder=1)
+	plt.xlabel('False alarm rate $F$')
+	plt.ylabel('Hit rate $H$')
+	plt.legend(loc='lower right', numpoints=1)
+	if save_figs: plt.savefig('dumps/figs_gji/ROC_EMC_faultwise_simple.png')
+	#
+	f=plt.figure(2)
+	plt.clf()
+	ax=f.add_subplot(111, projection='3d')
+	scores = [h-f for h,f in zip(my_lists['H'], my_lists['F'])]
+	#ax.plot(my_lists['b'], my_lists['nyquist_factor'], scores, '.')
+	for j,x in enumerate(my_lists['b']):
+		this_color = colors_[j%len(colors_)]
+		#ax.plot([my_lists['b'][j], my_lists['b'][j]], [my_lists['nyquist_factor'][j], my_lists['nyquist_factor'][j]], [0., scores[j]], 'o-')
+		ax.plot([my_lists['b'][j], my_lists['b'][j]], [my_lists['nyquist_factor'][j], my_lists['nyquist_factor'][j]], [0., scores[j]], '-', color=this_color)
+		ax.plot([my_lists['b'][j]], [my_lists['nyquist_factor'][j]], [scores[j]], 'o', color=this_color)
+	
+	ax.set_xlabel('Interval slope $b$')
+	ax.set_ylabel('nyqist factor $\\alpha_n$')
+	ax.set_zlabel('score $H-F$')
+	
+	plt.figure(3)
+	plt.clf()
+	plt.plot(my_lists['nyquist_factor'], scores, 'o')
+	plt.xlabel('nyquist factor')
+	plt.ylabel('score $H-F$')
+	
+	plt.figure(4)
+	plt.clf()
+	plt.plot(my_lists['b'], scores, 'o')
+	plt.xlabel('$b_0$')
+	plt.ylabel('score $H-F$')
+	#
+	return my_files
+
 # plotting helper functions:
 def roc_figure(roc_data=None, roc_random=None, CFF=None, section_id=None, fignum=0, do_clf=True, label_str=None, title_str=None, markers='.-', n_rand=1000, m0=7.0, bin_size=.1):
+	# Single section (catalog) ROC figure (includes all ROC trials, line over max ROC, error envelope)
 	# construct an ROC curve for a section (or more generally, a collection of ROC optimizer data collected by some unknown parsing).
 	# roc_data input is the 'full_pram' set from simple_metric_optimizer()[1] or the output file (which can be a string-filename
 	# or a roc_data = numpy.load(roc_data); see for example numpy.load('dumps/roc_detail_data/roc_sec_16_allprams.npy')
@@ -604,7 +733,15 @@ def create_ROC_figs_GT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 		plt.title('Raw ROC for Section %s' % sec_str)
 		plt.savefig('%s/roc_raw_sec_%s_nits_%d.png' % (output_dir, sec_str, nits))
 #
-def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_lt_detail', m0=7.0):
+def create_ROC_aggregate(section_ids=[vc_parser.emc_sections], nits=1000, fnum=0, num_roc_points=100, output_dir_lt='dumps/gji_roc_lt_500', output_dir_gt='dumps/gji_roc_gt_detail', m0=7.0):
+	z_lt=create_ROC_figs_LT_data(section_ids=section_ids, nits=nits, fnum=fnum, num_roc_points=num_roc_points, output_dir=output_dir_lt, m0=m0)
+	#
+	# ... and why not... also do one for the GT metric:
+	z_gt=create_ROC_figs_GT_data(section_ids=section_ids, nits=nits, fnum=fnum, num_roc_points=num_roc_points, output_dir=output_dir_gt, m0=m0)
+	#
+	return None
+#
+def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_gt_500', m0=7.0):
 	'''
 	# for LT metric (acceleration): 
 	#create a whole slew of ROC data. this will include the optimized "best fit" (using whatever metric) and also the raw, full MC output.

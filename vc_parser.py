@@ -743,6 +743,26 @@ def evaluate_alert_segments(alert_segments=None, CFF=None, section_id=None, m0=7
 	#, 'ary_in_name':set_name, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 	# ... and we might add some sort of returned parameters (from the metric component), but for now, keep it simple.
 #
+def ROC_single_prams(section_ids=emc_sections, b_0=0., nyquist_factor=.5, m0=7.0, fignum=None):
+	'''
+	# produce a simple, single parameterization ROC plot (and data set) for a bunch of section_ids.
+	'''
+	#
+	roc_prams={sec_id:{} for sec_id in section_ids}
+	#
+	for sec_id in section_ids:
+		alert_segs=psa_forecast_1(section_id=sec_id, m0=m0, b_0=b_0, nyquist_factor=nyquist_factor, fnum=fignum, do_plot=False, f_gt_lt=operator.lt, detail=False)
+		roc_prams[sec_id] = evaluate_alert_segments(alert_segments=alert_segs, CFF=None, section_id=sec_id, m0=m0, do_plot=False, fnum=fignum)
+		#
+	#
+	if fignum!=None:
+		plt.figure(fignum)
+		plt.clf()
+		plt.plot(range(2), range(2), 'r-', lw=2)
+		plt.plot([rw['F'] for rw in roc_prams.itervalues()], [rw['H'] for rw in roc_prams.itervalues()], 'o')
+		#
+	return roc_prams
+#
 def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.lt, section_id=16, detail=False):
 	'''
 	# a simplified version of forecast_metric_1.
@@ -862,6 +882,7 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 	return alert_segments
 #
 def check_psa_metric(section_id=16, m0=7.0, fignum=0, nyquist_factor=.5):
+	# (mostly) diagnostic function to validate psa_forecast_1(). also a couple of pretty complex figures.
 	CFF = combine_section_CFFs(section_id)
 	recurrence_data = mean_recurrence(ary_in=CFF, m0=m0)
 	# get opt. data:
@@ -928,22 +949,51 @@ def check_psa_metric(section_id=16, m0=7.0, fignum=0, nyquist_factor=.5):
 	
 	#
 	m0s = zip(*[[rw['event_year'], rw['event_magnitude']] for rw in CFF if rw['event_magnitude']>m0])
-	y_top=1.5
-	y_bottom = -1.5
+	y_b_max=1.5
+	y_b_min = -1.5
+	min_y_int=min(trends['intervals'])
+	max_y_int=max(trends['intervals'])
 	#
-	plt.figure(fignum)
+	f=plt.figure(fignum)
 	plt.clf()
 	plt.ion()
-	plt.plot([CFF['event_year'][0], CFF['event_year'][-1]], [0., 0.], 'k-', zorder=0)
-	plt.plot([CFF['event_year'][0], CFF['event_year'][-1]], [b_0, b_0], 'k--', zorder=0)
-	
-	plt.plot(trends['event_year'], trends['lin_fit_b'], '-')
-	plt.vlines(m0s[0], -1.5, 1.5, color='r', lw=2, linestyle='solid')
+	#ax_b = plt.gca()
+	ax_rate=f.add_axes([.1, .1, .8, .4])
+	ax_b=f.add_axes([.1, .55, .8, .4], sharex=ax_rate)
+	#plt.figure(fignum+1)
+	#plt.clf()
+	#ax_rate = plt.gca()
+	ax_rate.set_yscale('log')
+	ax_b.set_ylabel('Interval slope $b=d(\\Delta t)/dt$')
+	ax_rate.set_ylabel('Interval $\\Delta t_i = t_i - t_{i-1}$')
+	ax_rate.set_xlabel('Simulation time $t$ years')
 	#
-	for rw in fc:
-		plt.fill_between([min(rw), max(rw)], [y_bottom, y_bottom], [y_top, y_top], color='m', alpha=.2, zorder=6)
+	ax_b.plot([CFF['event_year'][0], CFF['event_year'][-1]], [0., 0.], 'k-', zorder=0)
+	ax_b.plot([CFF['event_year'][0], CFF['event_year'][-1]], [b_0, b_0], 'k--', zorder=0)
 	#
-	plt.figure(fignum+1)
+	ax_b.plot(trends['event_year'], trends['lin_fit_b'], '-', label='Interval slope $b$')
+	ax_b.vlines(m0s[0], y_b_min, y_b_max, color='r', lw=2, linestyle='solid')
+	#
+	#ax_rate.plot(trends['event_year'], [1./x for x in trends['intervals']], '-', label='rates')
+	ax_rate.plot(trends['event_year'], trends['intervals'], '-', label='intervals')
+	ax_rate.vlines(m0s[0], min_y_int, max_y_int, color='r', lw=2, linestyle='solid')
+	#
+	#lbl_str = 'Alert interval'
+	for j,rw in enumerate(fc):
+		#if j>0 and 1==1:
+		#	lbl_str = None
+		ax_b.fill_between([min(rw), max(rw)], [y_b_min, y_b_min], [y_b_max, y_b_max], color='m', alpha=.2, zorder=6)
+		ax_rate.fill_between([min(rw), max(rw)], [min_y_int, min_y_int], [max_y_int, max_y_int], color='m', alpha=.2, zorder=6)
+	#b_artist = plt.Line2D((0,0),(0,0), color='m', linestyle='-')
+	b_artist = mpl.patches.Patch(facecolor='m', edgecolor='m', alpha=.2)
+	#
+	ax_rate.legend(loc=0, numpoints=1)
+	#
+	#ax_b.legend(loc=0, numpoints=1)
+	b_handles, b_labels = ax_b.get_legend_handles_labels()
+	ax_b.legend([h for h in b_handles]+[b_artist], [l for l in b_labels] + ['Alert intervals'], loc=0, numpoints=1)
+	#
+	plt.figure(fignum+2)
 	plt.clf()
 	ax_n = plt.gca()
 	#ax_n.set_yscale('log')
@@ -962,73 +1012,130 @@ def check_psa_metric(section_id=16, m0=7.0, fignum=0, nyquist_factor=.5):
 	#plt.ylabel('cumulative count $N$')
 	ax_n.set_ylabel('Cumulative probability $P(N)$ that $len(alert)<n$')
 	ax_dt.set_ylabel('Cumulative probability $P(N)$ that $\\Delta t(alert)<\\Delta t$')
-	
 	#
-def plot_best_roc(n_rank=5):
-	# some plots of best ROC parameters -- trying to make sense of all this...
-	my_files = glob.iglob('dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy')
-	colors_ =  mpl.rcParams['axes.color_cycle']
+#
+def plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_factor=None, b_0=None, opt_data='dumps/gji_roc_lt_500/roc_sec_lt_%d_nits_1000_allprams.npy', lw=2.):
+	# create forecast metric figure(s). we'll work on generalizing this to use multiple forecasts later. for now, let's be specific
+	# to psa_forecast_1()
 	#
-	plt.figure(0)
-	plt.clf()
-	plt.plot(range(2), range(2), 'r-',lw=2, zorder=1)
+	# handle inputs:
+	if (CFF==None or len(CFF)==0):
+		#ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id		
+		CFF=combine_section_CFFs(section_id)		# ... and this function knows to use the string format above...
+		#											# ... and note we do CFF=ary_in in the if-else clause below...
+	if isinstance(CFF, str):
+		CFF = numpy.load(CFF)
 	#
-	col_names = ['H', 'F','b', 'nyquist_factor']
-	my_lists = {key:[] for key in col_names}
-	for j, fl in enumerate(my_files):
-		this_color = colors_[j%len(colors_)]
-		roc = numpy.load(fl)
-		roc.sort(key=lambda x:x['H']-x['F'])
-		#
-		[my_lists[key].append(roc[-1][key]) for key in col_names]
-		#
-		f = [rw['F'] for i,rw in enumerate(roc[-n_rank-1:])]
-		h = [rw['H'] for i,rw in enumerate(roc[-n_rank-1:])]
-		#
-		fh=zip(f,h)
-		fh.sort(key=lambda x: x[0])
-		f,h = zip(*fh)
-		#
-		plt.plot(f,h, '-', color=this_color)
-		plt.plot(f,h, 'o', color=this_color, alpha=.35)
-		plt.plot([f[0], f[-1]], [h[0], h[-1]], 'o', color=this_color)
+	# get opt. data:
+	# optimization data will probably be provided as a string pointing to an optimization run output, which will be list of dicts[ {},{}...]
+	# from a monte-carlo algorithm. for now, what is the format?
+	if isinstance(opt_data, str):
+		# were we specific, or did we just pass a string format (this part needs to eventually be quite a bit smarter).
+		if '%d' in opt_data:
+			opt_data = opt_data % section_id		# ... and if section_id is null, there's not much to be done... eventually, we need 
+													# to re-organize the derived data so that CFF, etc. contain more meta-data.
+		opt_data = numpy.load(opt_data)
+			#
+	# ... and at this point, opt_data will be an array-o-dicts (or at least it should be)
+	# now, determine forecast parameterization from optimized bits.
+	opt_data.sort(key=lambda x: (x['H']-x['F']))
+	best_fits = opt_data[-1]
+	b_0 = best_fits['b']
+	nyquist_factor = best_fits['nyquist_factor']
 	#
-	plt.figure(1)
-	plt.clf()
-	plt.plot(my_lists['F'], my_lists['H'], 'o', zorder=2)
-	plt.plot(range(2), range(2), 'r-',lw=2, zorder=1)
+	recurrence_data = mean_recurrence(ary_in=CFF, m0=m0)
+	nyquist_len = max(int(nyquist_factor*recurrence_data['mean_dN_fault']), 2)
 	#
-	f=plt.figure(2)
+	# alert segments:
+	fc=psa_forecast_1(ary_in=CFF, f_gt_lt=operator.lt, b_0=b_0, nyquist_factor=nyquist_factor)
+	trends = get_trend_analysis(ary_in=CFF, nyquist_len=nyquist_len)
+	#
+	fc_lens = [len(x) for x in fc]
+	fc_lens.sort()
+	fc_delta_ts = [x[-1]-x[0] for x in fc]
+	fc_delta_ts.sort()
+	#
+	#
+	m0s = zip(*[[rw['event_year'], rw['event_magnitude']] for rw in CFF if rw['event_magnitude']>m0])
+	y_b_max=1.5
+	y_b_min = -1.5
+	min_y_int=min(trends['intervals'])
+	max_y_int=max(trends['intervals'])
+	#
+	f=plt.figure(fignum)
 	plt.clf()
-	ax=f.add_subplot(111, projection='3d')
-	scores = [h-f for h,f in zip(my_lists['H'], my_lists['F'])]
-	ax.plot(my_lists['b'], my_lists['nyquist_factor'], scores, '.')
-	ax.set_xlabel('b')
-	ax.set_ylabel('nyqist factor')
-	ax.set_zlabel('score')
-	
-	plt.figure(3)
+	plt.ion()
+	#ax_b = plt.gca()
+	ax_rate=f.add_axes([.1, .1, .8, .4])
+	ax_b=f.add_axes([.1, .55, .8, .4], sharex=ax_rate)
+	ax_mags = ax_rate.twinx()
+	#plt.figure(fignum+1)
+	#plt.clf()
+	#ax_rate = plt.gca()
+	ax_rate.set_yscale('log')
+	ax_b.set_ylabel('Interval slope $b=d(\\Delta t)/dt$')
+	ax_rate.set_ylabel('Interval $\\Delta t_i = t_i - t_{i-1}$')
+	ax_rate.set_xlabel('Simulation time $t$ years')
+	#
+	ax_b.plot([CFF['event_year'][0], CFF['event_year'][-1]], [0., 0.], 'k-', zorder=0, lw=lw)
+	ax_b.plot([CFF['event_year'][0], CFF['event_year'][-1]], [b_0, b_0], 'k--', zorder=0, lw=lw)
+	#
+	ax_b.plot(trends['event_year'], trends['lin_fit_b'], '.-', label='Interval slope $b$', lw=lw)
+	ax_b.vlines(m0s[0], y_b_min, y_b_max, color='r', linestyle='solid', zorder=4, lw=lw)
+	#
+	#ax_rate.plot(trends['event_year'], [1./x for x in trends['intervals']], '-', label='rates')
+	ax_rate.plot(trends['event_year'], trends['intervals'], '.-', label='intervals', lw=lw)
+	#ax_rate.vlines(m0s[0], min_y_int, max_y_int, color='r', linestyle='solid', lw=lw)
+	#
+	min_mag = min(CFF['event_magnitude'])-.25
+	ax_mags.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='g', alpha=.7, zorder=3,lw=lw)
+	ax_mags.vlines(m0s[0], min_mag, m0s[1], color='r', lw=lw, linestyle='solid', zorder=4)
+	#
+	#lbl_str = 'Alert interval'
+	for j,rw in enumerate(fc):
+		#if j>0 and 1==1:
+		#	lbl_str = None
+		ax_b.fill_between([min(rw), max(rw)], [y_b_min, y_b_min], [y_b_max, y_b_max], color='m', alpha=.2, zorder=6)
+		ax_rate.fill_between([min(rw), max(rw)], [min_y_int, min_y_int], [max_y_int, max_y_int], color='m', alpha=.2, zorder=6)
+	#
+	# legend?
+	#b_artist = mpl.patches.Patch(facecolor='m', edgecolor='m', alpha=.2)
+	#ax_rate.legend(loc=0, numpoints=1)
+	#
+	#b_handles, b_labels = ax_b.get_legend_handles_labels()
+	#ax_b.legend([h for h in b_handles]+[b_artist], [l for l in b_labels] + ['Alert intervals'], loc=0, numpoints=1)
+	#
+	plt.figure(fignum+2)
 	plt.clf()
-	plt.plot(my_lists['nyquist_factor'], scores, 'o')
-	plt.xlabel('nyquist factor')
-	plt.ylabel('score $H-F$')
-	
-	plt.figure(4)
-	plt.clf()
-	plt.plot(my_lists['b'], scores, 'o')
-	plt.xlabel('$b_0$')
-	plt.ylabel('score $H-F$')
-	
-
-	return my_files
+	ax_n = plt.gca()
+	#ax_n.set_yscale('log')
+	#ax_n.set_xscale('log')
+	ax_n.plot(fc_lens, [x/float(len(fc_lens)) for x in xrange(1, len(fc_lens)+1)], 'b.-', label='alert sequence length')
+	ax_n.legend(loc='best', numpoints=1)
+	ax_n.set_xlabel('alert segment lengths $n$')
+	#
+	ax_dt = plt.twiny(plt.gca())
+	#ax_dt.set_yscale('log')
+	#ax_dt.set_xscale('log')
+	ax_dt.plot(fc_delta_ts, [x/float(len(fc_delta_ts)) for x in xrange(1, len(fc_delta_ts)+1)], 'g.-', label='alert intervals $\\Delta t$')
+	ax_dt.legend(loc='best', numpoints=1)
+	ax_dt.set_xlabel('Alert durations $\\Delta t$')
+	#
+	#plt.ylabel('cumulative count $N$')
+	ax_n.set_ylabel('Cumulative probability $P(N)$ that $len(alert)<n$')
+	ax_dt.set_ylabel('Cumulative probability $P(N)$ that $\\Delta t(alert)<\\Delta t$')
+	#
+	# note: evaluate_alert_segments() can also be used to create a figure.
+	#z=evaluate_alert_segments(alert_segments=fc, CFF=CFF, section_id=section_id, m0=7.0, do_plot=True, fnum=11)
 	
 #
-def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.gt, section_id=16):
+def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.gt, section_id=16, over_ride=False):
 	'''
 	# depricated:
 	# this can be tossed in exchange for the more generalized format:
 	# x = psa_forecast_1(CFF)		# (and other forecast metrics can be substituted of course)
 	# y = evaluate_alert_segments(x,CFF)
+	# so, until we get rid of this not the over_ride=False default parameter. if True, then run the old code. otherwise, wrap the new bits.
 	# 
 	#
 	# forecast based on seismic acceleration. specifically, for a set of data (a fault-section time-series),
@@ -1051,6 +1158,7 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 	# f_gt_lt: function for greater/lesser evaluation... use operator.{gt, ge, lt, le}, or any two parameter input.
 	'''
 	#
+	#
 	if (ary_in==None or len(ary_in)==0) and section_id!=None:
 		ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id
 	if isinstance(ary_in, str):
@@ -1064,6 +1172,15 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 	if set_name==None:
 		# still none? must be a string type ary_in...
 		set_name=ary_in
+	#
+	########################
+	# depricating....
+	if not over_ride:
+		# ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.lt, section_id=16, detail=False
+		x=psa_forecast(ary_in=ary_in, m0=m0, b_0=b_0, nyquist_factor=nyquist_factor, do_plot=do_plot, fnum=fnum, set_name=set_name, f_gt_lt=f_gt_lt, section_id=section_id, detail=False)	# though we might want detail=True...
+		# evaluate_alert_segments(alert_segments=None, CFF=None, section_id=None, m0=7.0, do_plot=True, fnum=0)
+		return evaluate_alert_segments(alert_segments=x,CFF=CFF, section_id=section_id, do_plot=do_plot, fnum=fnum)
+
 	#
 	recurrence_data = mean_recurrence(ary_in=CFF, m0=m0)
 	nyquist_len = max(int(nyquist_factor*recurrence_data['mean_dN_fault']), 2)
@@ -1341,7 +1458,7 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	#
 	return pool_results
 #
-def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=True, set_name='data_set', dump_file=None, f_gt_lt=operator.lt, f_score=operator.div, section_id=16, opt_func=psa_forecast_1):
+def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=True, set_name='data_set', dump_file=None, f_gt_lt=operator.lt, f_score=operator.sub, section_id=16, opt_func=psa_forecast_1):
 	'''
 	# this does an MC thing to optimize a forecast metric for a CFF (presumably a section catalog like 'data/VC_CFF_timeseries_section_16.npy'
 	# or the data therein. it can be run independently or (it's primary purpose) wrapped by simple_mpp_optimizer()
@@ -1496,6 +1613,8 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 
 def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None):
 	'''
+	# depricated? this script seems to be showing its age as well...
+	#
 	# simple ROC diagram. see the optimized one...
 	# also note that the parameter list for forecast_metric_1() has changed, so generally speaking this 
 	# function needs some maintenance or to be retired.
@@ -1741,7 +1860,7 @@ def get_ROC_from_optimizer(opt_data=None, section_id=16, file_format='dumps/roc_
 	type_dict={type('abc').__name__:'S128'}
 	# let's go ahead and compile everything here. we might use this to analyize the b_0 and nyquist_factor dependencies as well.
 	# first, make a list, then a recarray... (eventually, we want to reorganize this so we can allow a list of dicts. or recarray seamlessly).
-	col_names = opt_data[0].keys() + ['H', 'F', 'score_lin', 'score_geom']
+	col_names = opt_data[0].keys() + [ky for ky in ['H', 'F', 'score_lin', 'score_geom'] if ky not in opt_data[0].keys()]
 	#
 	#roc_datas = [[val for key,val in rw.iteritems()] for rw in opt_data]
 	roc_datas = []
@@ -1806,6 +1925,8 @@ def plot_ROC_optimized_prams(roc_data=None, fignum=0, section_id=None, nits=1000
 	plt.clf()
 	ax3d = f.add_subplot(111, projection='3d')
 	ax3d.plot(b_vals, alpha_vals, scores_lin, '.')
+	#for j,x in enumerate(b_vals):
+	#	ax3d.plot([b_vals[j], b_vals[j]], [alpha_vals[j], alpha_vals[j]], [0., scores_lin[j]], '-o', lw=2)
 	ax3d.set_xlabel('threshold slope, $b_0$')
 	ax3d.set_ylabel('nyquist_factor')
 	#ax3d.set_zlabel('ROC metric, (Percent Predicted) - (false alarm)')
@@ -1879,197 +2000,20 @@ def plot_aggregate_metric(scores_in, n_top=None):
 	print best_row
 	return scores_in
 #
-def optimize_metric_full_aggregate(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None, do_plot=False, n_cpus=None, data_in=None):
-	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
-	# this runs a fully composite optimization, which produces some not super believable... or optimal
-	# results. it seems that we would do better to optimize each fault independently.
-	# data_in: start with, and append, an existing data file.
-	#
-	# ... and this can probably be removed as well, as it can be accomplished by creating a combined catalog and passing to 
-	# simple_metric_optimizer()
-	#
-	R_b   = random.Random()
-	R_nyq = random.Random()
-	delta_b = b_max-b_min
-	delta_nyq = nyquist_max - nyquist_min
-	# and let's do this right and randomly sample...
-	if nits==None: nits = 1 + int(abs((delta_b/d_b)*((delta_nyq)/d_nyquist)))	# safe-guard for n->0
-	#
-	total_scores = []	# cumulative total score, like [[b_0, nyquist_factor, mean_score, score_stdev]]
-	if data_in!=None: 
-		if isinstance(data_in, str):
-			total_scores = numpy.load(data_in).tolist()
-		else:
-			total_scores = data_in
-	#
-	for i in xrange(nits):
-		this_b   = b_min       + delta_b*R_b.random()
-		this_nyq = nyquist_min + delta_nyq*R_nyq.random()
-		#
-		# quick mod to remove the apparent "fobidden" zone:
-		while this_b < (-.3143 + .2286*this_nyq):
-			# we've determined that we don't get valid results from this domain.
-			this_b   = b_min       + delta_b*R_b.random()
-			this_nyq = nyquist_min + delta_nyq*R_nyq.random()
-		print "************\n*************\n***************\n*************\n"
-		
-		try:
-			datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=this_b, nyquist_factor=this_nyq, do_spp=False, do_plot=False, n_cpus=n_cpus)	# note: this will fully multiprocess.
-		except:
-			print "ERROR!!! datas would not assimilate. probably bogus prams: b=%f, nq_fact=%f" % (this_b, this_nyq)
-			continue
-		#
-		# now, aggregate for this pram-set.
-		# datas is a list of dictionary objects like: {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
-		#
-		#score_row = [x['b'], x['nyquist_factor'], x['n_predicted']/(x['n_predicted']+x['n_missed']), x['total_alert_time']/x['total_time'], (x['n_predicted']/(x['n_predicted']+x['n_missed']) - x['total_alert_time']/x['total_time']) for x in datas]
-		#
-		scores = [float(x['n_predicted'])/(float(x['n_predicted'])+float(x['n_missed'])) - x['total_alert_time']/x['total_time'] for x in datas]
-		# consider also the trigonometric score (do these produce different results?):
-		# math.sin(math.atan(rw['total_time']*rw['n_predicted']/(rw['total_alert_time']*(float(rw['n_predicted'])+rw['n_missed'])) ))
-		scores = [math.sin(math.atan( x['total_time']*x['n_predicted']/(x['total_alert_time']*(float(x['n_predicted'])+x['n_missed'])) )) for x in datas]
-		#
-		mean_score = numpy.mean(scores)
-		score_stdev = numpy.std(scores)
-		#
-		total_scores += [[this_b, this_nyq, mean_score, score_stdev]]
-		#
-		if i%100==0:
-			# intermediate dump...
-			dump_object = numpy.core.records.fromarrays(zip(*total_scores), names=['b_0', 'nyquist_factor', 'score', 'stdev'], formats = [type(x).__name__ for x in total_scores[0]])
-			try:
-				dump_object.dump('dumps/aggregate_optimize_n_%d.npy' % nits)
-			except:
-				print "failed to dump array..."
-		#
-	total_scores.sort(key = lambda x: x[2])
-	#
-	total_scores = numpy.core.records.fromarrays(zip(*total_scores), names=['b_0', 'nyquist_factor', 'score', 'stdev'], formats = [type(x).__name__ for x in total_scores[0]])
-	#
-	try:
-		total_scores.dump('dumps/aggregate_optimize_n_%d.npy' % nits)
-	except:
-		print "failed to dump array..."
-	#
-	A=total_scores	# for shorthand...
-	best_fit_row = A[A['score'].tolist().index(max(A['score']))]
-	print best_fit_row
-	if do_plot:
-		plt.ion()
-		f=plt.figure()
-		ax3d = f.add_subplot(111, projection='3d')
-		ax3d.plot(A['b_0'], A['nyquist_factor'], A['score'], '.')
-	#
-	return total_scores
-
-#
-def optimize_metric_faultwise(b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01, nits=None, dump_file='dumps/optimize_faultwise'):
-	# (this function will probably be removed, as per a simpler framework using def simple_mpp_optimizer() )... or maybe not. in some ways,
-	# this scales better under mpp, but it still can take a long time (and not get mpp optimization) analyzing really big sets (like all
-	# EMC sections).
-	#
-	# run a whole bunch of metric_1 and get the best nyquist_factor, b_0 combination.
-	# this script optimizes each fault independently (so we get a set of: {section_id, nyq_fact, b_0}
-	#
-	# note though: this should be recoded to 1) not be stupid. namely in how we loop over the parameter/section_id space
-	# and 2) facilitate easy mpp. mpp should be split up by section_id; nominally, use a pool() and apply_async() or map_async().
-	# ... though note that this is fully MPP, but i think maybe not in the most optimal way. dunno...
-	#
-	#
-	R_b   = random.Random()
-	R_nyq = random.Random()
-	delta_b = b_max-b_min
-	delta_nyq = nyquist_max - nyquist_min
-	# and let's do this right and randomly sample...
-	if nits==None: nits = 1 + int(abs((delta_b/d_b)*((delta_nyq)/d_nyquist)))	# safe-guard for n->0
-	#
-	fault_scores={}
-	#
-	for i in xrange(nits):
-		this_b   = b_min       + delta_b*R_b.random()
-		this_nyq = nyquist_min + delta_nyq*R_nyq.random()
-		print "************\n*************\n***************\n*************\n"
-		
-		try:
-			datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=this_b, nyquist_factor=this_nyq, do_spp=False, do_plot=False, n_cpus=None)	# note: this will fully multiprocess.
-		except:
-			print "ERROR!!! datas would not assimilate. probably bogus prams: b=%f, nq_fact=%f" % (this_b, this_nyq)
-			continue
-		#
-		# now, aggregate for this pram-set.
-		# datas is a list of dictionary objects like: {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
-		for rw in datas:
-			#
-			if fault_scores.has_key(rw['ary_in_name'])==False:
-				fault_scores[rw['ary_in_name']] = {}
-			#this_score = float(rw['n_predicted'])/(float(rw['n_predicted'])+rw['n_missed']) - rw['total_alert_time']/rw['total_time']
-			#
-			# try this metric as well:
-			# (maximize the angle... or the sin of the angle of the ROC vector).
-			#print "using trig based score:"
-			#this_score = math.sin(math.atan(rw['n_predicted']*rw['total_time']/(rw['total_alert_time']*(float(rw['n_predicted'])+rw['n_missed'])) ))
-			H = rw['n_predicted']/(float(rw['n_predicted'])+rw['n_missed'])
-			F = rw['total_alert_time']/float(rw['total_time'])		# stick a float() in there just to be sure we're doing float math.
-			#this_score = rw['n_predicted']*rw['total_time']/(rw['total_alert_time']*(float(rw['n_predicted'])+rw['n_missed']))	# H/F
-			this_score = H/F
-			#this_score = H-F
-			#
-			if len(fault_scores[rw['ary_in_name']])==0 or this_score>max(fault_scores[rw['ary_in_name']].iterkeys()):
-				fault_scores[rw['ary_in_name']][this_score] = rw	# index each row by the score for fast sorting.
-			#
-			# note: this should probably be rewritten to NOT keep all the junk scores, but only the best scores. we can also MPP this fairly easily
-			# (lots of processing -- nits loops) with a tiny return... or at least (now) recoded to be smarter and faster about being selective...
-	#
-	# now, get the max score set for each row:
-	#return fault_scores
-	
-	scores_out = []
-	full_lot = []
-	for key,rw in fault_scores.iteritems():
-		# note: this bit of using the float score value as a key was a mistake that should
-		# be rectified at some point...
-		#
-		#rw = fault_scores[key]
-		i0 = key.index('section_') + len('section_')
-		fault_number = int(key[i0:key.index('.', i0)])
-		#
-		best_score = max(rw.keys())
-		best_set = rw[best_score]
-		#scores_out += [[key, best_set['b'], best_set['nyquist_factor'], best_score]]
-		
-		# controlled:
-		scores_out += [[fault_number, best_set['b'], best_set['nyquist_factor'], best_set['n_predicted'], best_set['n_missed'], best_set['total_alert_time'], best_set['total_time'], best_score]]
-		# automated:
-		#scores_out += [[fault_number] + [best_set[key] for key in best_set] + [best_score]]
-		#
-		# and convert the main set to a rec array too:
-		#full_lot+=[[fault_number, best_set['b'], best_set['nyquist_factor'], best_set['n_predicted'], best_set['n_missed'], best_set['total_alert_time'], best_set['total_time'], best_score]]
-	#
-	#
-	
-	#print scores_out[0]
-	#print len(scores_out), len(scores_out[0])
-	scores_out = numpy.core.records.fromarrays(zip(*scores_out), names=['fault_id', 'b_0', 'nyquist_factor', 'n_predicted', 'n_missed', 'total_alert_time', 'total_time', 'score'], formats = [type(x).__name__ for x in scores_out[0]])
-	#
-	scores_out.dump('%s_best_scores.npy' % dump_file)
-	#numpy.array(fault_scores).dump('%s_fault_scores.npy' % dump_file)	# so this should be the full lot.
-	with open('%s_fault_scores.npy' % dump_file) as f:
-		cPickle.dump(fault_scores, f)
-	
-	#
-	return scores_out
-
-def plot_best_ROC(scores_in=None, fignum=0, do_clf=True, plot_f_out=None):
+def plot_raw_ROC(scores_in=None, fignum=0, do_clf=True, plot_f_out=None):
 	# a (simplified?) ROC plotter for optimized (segment partitioned) sets. this should be pretty generalized so we pass
 	# a list of dicts (might trap other inputs as well later) and plot them. we'll sort out legends and stuff later.
 	# ... and maybe remove the 'best', since we only plot here; there is no fitting... and so maybe we should move this to the paper_figs
 	# script...
+	# inputs: scores_in: numpy array or list-o-dictionaries with ROC fit data, aka, the results from an optimization. can also be a string
+	# file-name to a .npy dump of said list-o-dictionaries.
+	# produces a figure of H(F) for each optimization row in the input.
 	#
 	# here's the basic cascade of scores_in inputs:
 	if scores_in==None:
 		#scores_in = 'dumps/optimize_faultwise_best_scores.npy' # (i think).
-		scores_in = 'dumps/optimize_faultwise_trig_105_best_scores.npy'	# which i think is the same as the above, but more nits.
-																		# maybe we want to compare a few sets? also get a "default" set (see below).
+		scores_in = 'dumps/gji_roc_lt_500/roc_sec_lt_18_nits_1000_allprams.npy'	
+		
 	if isinstance(scores_in, str):
 		scores_in = numpy.load(scores_in)
 	#
@@ -2078,9 +2022,6 @@ def plot_best_ROC(scores_in=None, fignum=0, do_clf=True, plot_f_out=None):
 		# this should work, but it has not yet been tested... but it probably won't work because of string types...
 		scores_in = numpy.rec.array([[val for val in rw.itervalues() if not hasattr(val, '__len__')] for rw in scores_in], names=[key for key,val in scores_in[0].iteritems() if not hasattr(val, '__len__')], formats = [type(x).__name__ for x in scores_in[0].itervalues() if not hasattr(x, '__len__')])
 		#
-		# sloppy tweak:
-		#if 'b_0' not in (scores_in.dtype.names): col_name_subs['b_0']='b'
-		# 
 	#
 	F = [scores_in['total_alert_time'][i]/t for i, t in enumerate(scores_in['total_time'])]
 	H = [float(N)/(float(N)+scores_in['n_missed'][i]) for i, N in enumerate(scores_in['n_predicted'])]
@@ -2095,15 +2036,16 @@ def plot_best_ROC(scores_in=None, fignum=0, do_clf=True, plot_f_out=None):
 	plt.figure(fignum)
 	if do_clf:
 		plt.clf()
-		plt.plot([0., 1.], [0., 1.], 'b-', lw=2, alpha=.8, zorder=0)
+		plt.plot([0., 1.], [0., 1.], 'r-', lw=2, alpha=.8, zorder=0)
 	#plt.plot(F,H, label='%s: $<H/F>=%.3f$' % (key, mean_score), **datas['plot_kwargs'])
 	#plt.plot(numpy.mean(F), numpy.mean(H), '*', ms=18, alpha=.75, color=datas['plot_kwargs']['color'], zorder=datas['plot_kwargs']['zorder'])
 	plt.plot(F,H, 'o', label='%s: $<H/F>=%.3f$' % ('F', mean_score) )
-	plt.plot(numpy.mean(F), numpy.mean(H), '*', ms=18, alpha=.75)
+	plt.plot(numpy.mean(F), numpy.mean(H), 'r*', ms=18, alpha=.75)
 	#
 
 def plot_best_opt_prams(scores_in=None, plot_f_out=None):
 	'''
+	# (this can probably be depricated and removed...)
 	# plots from faultwise optimization (aka, from: optimize_metric_faultwise() )
 	# in particular, plots an ROC diagram for  several populations of faultwise forecast fits.
 	#
@@ -2258,125 +2200,7 @@ def plot_best_opt_prams(scores_in=None, plot_f_out=None):
 	print "mean_b: %f +/- %f" % (mean_b, std_b)
 	print "mean_nf:    %f +/- %f" % (mean_nf, std_nf)
 
-#
-def bunch_o_metric_1(nyquist_factor=0.425556):
-	# a bunch of metric 1 data...
-	# (this function can probably be removed).
-	my_b = .1
-	all_the_data = {}
-	while my_b>-.1:
-		datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=my_b, nyquist_factor=nyquist_factor, do_spp=False, do_plot=False)
-		# datas will be a list of dictionary objects. we want to construct independent "time" series for each fault (dict object):
-		for data in datas:
-			key = data['ary_in_name']
-			if all_the_data.has_key(key) == False: all_the_data[key] = []
-			#if all_the_data.has_key(key) == False: all_the_data[key] = {'prams':[], 'data':[]}
-			#
-			all_the_data[key]+=[[data['total_alert_time']/data['total_time'] ,float(data['n_predicted'])/(data['n_predicted'] + float(data['n_missed'])), data['b'], data['m0'], data['nyquist_factor']]]
-			
-		my_b-=.02
-	#
-	# wrap these up into recarrays:
-	for key in all_the_data.keys():
-		all_the_data[key] = numpy.core.records.fromarrays(zip(*all_the_data[key]), names=['false_alarm', 'hit_rate', 'b', 'm0', 'nyquist_factor'], formats = [type(x).__name__ for x in all_the_data[key][0]])
-		#
-	return all_the_data
 
-def plot_bunch_o_metric_1(all_the_data=None):
-	if all_the_data==None: all_the_data = bunch_o_metric()
-	#
-	plt.figure(0)
-	plt.clf()
-	plt.xlabel('percent alert time (false alarm)')
-	plt.ylabel('percent predicted')
-	plt.plot([0., 1.], [0.,1.], '--')
-	#
-	plt.figure(1)
-	plt.clf()
-	plt.xlabel('critical slobe $b_0$')
-	plt.ylabel('total score: hit_rate - false_alarm_rate')
-	plt.ion()
-	#
-	best_bs = []
-	for key in all_the_data.keys():
-		#X,Y = zip(*all_the_data[key])[0:2]
-		X,Y = all_the_data[key]['false_alarm'], all_the_data[key]['hit_rate']
-		bs = all_the_data[key]['b']
-		total_scores = [x['hit_rate'] - x['false_alarm'] for x in all_the_data[key]]
-		plt.figure(0)
-		plt.plot(X,Y, '.-')
-		plt.figure(1)
-		plt.plot(bs, total_scores, '.-')
-		max_score = max(total_scores)
-		max_index = total_scores.index(max_score)
-		best_bs+=[bs[max_index]]
-		plt.plot([bs[max_index]], [max_score], '*')
-		#
-		print "max predictor: ", X[max_index], Y[max_index], bs[max_index], max_score
-	mean_best_b = numpy.mean(best_bs)
-	std_best_b = numpy.std(best_bs)
-	print "best b: mean: %f, stdev: %f" % (mean_best_b, std_best_b)
-	#
-	return all_the_data
-#
-def bunch_o_metric_nyquist(b_0=0.009333, d_nyq = .05):
-	# a bunch of metric 1 data...
-	my_nyq = .25
-	all_the_data = {}
-	while my_nyq < .75:
-		datas = plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=b_0, nyquist_factor=my_nyq, do_spp=False, do_plot=False)
-		# datas will be a list of dictionary objects. we want to construct independent "time" series for each fault (dict object):
-		for data in datas:
-			key = data['ary_in_name']
-			if all_the_data.has_key(key) == False: all_the_data[key] = []
-			#if all_the_data.has_key(key) == False: all_the_data[key] = {'prams':[], 'data':[]}
-			#
-			all_the_data[key]+=[[data['total_alert_time']/data['total_time'] ,float(data['n_predicted'])/(float(data['n_predicted']) + float(data['n_missed'])), data['b'], data['m0'], data['nyquist_factor']]]
-			
-		my_nyq+=d_nyq
-	#
-	# wrap these up into recarrays:
-	for key in all_the_data.keys():
-		all_the_data[key] = numpy.core.records.fromarrays(zip(*all_the_data[key]), names=['false_alarm', 'hit_rate', 'b', 'm0', 'nyquist_factor'], formats = [type(x).__name__ for x in all_the_data[key][0]])
-		#
-	return all_the_data
-
-def plot_bunch_o_metric_nyquist(all_the_data=None):
-	if all_the_data==None: all_the_data = bunch_o_metric_nyquist()
-	#
-	plt.figure(0)
-	plt.clf()
-	plt.xlabel('percent alert time (false alarm)')
-	plt.ylabel('percent predicted')
-	plt.plot([0., 1.], [0.,1.], '--')
-	#
-	plt.figure(1)
-	plt.clf()
-	plt.xlabel('nyquist factor')
-	plt.ylabel('total score: hit_rate - false_alarm_rate')
-	plt.ion()
-	#
-	best_nyquists = []
-	for key in all_the_data.keys():
-		#X,Y = zip(*all_the_data[key])[0:2]
-		X,Y = all_the_data[key]['false_alarm'], all_the_data[key]['hit_rate']
-		nyquists = all_the_data[key]['nyquist_factor']
-		total_scores = [x['hit_rate'] - x['false_alarm'] for x in all_the_data[key]]
-		plt.figure(0)
-		plt.plot(X,Y, '.-')
-		plt.figure(1)
-		plt.plot(nyquists, total_scores, '.-')
-		max_score = max(total_scores)
-		max_index = total_scores.index(max_score)
-		best_nyquists+=[nyquists[max_index]]
-		plt.plot([nyquists[max_index]], [max_score], '*', ms=10)
-		#
-		print "max predictor: ", X[max_index], Y[max_index], nyquists[max_index], max_score
-	mean_best_nyquists = numpy.mean(best_nyquists)
-	std_best_nyquists = numpy.std(best_nyquists)
-	print "best nyquist: mean: %f, stdev: %f" % (mean_best_nyquists, std_best_nyquists)
-	#
-	return all_the_data
 #
 ##############################################
 # end ROC and predictability bits
@@ -4611,7 +4435,10 @@ def plot_trend(CFF_in=None, section_ids=[16], nyquist_len=10, fignum=0, do_clf=T
 	f=plt.figure(fignum)
 	if do_clf: plt.clf()
 	ax_main = f.add_axes([.1, .45, .85, .5])
+	ax_main.set_xlabel('time $t$ (years)')
+	ax_main.set_ylabel('Interval $\\Delta t$')
 	ax_b    = f.add_axes([.1, .05, .85, .3], sharex=ax_main)
+	ax_b.set_ylabel('Interval slope $b$')
 	#
 	ax_main.plot(CFF_in['event_year'][1:], intervals, '.-')
 	XX_t, YY_t = [], []
@@ -4642,8 +4469,13 @@ def plot_trend(CFF_in=None, section_ids=[16], nyquist_len=10, fignum=0, do_clf=T
 		ax_main.plot([rw['event_year'], rw['event_year']], [min_dt, max_dt], 'r-', lw=2, alpha=.7, zorder=4)
 		ax_b.plot([rw['event_year'], rw['event_year']], [min_b, max_b], 'r-', lw=2, alpha=.7, zorder=4)
 #
-def plot_CFF_ary(ary_in=None, fnum=0, nyquist_factor=.5, gt_lt_eval=operator.gt, section_id=16):
+def plot_CFF_ary(ary_in=None, fnum=0, nyquist_factor=.5, gt_lt_eval=operator.lt, section_id=16):
 	'''
+	# (depricate? this bit can probably be removed. it was originally intended to investigate the usefulness of plotting CFF
+	# time series... which appear to be mostly useless. subsequent figure-scripts plotting  interval \Delta t and d(\Delta t)/dt
+	# apper more useful, and the alert system appears to be a little bit more complicated with nyquist_factor and b_0, so this script might 
+	# be more clutter than useful at this stage.
+	#
 	# this script is for some of the earlier CFF numpy array types. newer arrays may require different scripting. (but it seems to work ok).
 	# basics: plots the triple time-series figure with [intervals, magnitudes, alert], [CFF, Delta CFF (?)], and [mags,slopes] ].
 	# this was a development figure where be basically decided not to use CFF. and the alert figure got moved to ???.

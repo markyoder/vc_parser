@@ -487,6 +487,11 @@ def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_C
 		#
 		plt.savefig('%s/EWT_m0_%s_section_%s.png' % (output_dir, str(m0).replace('.',''), name_str))
 #
+def best_fit_ROC_table():
+	# make a table of best fit ROC values; output in .tex format (we have this somewhere, but it's going to work a bit differently here).
+	# opt for an input table/list of dicts or something, or a use filenames. use the raw roc data and, as usual, select the best-fit
+	# parameter set by sorting.
+	pass
 #
 def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5):
 	# some plots of best ROC parameters:

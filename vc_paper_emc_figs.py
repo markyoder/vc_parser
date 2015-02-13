@@ -487,11 +487,145 @@ def EMC_EWT_figs(section_ids=None, m0=7.0, fits_data_file_CDF='CDF_EMC_figs/VC_C
 		#
 		plt.savefig('%s/EWT_m0_%s_section_%s.png' % (output_dir, str(m0).replace('.',''), name_str))
 #
-def best_fit_ROC_table():
+def best_fit_roc_array(section_ids=vc_parser.emc_sections + ['EMC'], roc_file_format='dumps/gji_roc_lt_500/roc_sec_lt_%s_nits_1000_allprams.npy'):
+	best_fit_array=[]
+	cols = ('section_id', 'b', 'nyquist_factor', 'n_predicted', 'n_total', 'time_alert', 'time_total', 'H', 'F', 'score_lin')
+	for sec_id in section_ids:
+		rocs = numpy.load(roc_file_format % str(sec_id))
+		rocs.sort(key=lambda rw:rw['H']-rw['F'])
+		#
+		# best prams are at the end. we might average over the last N or some other statistic. for now, just take the best fit.
+		best_fits = rocs[-1]
+		#
+		# ... and just spell out the output variables:
+		b = best_fits['b']
+		alpha = best_fits['nyquist_factor']
+		n_predicted = best_fits['n_predicted']
+		n_total = best_fits['n_predicted'] + best_fits['n_missed']
+		time_alert = best_fits['total_alert_time']
+		time_total = best_fits['total_time']
+		#
+		if best_fits.has_key('H'):
+			H = best_fits['H']
+		else:
+			H = n_predicted/n_total
+		if best_fits.has_key('F'):
+			F=best_fits['F']
+		else:
+			F = time_alert/time_total
+		#
+		best_fit_array += [[sec_id, b, alpha, n_predicted, n_total, time_alert, time_total, H, F, H-F]]
+	#
+	col_types = [type(x).__name__ for x in best_fit_array[0]]
+	col_types[0]='S16'
+	best_fit_array = numpy.core.records.fromarrays(zip(*best_fit_array), names=cols, formats=col_types)
+	#
+	return best_fit_array
+#
+def best_fit_ROC_table(section_ids=vc_parser.emc_sections + ['EMC'], output_file='dumps/gji_roc_lt_500/roc_bestfits', m0=7.0, roc_file_format='dumps/gji_roc_lt_500/roc_sec_lt_%s_nits_1000_allprams.npy', longtable=True, lbl_str='tbl:roc_prams'):
+	'''
 	# make a table of best fit ROC values; output in .tex format (we have this somewhere, but it's going to work a bit differently here).
 	# opt for an input table/list of dicts or something, or a use filenames. use the raw roc data and, as usual, select the best-fit
 	# parameter set by sorting.
-	pass
+	# note: m0 should be in the data file, but it's not (something to fix later -- probably add hierarchy to the data files (or 
+	# we might be getting rid of them entirely if the C++ access is fast enough), something like {data:[present list or dict of dicts], meta_data:{}
+	#pass
+	#
+	# we'll make two outputs: 1) simple CSV, 2) .tex format. do we have a csv->tex script already?
+	# final copies of output files will (eventually) end up in: /home/myoder/Dropbox/Research/VC/VC_EMC_gji_yoder/general_figs
+	'''
+	#
+	fname_csv = '%s.csv' % (output_file)
+	fname_tex = '%s.tex' % (output_file)
+	#
+	output_cols_csv = ['Sec. ID', 'b_0', 'alpha_n', 'N_predicted', 'N_total', 'Delta t_alert', 'Delta t_total', 'H', 'F', 'H-F']
+	output_cols_tex = ['\\textbf{Sec. ID}', '$b_0$', '$\\alpha_n$', '$N_{predicted}$', '$N_{total}$', '$\\Delta t_{alert}$', '$\\Delta t_{total}$', '\\textbf{H}', '\\textbf{F}', '\\textbf{H-F}']
+	#
+	with open(fname_csv, 'w') as f:
+		f.write('#ROC best fits for sections: %s\n' % ', '.join([str(x) for x in section_ids]))
+		f.write('#!%s\n' % '\t'.join([str(x) for x in output_cols_csv]))
+		f.write('#\n')
+	with open(fname_tex, 'w') as f:
+		f.write('%' + 'ROC best fits for sections: %s\n' % ', '.join([str(x) for x in section_ids]))
+		if longtable:
+			f.write('%' + '\n\\begin{longtable}{|%s|}\n' % '|'.join(['c' for x in output_cols_tex]))
+			f.write('\caption{Best fit parameters and ROC scores for faults in Virtual EMC (our VQ simulation of the El Mayor-Cucapah region. The section labeled ``EMC'' shows the best fit parameters for the aggregated EMC catalog -- all fault segments together.}\n\label{%s} \\\ \n' % lbl_str)
+			#
+			# first, write column headers. note the \endfirsthead tag at the end.
+			f.write('%s \\\ \n' % ' & '.join(['\multicolumn{1}{c}{%s}' % col for col in output_cols_tex]))
+			f.write('\hline\hline\n')
+			f.write('\endfirsthead\n')
+			f.write('\n')
+			#
+			# now, write the contunuation header:
+			f.write('\multicolumn{%d}{c}{{Table \\ref{%s} -- continued from previous page.}} \\\ \n' % (len(output_cols_tex), lbl_str))
+			f.write('%s \\\ \n' % ' & '.join(['\multicolumn{1}{c}{%s}' % col for col in output_cols_tex]))
+			f.write('\hline\n')
+			f.write('\endhead\n\n')
+			#
+			# and a footer...
+			f.write('\n \multicolumn{%d}{c}{{ -- Table \\ref{%s} continued on next page -- }} \\\ \n' % (len(output_cols_tex), lbl_str))
+			f.write('\endfoot\n\n')
+			#
+			# and last footer...
+			f.write('\hline\n')
+			f.write('\endlastfoot\n\n')
+			#
+			end_string = '\end{longtable}\n\n'
+		else:	
+			f.write('%' + '\n\\begin{table}\n')
+			#f.write('\caption{Best fit parameters and ROC scores for faults in Virtual EMC.}\label{tbl:roc_prams}\n\begin{tabular}{|c|c|c|c|c|c|c|c|c|c|c|}\hline\n')
+			f.write('\caption{Best fit parameters and ROC scores for faults in Virtual EMC.}\n\label{%s}\n\\begin{tabular}{|%s|}\n' % (lbl_str, '|'.join(['c' for x in output_cols_tex])))
+			f.write('%s \\\ \n' % ' & '.join(output_cols_tex))
+			f.write('\hline\hline\n')
+			#
+			end_string = '\end{tabular}\n\end{table}\n\n'
+		
+
+	#
+	for sec_id in section_ids:
+		rocs = numpy.load(roc_file_format % str(sec_id))
+		rocs.sort(key=lambda rw:rw['H']-rw['F'])
+		#
+		# best prams are at the end. we might average over the last N or some other statistic. for now, just take the best fit.
+		best_fits = rocs[-1]
+		#
+		# ... and just spell out the output variables:
+		b = best_fits['b']
+		alpha = best_fits['nyquist_factor']
+		n_predicted = best_fits['n_predicted']
+		n_total = best_fits['n_predicted'] + best_fits['n_missed']
+		time_alert = best_fits['total_alert_time']
+		time_total = best_fits['total_time']
+		#
+		if best_fits.has_key('H'):
+			H = best_fits['H']
+		else:
+			H = n_predicted/n_total
+		if best_fits.has_key('F'):
+			F=best_fits['F']
+		else:
+			F = time_alert/time_total
+		#
+		with open(fname_csv, 'a') as f:
+			f.write('%s\n' % '\t'.join([str(x) for x in [sec_id, b, alpha, n_predicted, n_total, time_alert, time_total, H, F, H-F]]))
+		with open(fname_tex, 'a') as f:
+			f.write('%s \\\ \n' % ' & '.join(['\\textbf{%s}' % str(x) if x==sec_id else '$%.2f$' % x if isinstance(x,float) else '$%s$' % x for j,x in enumerate([sec_id, b, alpha, n_predicted, n_total, time_alert, time_total, H, F, H-F])]))
+			f.write('\\hline\n')
+	
+	#
+	with open(fname_tex, 'a') as f:
+		f.write(end_string)
+	
+	#
+	production_fig_path = '/home/myoder/Dropbox/Research/VC/VC_EMC_gji_yoder/general_figs'
+	dir_tex, fname_tex = os.path.split(fname_tex)
+	dir_csv, fname_csv = os.path.split(fname_csv)
+	#print "fnames...", dir_tex, " ** ", fname_tex
+	os.system('cp %s %s' % (os.path.join(dir_tex, fname_tex), os.path.join(production_fig_path, fname_tex)))
+	os.system('cp %s %s' % (os.path.join(dir_csv, fname_csv), os.path.join(production_fig_path, fname_csv)))
+	
+	
 #
 def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5):
 	# some plots of best ROC parameters:

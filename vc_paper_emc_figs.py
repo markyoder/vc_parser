@@ -382,9 +382,10 @@ def gji_forecast_fig(fignum=0, section_id=16, f_out = 'dumps/figs_gji/forecast_s
 	plt.draw()
 	#
 	# now, save the file.
-	path_name = os.path.dirname(f_out)
-	if not os.path.isdir(path_name): os.makedirs(path_name)
-	plt.savefig(f_out)
+	if f_out!=None:
+		path_name = os.path.dirname(f_out)
+		if not os.path.isdir(path_name): os.makedirs(path_name)
+		plt.savefig(f_out)
 	#
 	return f
 

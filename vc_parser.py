@@ -881,6 +881,270 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 	#
 	return alert_segments
 #
+def plot_interval_roc(roc_data=16, fignum_0=0):
+	# do some plots for the interval roc metric.
+	# roc_data can be the return from interval_forecast_mc(), the output file there-from (a numpy array; we should trap for list-o-dicts.)
+	# if roc_data is an integer, we'll infer it's supposed to be a section_id and grab a default file format.
+	#
+	if isinstance(roc_data, int):
+		roc_data = 'interval_metric_output/roc_interval_metric_%d_LT.npy' % roc_data
+	if isinstance(roc_data, str):
+		roc_data=numpy.load(roc_data)
+	#
+	max_score = max(roc_data['H']-roc_data['F'])
+	scores = roc_data['H']-roc_data['F']
+	max_row = [rw for rw in roc_data if rw['H']-rw['F']==max_score][0]
+	
+	# and we might trap for dict-->ary here (and we should write a short script to do this).
+	#
+	figs=[]
+	# start with a basic ROC:
+	figs+=[plt.figure(fignum_0+len(figs))]
+	plt.clf()
+	ax1 = figs[-1].gca()
+	ax2 = ax1.twinx()
+	ax1.plot(range(2), range(2), 'r-', lw=2)
+	ax1.plot(roc_data['F'], roc_data['H'], '.', zorder=2, label='ROC')
+	ax1.plot(max_row['F'], max_row['H'], 'r*', ms=15, zorder=4, label='$max(H-F)$')
+	ax1.plot(max_row['F'], max_row['H'], 'k*', ms=18, zorder=3)
+	ax1.legend(loc='center right', numpoints=1)
+	#
+	scoreses = [[x,y] for x,y in zip(roc_data['F'], scores)]
+	scoreses.sort(key=lambda x: x[0])
+	scoreses = zip(*scoreses)
+	ax2.plot([x for x in scoreses[0]], scoreses[1], 'g.', alpha=.7, label='$score=H-F$')
+	ax2.legend(loc='lower right', numpoints=1)
+	#
+	figs+=[plt.figure(fignum_0+len(figs))]
+	figs[-1].clf()
+	ax3d = figs[-1].add_subplot(111, projection='3d')
+	ax3d.plot(roc_data['nyquist_factor'], roc_data['dt_0'], roc_data['H']-roc_data['F'], '.')
+	ax3d.set_xlabel('nyquist_factor')
+	ax3d.set_ylabel('dt_0')
+	ax3d.set_zlabel('score')
+	
+	#
+	return scoreses
+#
+def interval_forecast_mc_set(section_ids=emc_sections, nits=1000, dt_min=None, dt_max=None, nyquist_min=.2, nyquist_max=1.2, m0=7.0, f_gt_lt=operator.lt, percentile_lower=.1, percentile_upper=.8, output_dir='interval_metric_output', fignum=0, fignum_1=1):
+	#
+	# churn out a bunch of MC rate forecast analyses.
+	#
+	if not os.path.isdir(output_dir):
+		os.makedirs(output_dir)
+	metric_names={operator.lt:'LT', operator.gt:'GT', operator.le:'Leq', operator.ge:'Geq'}
+	#
+	roc_maxes = []
+	#
+	for sec_id in section_ids:
+		roc_datas = interval_forecast_mc(nits=nits, dt_min=dt_min, dt_max=dt_max, nyquist_min=nyquist_min, nyquist_max=nyquist_max, CFF=None, m0=m0, do_plot=False, fnum=0, set_name=None, f_gt_lt=f_gt_lt, section_id=sec_id, detail=False, percentile_lower=percentile_lower, percentile_upper=percentile_upper)
+		#
+		# might not get any data back:
+		if roc_datas==None or len(roc_datas)==0: continue
+		#
+		plt.figure(fignum)
+		plt.clf()
+		plt.plot(range(2), range(2), 'r-', lw=2)
+		plt.plot(roc_datas['F'], roc_datas['H'], '.')
+		#rw_max = [rw for rw in roc_datas if rw['H']-rw['F']==max(roc_datas['H']-roc_datas['F'])]
+		#print rw_max
+		max_val = max(roc_datas['H']-roc_datas['F'])
+		for rw in roc_datas:
+			if rw['H']-rw['F']==max_val:
+				rw_max = rw
+				break
+		#
+		roc_maxes += [rw_max]
+		plt.plot(rw_max['F'], rw_max['H'], 'r*', ms=15, zorder=3)
+		plt.plot(rw_max['F'], rw_max['H'], 'k*', ms=18, zorder=2)
+		plt.xlabel('False alarm rate $F$')
+		plt.ylabel('Hit rate $H$')
+		plt.title('Section ID %d, %s metric' % (sec_id, metric_names.get(f_gt_lt, 'other')))
+		plt.savefig('%s/roc_interval_metric_%d_%s.png'% (output_dir, sec_id, metric_names.get(f_gt_lt, 'other')))
+		roc_datas.dump('%s/roc_interval_metric_%d_%s.npy'% (output_dir, sec_id, metric_names.get(f_gt_lt, 'other')))
+		#
+	#
+	#rw_maxes = numpy.core.records.fromarrays(zip(*roc_maxes), names='
+	F,H = zip(*[[rw['F'], rw['H']] for rw in roc_maxes])
+	plt.figure(fignum)
+	plt.clf()
+	plt.plot(range(2), range(2), 'r-', lw=2)
+	plt.plot(F,H, 'o')
+	plt.xlabel('False alarm rate $F$')
+	plt.ylabel('Hit rate $H$')
+		
+	
+#
+def interval_forecast_mc(nits=1000, dt_min=None, dt_max=None, nyquist_min=.2, nyquist_max=1.2, CFF=None, m0=7.0, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.lt, section_id=16, detail=False, percentile_lower=.1, percentile_upper=.8):
+	#
+	# quick MC evaluation of a rate based metric, interval_forecast_1().
+	#
+	if (CFF==None or len(ary_in)==0) and section_id!=None:
+		#ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id		
+		CFF=combine_section_CFFs(section_id)		# ... and this function knows to use the string format above...
+		#											# ... and note we do CFF=ary_in in the if-else clause below...
+		#
+	if isinstance(CFF, str):
+		CFF = numpy.load(ary_in)
+	if set_name==None: set_name='unnamed_CFF'
+	#
+	if dt_min==None or dt_max==None:
+		delta_ts = [t-CFF['event_year'][j] for j,t in enumerate(CFF['event_year'][1:])]
+		delta_ts.sort()
+		if dt_min==None: dt_min=delta_ts[int(percentile_lower*len(delta_ts))]
+		if dt_max==None: dt_max=delta_ts[int(percentile_upper*len(delta_ts))]
+		#
+		print "sampling intervals between %f, %f" % (dt_min, dt_max)
+	#
+	ROC_prams = []
+	#
+	R_alpha = random.Random()
+	R_dt = random.Random()
+	delta_alpha = nyquist_max-nyquist_min
+	delta_t0 = dt_max-dt_min
+	#
+	#
+	for j in xrange(nits):
+		dt_0 = dt_min + delta_t0*R_dt.random()
+		alpha = nyquist_min + delta_alpha*R_alpha.random()
+		#
+		alert_segments = interval_forecast_1(ary_in=CFF, m0=m0, dt_0=dt_0, nyquist_factor=alpha, set_name=set_name, f_gt_lt=f_gt_lt, section_id=section_id, detail=False)
+		#
+		roc_prams = evaluate_alert_segments(alert_segments=alert_segments, CFF=CFF, section_id=section_id, m0=m0, do_plot=False)
+		roc_prams.update({'dt_0':dt_0, 'nyquist_factor':alpha})
+		ROC_prams+=[roc_prams]
+		#
+	#
+	# and let's make a rec array:
+	cols = roc_prams.keys()
+	output = [[rw[key] for key in cols] for rw in ROC_prams if not (rw==None or None in rw.values())]
+	if not (output==None or len(output)==0):
+		output = numpy.core.records.fromarrays(zip(*output), names=cols, formats = [type(x).__name__ for x in output[0]])
+	#
+	return output
+#
+def interval_forecast_1(ary_in=None, m0=7.0, dt_0 = 0.0, nyquist_factor=.5, set_name=None, f_gt_lt=operator.lt, section_id=16, detail=False):
+	'''
+	# a rate (or interval) based forecast. same idea -- sample nyquist_factor, critical_rate for but gt/lt.
+	#
+	# note: lower interval (aka, dt<dt_0) produces information gain. dt>dt_0 yields information loss.
+	#
+	# output only the alert segments; then use evaluate_alert_segments() to get ROC data.
+	# note that, at least in its native form, this outputs a binary alert: alert is on/off; there is no 'value' (aka, slope value b)
+	# or degree associated. note that another model for this sort of work is to just output a full 1:1 alert set, aka
+	# [ [time, alert_value]
+	'''
+	#
+	# copied (mostly) from the first half of psa_metric_1():
+	#
+	# first, get the catalog data.
+	if (ary_in==None or len(ary_in)==0) and section_id!=None:
+		#ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id		
+		ary_in=combine_section_CFFs(section_id)		# ... and this function knows to use the string format above...
+		#											# ... and note we do CFF=ary_in in the if-else clause below...
+		#
+	if isinstance(ary_in, str):
+		CFF = numpy.load(ary_in)
+	else:
+		# otherwise, assume we've been passed a proper CFF object:
+		CFF = ary_in
+		# give the set a name  so we don't return the whole input data object...
+		if set_name==None: set_name='unnamed_CFF'
+	#
+	if set_name==None:
+		# still none? must be a string type ary_in...
+		set_name=str(ary_in)
+	#
+	#print "get recurrence...** %d **" % len(CFF)
+	recurrence_data = mean_recurrence(ary_in=CFF, m0=m0)
+	nyquist_len = max(int(nyquist_factor*recurrence_data['mean_dN_fault']), 2)
+	nyquist_time = nyquist_factor*recurrence_data['mean_dT']
+	#
+	#print "nyquist_len: ", nyquist_len
+	#
+	#print "recurrenced. get trend data..."
+	#
+	#trend_data = get_trend_analysis(ary_in=CFF, nyquist_len = nyquist_len, nyquist_time=nyquist_time)
+	# note, mean intervals over nyquist_len events, including the very first event (because we can calc. mean intervals directly from time data).
+	interval_data = [[j, rw[0], rw[1], (rw[1]-CFF['event_year'][j])/float(nyquist_len)] for j, rw in enumerate(zip(CFF['event_number'], CFF['event_year'])[nyquist_len-1:])]
+	interval_data = numpy.core.records.fromarrays(zip(*interval_data), names=['index', 'event_number', 'event_year', 'interval'], formats=[type(x).__name__ for x in interval_data[0]])
+	#
+	# an index for fast reference...
+	CFF_dict = {x['event_number']:x for x in CFF}
+	
+	print "trend lengths: ", len(interval_data), len(CFF), nyquist_len
+	max_n = len(interval_data)
+	#
+	# trend_data includes columns: ['event_number', 'event_year', 'lin_fit_a', 'lin_fit_b', 'rb_ratio', 'interval_rate_ratios']
+	#
+	# first, just get the total time under alert:
+	alert_segments = [[]]		# a collection of lists...
+	#alert_segments = []
+	#
+	for i, rw in enumerate(interval_data):
+		# when we find dt</>dt_0, we issue an alert until the next earthquake -- unless this one was 'big',
+		# in this case m>=7.
+		#
+		if i>=(max_n-1): break
+		#
+		#
+		this_dt = rw['interval']
+		#
+		#
+		#if this_b >= b_0:
+		if not f_gt_lt(this_dt, dt_0):		# abstracting the gt/lt option...
+			# null case; does not meet "alert" criteria.
+			# if we've been collecting "alert" events, stop. if not, just troll along...
+			if len(alert_segments[-1])>0:
+				#
+				alert_segments+= [[]]
+		
+		else:
+			# f_gt_lt(this_b, b_0) is True
+			# accelerating case (if f_gt_lt = operator.lt):
+			#this_mag = CFF[-max_n:][i+1]['event_magnitude']
+			this_mag = CFF_dict[rw['event_number']]['event_magnitude']
+			#
+			alert_year = interval_data[i]['event_year']
+			if len(alert_segments[-1])==0:
+				# this is the first entry into this alert segment.
+				#alert_year = interval_data[i]['event_year']
+				if detail:
+					alert_segments[-1]+=[[alert_year, interval_data[i]['interval']]]
+				else:
+					alert_segments[-1]+=[alert_year]
+			#
+			# these two cases are additional entries into this alert segment. if it's a small event, extend alert to the
+			# next event (aka, in real live, we'd turn "on" the alert and reevaluate at the next event. if it's a big event,
+			# it's the one we've been lookng for. we have a rule to turn off an alert immediately after a big event... though we might
+			# reevaluate this since we've started to favor the operator.gt() version of this metric.
+			if this_mag<m0:
+				# add the *next* event as the alert (aka, issue an alert until we have new data).
+				#print "len alert_seg: %d" % len(alert_segments[-1])
+				#
+				# generalize language a bit:
+				#alert_year = interval_data[i+1]['event_year']
+				if detail:
+					alert_segments[-1]+=[[alert_year, this_dt]]
+				else:
+					alert_segments[-1]+=[alert_year]
+				#pass
+				#
+			if this_mag>=m0:
+				# this is "the" earthquake. add this entry (it's probably already there) from the previous entry.
+				#
+				#alert_year = trend_data[i]['event_year']
+				if detail:
+					alert_segments[-1]+=[[alert_year, this_dt]]
+				else:
+					alert_segments[-1]+=[alert_year]
+			#
+		#
+	#
+	while len(alert_segments)>0 and len(alert_segments[-1])==0: alert_segments.pop()
+	#
+	return alert_segments
+#
 def check_psa_metric(section_id=16, m0=7.0, fignum=0, nyquist_factor=.5):
 	# (mostly) diagnostic function to validate psa_forecast_1(). also a couple of pretty complex figures.
 	CFF = combine_section_CFFs(section_id)

@@ -904,15 +904,17 @@ def plot_interval_roc(roc_data=16, fignum_0=0):
 	ax1 = figs[-1].gca()
 	ax2 = ax1.twinx()
 	ax1.plot(range(2), range(2), 'r-', lw=2)
-	ax1.plot(roc_data['F'], roc_data['H'], '.', zorder=2, label='ROC')
-	ax1.plot(max_row['F'], max_row['H'], 'r*', ms=15, zorder=4, label='$max(H-F)$')
-	ax1.plot(max_row['F'], max_row['H'], 'k*', ms=18, zorder=3)
+	ax1.plot(roc_data['F'], roc_data['H'], 'b.', zorder=3, label='ROC')
+	ax1.plot(max_row['F'], max_row['H'], 'r*', ms=15, zorder=5, label='$max(H-F)$')
+	ax1.plot(max_row['F'], max_row['H'], 'k*', ms=18, zorder=4)
+	ax1.set_xlabel('False alarm rate $F$')
+	ax1.set_ylabel('Hit rate $H$')
 	ax1.legend(loc='center right', numpoints=1)
 	#
 	scoreses = [[x,y] for x,y in zip(roc_data['F'], scores)]
 	scoreses.sort(key=lambda x: x[0])
 	scoreses = zip(*scoreses)
-	ax2.plot([x for x in scoreses[0]], scoreses[1], 'g.', alpha=.7, label='$score=H-F$')
+	ax2.plot([x for x in scoreses[0]], scoreses[1], 'g.', alpha=.7, label='$score=H-F$', zorder=2)
 	ax2.legend(loc='lower right', numpoints=1)
 	#
 	figs+=[plt.figure(fignum_0+len(figs))]
@@ -922,9 +924,88 @@ def plot_interval_roc(roc_data=16, fignum_0=0):
 	ax3d.set_xlabel('nyquist_factor')
 	ax3d.set_ylabel('dt_0')
 	ax3d.set_zlabel('score')
-	
+	#
+	if 'dt_m0' in roc_data.dtype.names:
+		figs+=[plt.figure(fignum_0+len(figs))]
+		figs[-1].clf()
+		ax3d = figs[-1].add_subplot(111, projection='3d')
+		ax3d.plot(roc_data['nyquist_factor'], roc_data['dt_0']/roc_data['dt_m0'], roc_data['H']-roc_data['F'], '.')
+		ax3d.set_xlabel('nyquist_factor')
+		ax3d.set_ylabel('dt_0')
+		ax3d.set_zlabel('score')
 	#
 	return scoreses
+#
+def interval_forecast_mc_set_mpp_wrapper(section_ids=emc_sections, nits=1000, dt_min=None, dt_max=None, nyquist_min=.2, nyquist_max=1.2, m0=7.0, f_gt_lt=operator.lt, percentile_lower=.1, percentile_upper=.8, output_dir='interval_metric_output', fignum=0, fignum_1=1, n_cpus=None):
+	if n_cpus==None: n_cpus=mpp.n_cpus()
+	#
+	j=n_cpus
+	while j<=len(section_ids):
+		x=interval_forecast_mc_set_mpp(section_ids=section_ids[max(j-n_cpus,0):j], nits=nits, dt_min=dt_min, dt_max=dt_max, nyquist_min=nyquist_min, nyquist_max=nyquist_max, m0=m0, f_gt_lt=f_gt_lt, percentile_lower=percentile_lower, percentile_upper=percentile_upper, output_dir=output_dir, fignum=fignum, fignum_1=fignum_1, n_cpus=n_cpus)
+		#
+		j+=n_cpus
+#
+def interval_forecast_mc_set_mpp(section_ids=emc_sections, nits=1000, dt_min=None, dt_max=None, nyquist_min=.2, nyquist_max=1.2, m0=7.0, f_gt_lt=operator.lt, percentile_lower=.1, percentile_upper=.8, output_dir='interval_metric_output', fignum=0, fignum_1=1, n_cpus=None):
+	#
+	# churn out a bunch of MC rate forecast analyses.
+	# mpp version of this (which seems to work pretty well). we should merge this with the spp version, basically split the spp version... but it would be nice, from a huge amounts of memory perspective, to be able to do these one at a time (aka, not have to collect the whole results collection at one time. of course, the tricky part is to handle pyplot (tricky modal state).
+	#
+	if not os.path.isdir(output_dir):
+		os.makedirs(output_dir)
+	metric_names={operator.lt:'LT', operator.gt:'GT', operator.le:'Leq', operator.ge:'Geq'}
+	#
+	roc_maxes = []
+	#
+	if n_cpus==None: n_cpus=mpp.cpu_count()
+	P=mpp.Pool(n_cpus)
+	#p_results = P.map_async(lambda sec_id: interval_forecast_mc(nits=nits, dt_min=dt_min, dt_max=dt_max, nyquist_min=nyquist_min, nyquist_max=nyquist_max, CFF=None, m0=m0, do_plot=False, fnum=0, set_name=None, f_gt_lt=f_gt_lt, section_id=sec_id, detail=False, percentile_lower=percentile_lower, percentile_upper=percentile_upper), section_ids)
+	
+	p_results = [P.apply_async(interval_forecast_mc, kwds={'nits':nits, 'dt_min':dt_min, 'dt_max':dt_max, 'nyquist_min':nyquist_min, 'nyquist_max':nyquist_max, 'CFF':None, 'm0':m0, 'do_plot':False, 'fnum':0, 'set_name':None, 'f_gt_lt':f_gt_lt, 'section_id':sec_id, 'detail':False, 'percentile_lower':percentile_lower, 'percentile_upper':percentile_upper, 'dump_file':'%s/roc_interval_metric_%d_%s.npy'% (output_dir, sec_id, metric_names.get(f_gt_lt, 'other'))}) for sec_id in  section_ids]
+	P.close()
+	P.join()
+	#
+	#for sec_id in section_ids:
+	for sec_id, res in zip(section_ids, p_results):
+	#for sec_id in section_ids:
+		roc_datas = res.get()
+		#roc_datas = interval_forecast_mc(nits=nits, dt_min=dt_min, dt_max=dt_max, nyquist_min=nyquist_min, nyquist_max=nyquist_max, CFF=None, m0=m0, do_plot=False, fnum=0, set_name=None, f_gt_lt=f_gt_lt, section_id=sec_id, detail=False, percentile_lower=percentile_lower, percentile_upper=percentile_upper)
+		#
+		#roc_datas = numpy.load('%s/roc_interval_metric_%d_%s.npy'% (output_dir, sec_id, metric_names.get(f_gt_lt, 'other')))
+		# note, we can also (nominally) use: plot_interval_roc(roc_data=16, fignum_0=0) and then do the save bit on the first fignum.
+		#
+		# might not get any data back:
+		if roc_datas==None or len(roc_datas)==0: continue
+		#
+		plt.figure(fignum)
+		plt.clf()
+		plt.plot(range(2), range(2), 'r-', lw=2)
+		plt.plot(roc_datas['F'], roc_datas['H'], '.', zorder=1)
+		#rw_max = [rw for rw in roc_datas if rw['H']-rw['F']==max(roc_datas['H']-roc_datas['F'])]
+		#print rw_max
+		max_val = max(roc_datas['H']-roc_datas['F'])
+		for rw in roc_datas:
+			if rw['H']-rw['F']==max_val:
+				rw_max = rw
+				break
+		#
+		roc_maxes += [rw_max]
+		plt.plot(rw_max['F'], rw_max['H'], 'r*', ms=15, zorder=3)
+		plt.plot(rw_max['F'], rw_max['H'], 'k*', ms=18, zorder=2)
+		plt.xlabel('False alarm rate $F$')
+		plt.ylabel('Hit rate $H$')
+		plt.title('Section ID %d, %s metric' % (sec_id, metric_names.get(f_gt_lt, 'other')))
+		plt.savefig('%s/roc_interval_metric_%d_%s.png'% (output_dir, sec_id, metric_names.get(f_gt_lt, 'other')))
+		#roc_datas.dump('%s/roc_interval_metric_%d_%s.npy'% (output_dir, sec_id, metric_names.get(f_gt_lt, 'other')))
+		#
+	#
+	#rw_maxes = numpy.core.records.fromarrays(zip(*roc_maxes), names='
+	F,H = zip(*[[rw['F'], rw['H']] for rw in roc_maxes])
+	plt.figure(fignum)
+	plt.clf()
+	plt.plot(range(2), range(2), 'r-', lw=2)
+	plt.plot(F,H, 'o')
+	plt.xlabel('False alarm rate $F$')
+	plt.ylabel('Hit rate $H$')
 #
 def interval_forecast_mc_set(section_ids=emc_sections, nits=1000, dt_min=None, dt_max=None, nyquist_min=.2, nyquist_max=1.2, m0=7.0, f_gt_lt=operator.lt, percentile_lower=.1, percentile_upper=.8, output_dir='interval_metric_output', fignum=0, fignum_1=1):
 	#
@@ -945,7 +1026,7 @@ def interval_forecast_mc_set(section_ids=emc_sections, nits=1000, dt_min=None, d
 		plt.figure(fignum)
 		plt.clf()
 		plt.plot(range(2), range(2), 'r-', lw=2)
-		plt.plot(roc_datas['F'], roc_datas['H'], '.')
+		plt.plot(roc_datas['F'], roc_datas['H'], '.', zorder=1)
 		#rw_max = [rw for rw in roc_datas if rw['H']-rw['F']==max(roc_datas['H']-roc_datas['F'])]
 		#print rw_max
 		max_val = max(roc_datas['H']-roc_datas['F'])
@@ -975,7 +1056,7 @@ def interval_forecast_mc_set(section_ids=emc_sections, nits=1000, dt_min=None, d
 		
 	
 #
-def interval_forecast_mc(nits=1000, dt_min=None, dt_max=None, nyquist_min=.2, nyquist_max=1.2, CFF=None, m0=7.0, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.lt, section_id=16, detail=False, percentile_lower=.1, percentile_upper=.8):
+def interval_forecast_mc(nits=1000, dt_min=None, dt_max=None, nyquist_min=.2, nyquist_max=1.2, CFF=None, m0=7.0, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.lt, section_id=16, detail=False, percentile_lower=.1, percentile_upper=.8, dump_file=None):
 	#
 	# quick MC evaluation of a rate based metric, interval_forecast_1().
 	#
@@ -998,6 +1079,11 @@ def interval_forecast_mc(nits=1000, dt_min=None, dt_max=None, nyquist_min=.2, ny
 	#
 	ROC_prams = []
 	#
+	# get mean m0 interval (this all needs to be reorganized and put into a class structure for efficiency...)
+	m0s = [rw['event_year'] for rw in CFF if rw['event_magnitude']>=m0]
+	#return m0s
+	mean_dt_m0 = numpy.mean([x-m0s[j] for j,x in enumerate(m0s[1:])])
+	#
 	R_alpha = random.Random()
 	R_dt = random.Random()
 	delta_alpha = nyquist_max-nyquist_min
@@ -1011,7 +1097,7 @@ def interval_forecast_mc(nits=1000, dt_min=None, dt_max=None, nyquist_min=.2, ny
 		alert_segments = interval_forecast_1(ary_in=CFF, m0=m0, dt_0=dt_0, nyquist_factor=alpha, set_name=set_name, f_gt_lt=f_gt_lt, section_id=section_id, detail=False)
 		#
 		roc_prams = evaluate_alert_segments(alert_segments=alert_segments, CFF=CFF, section_id=section_id, m0=m0, do_plot=False)
-		roc_prams.update({'dt_0':dt_0, 'nyquist_factor':alpha})
+		roc_prams.update({'dt_0':dt_0, 'nyquist_factor':alpha, 'm0':m0, 'dt_m0':mean_dt_m0})
 		ROC_prams+=[roc_prams]
 		#
 	#
@@ -1020,6 +1106,7 @@ def interval_forecast_mc(nits=1000, dt_min=None, dt_max=None, nyquist_min=.2, ny
 	output = [[rw[key] for key in cols] for rw in ROC_prams if not (rw==None or None in rw.values())]
 	if not (output==None or len(output)==0):
 		output = numpy.core.records.fromarrays(zip(*output), names=cols, formats = [type(x).__name__ for x in output[0]])
+	if not dump_file==None: output.dump(dump_file)
 	#
 	return output
 #

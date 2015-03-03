@@ -915,6 +915,7 @@ def plot_best_interval_roc(n_best=1, fnum=0):
 		plt.figure(fnum+2)
 		ax2=plt.gca()
 		#ax2=ax1.twinx()
+		ax2.set_xscale('log')
 		ax2.plot([dt/dt_m0 for dt in dt_0s], [h-f for h,f in zip(H,F)], 'go')
 		
 		

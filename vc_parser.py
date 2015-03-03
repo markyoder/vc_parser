@@ -881,17 +881,43 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 	#
 	return alert_segments
 #
-def plot_best_interval_rox():
+def plot_best_interval_roc(n_best=1, fnum=0):
 	# parameterize this later...
 	my_path = 'interval_metric_output_mpp'
-	my_path = 'interval_metric_output'
+	#my_path = 'interval_metric_output'
 	#
-	fls = glob.glob('%s/roc_interval_metric_*_LT.npy')
+	fls = glob.glob('%s/roc_interval_metric_*_LT.npy' % my_path)
+	#return fls
+	for j in xrange(3):
+		plt.figure(fnum+j)
+		plt.clf()
+	plt.figure(fnum)
+	plt.plot(range(2), range(2), 'r-', lw=2.5)
 	for fl in fls:
 		# calc. the score and somehow return the correct rows. let's just calc. an index...
 		ary = numpy.load(fl)
 		scores = [[j, rw['H']-rw['F']] for j,rw in enumerate(ary)]
+		scores.sort(key=lambda x: x[1])
 		#
+		best_ary = [ary[rw[0]] for rw in scores[-n_best:]]
+		#
+		H=[rw['H'] for rw in best_ary]
+		F=[rw['F'] for rw in best_ary]
+		dt_0s = [rw['dt_0'] for rw in best_ary]
+		dt_m0 = best_ary[0]['dt_m0']
+		#
+		plt.figure(fnum)
+		plt.plot(F,H, 'o-', lw=2)
+		#
+		plt.figure(fnum+1)
+		ax1=plt.gca()
+		ax1.plot(dt_0s, [h-f for h,f in zip(H,F)], 'bo')
+		plt.figure(fnum+2)
+		ax2=plt.gca()
+		#ax2=ax1.twinx()
+		ax2.plot([dt/dt_m0 for dt in dt_0s], [h-f for h,f in zip(H,F)], 'go')
+		
+		
 #
 def plot_interval_roc(roc_data=16, fignum_0=0):
 	# do some plots for the interval roc metric.

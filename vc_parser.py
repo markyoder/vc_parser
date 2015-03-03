@@ -911,12 +911,12 @@ def plot_best_interval_roc(n_best=1, fnum=0):
 		#
 		plt.figure(fnum+1)
 		ax1=plt.gca()
-		ax1.plot(dt_0s, [h-f for h,f in zip(H,F)], 'bo')
+		ax1.plot(dt_0s, [h-f for h,f in zip(H,F)], 'o-')
 		plt.figure(fnum+2)
 		ax2=plt.gca()
 		#ax2=ax1.twinx()
 		ax2.set_xscale('log')
-		ax2.plot([dt/dt_m0 for dt in dt_0s], [h-f for h,f in zip(H,F)], 'go')
+		ax2.plot([dt/dt_m0 for dt in dt_0s], [h-f for h,f in zip(H,F)], 'o-')
 		
 		
 #

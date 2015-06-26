@@ -815,7 +815,7 @@ def roc_figure(roc_data=None, roc_random=None, CFF=None, section_id=None, fignum
 #####
 # data and preliminary figures:
 #
-def create_ROC_figs_GT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_gt_detail', m0=7.0):
+def create_ROC_figs_GT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_gt_detail', output_descriptions=[], fig_title_strs=[], m0=7.0):
 	'''
 	# create a whole slew of ROC data. this will include the optimized "best fit" (using whatever metric) and also the raw, full MC output.
 	# (note we could do this with simple_mpp_optimizer(), but for now let's just run some modest size figs (say nits=2500) or so
@@ -828,12 +828,29 @@ def create_ROC_figs_GT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 	#
 	'''
 	#
+	if isinstance(output_descriptions, str): output_descriptions = [output_descriptions]
+	if not hasattr(output_descriptions, '__len__'): output_descriptions=[]
+	#
+	if isinstance(fig_title_strs, str): fig_title_strs = [fig_title_strs]
+	if not hasattr(fig_title_strs, '__len__'): fig_title_strs=[]
+	#
 	#
 	R = random.Random()
 	#
-	for sec_id in section_ids:
+	#for sec_id in section_ids:
+	for j, sec_id in enumerate(section_ids):
 		if isinstance(sec_id, float): sec_id=int(sec_id)
 		if isinstance(sec_id, int): sec_id=[sec_id]
+		#
+		if len(output_descriptions)>=(j+1) and output_descriptions[j]!=None:
+			sec_str = output_descriptions[j]
+		else:
+			sec_str = '_'.join([str(x) for x in sec_id])
+		#
+		if len(fig_title_strs)>=(j+1) and fig_title_strs[j] != None:
+			fig_title_str = fig_title_strs[j]
+		else:
+			fig_title_str = "Section %s" % sec_str		
 		#
 		sec_str = '_'.join([str(x) for x in sec_id])
 		#
@@ -865,12 +882,14 @@ def create_ROC_figs_GT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 		#
 		plt.figure(fnum)
 		plt.plot(roc_random['F'], roc_random['H'], '.', alpha=.6, zorder=1, label='Random forecast')
-		plt.title('Optimal ROC for Section %s' % sec_str)
+		#plt.title('Optimal ROC for Section %s' % sec_str)
+		plt.title('Optimal ROC (PSA) for %s' % fig_title_str)
 		plt.savefig('%s/roc_opt_sec_%s_nits_%d.png' % (output_dir, sec_str, nits))
 		#
 		plt.figure(fnum+1)
 		plt.plot(roc_random['F'], roc_random['H'], '.', alpha=.6, zorder=1, label='Random forecast')
-		plt.title('Raw ROC for Section %s' % sec_str)
+		#plt.title('Raw ROC for Section %s' % sec_str)
+		plt.title('Raw ROC (PSA) for %s' % fig_title_str)
 		plt.savefig('%s/roc_raw_sec_%s_nits_%d.png' % (output_dir, sec_str, nits))
 #
 def create_ROC_aggregate(section_ids=[vc_parser.emc_sections], nits=1000, fnum=0, num_roc_points=100, output_dir_lt='dumps/gji_roc_lt_500', output_dir_gt='dumps/gji_roc_gt_detail', m0=7.0):
@@ -881,7 +900,7 @@ def create_ROC_aggregate(section_ids=[vc_parser.emc_sections], nits=1000, fnum=0
 	#
 	return None
 #
-def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_gt_500', m0=7.0):
+def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_gt_500', output_descriptions=[], fig_title_strs=[], m0=7.0):
 	'''
 	# for LT metric (acceleration): 
 	#create a whole slew of ROC data. this will include the optimized "best fit" (using whatever metric) and also the raw, full MC output.
@@ -894,13 +913,32 @@ def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 	# to assemble an aggregate catalog.
 	#
 	'''
+	if isinstance(output_descriptions, str): output_descriptions = [output_descriptions]
+	if not hasattr(output_descriptions, '__len__'): output_descriptions=[]
+	#
+	if isinstance(fig_title_strs, str): fig_title_strs = [fig_title_strs]
+	if not hasattr(fig_title_strs, '__len__'): fig_title_strs=[]
+
 	#
 	R=random.Random()
-	for sec_id in section_ids:
+	for j, sec_id in enumerate(section_ids):
 		if isinstance(sec_id, float): sec_id=int(sec_id)
 		if isinstance(sec_id, int): sec_id=[sec_id]
+		
 		#
-		sec_str = '_'.join([str(x) for x in sec_id])
+		if len(output_descriptions)>=(j+1) and output_descriptions[j]!=None:
+			sec_str = output_descriptions[j]
+		else:
+			sec_str = '_'.join([str(x) for x in sec_id])
+		#
+		if len(fig_title_strs)>=(j+1) and fig_title_strs[j] != None:
+			fig_title_str = fig_title_strs[j]
+		else:
+			fig_title_str = "Section %s" % sec_str
+		#
+		#print "sec_str: ", sec_str
+		#print "fig_title: ", fig_title_str
+		#continue
 		#
 		f_output_name = '%s/roc_sec_lt_%s_nits_%d.npy' % (output_dir, sec_str, nits)
 		f_output_name_rand = '%s/roc_sec_lt_rand_%s_nits_%d.npy' % (output_dir, sec_str, nits)
@@ -923,13 +961,15 @@ def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 		#plotted_rand = plot_section_ROC_curve(roc_data=raw_datas_rand, section_id=None, fignum=fnum, do_clf=False, num_points=num_roc_points, label_str='(random)',markers='.')
 		plt.figure(fnum)
 		plt.plot(roc_random['F'], roc_random['H'], '.', alpha=.6, zorder=1, label='Random forecast')
-		plt.title('Optimal ROC (PSA) for Section %s' % sec_str)
+		#plt.title('Optimal ROC (PSA) for Section %s' % sec_str)
+		plt.title('Optimal ROC (PSA) for %s' % fig_title_str)
 		plt.legend(loc=0, numpoints=1)
 		plt.savefig('%s/roc_psa_lt_opt_sec_%s_nits_%d.png' % (output_dir, sec_str, nits))
 		#
 		plt.figure(fnum+1)
 		plt.plot(roc_random['F'], roc_random['H'], '.', alpha=.6, zorder=1, label='Random forecast')
-		plt.title('Raw ROC (PSA) for Section %s' % sec_str)
+		#plt.title('Raw ROC (PSA) for Section %s' % sec_str)
+		plt.title('Raw ROC (PSA) for %s' % fig_title_str)
 		plt.legend(loc=0, numpoints=1)
 		plt.savefig('%s/roc_psa_lt_raw_sec_%s_nits_%d.png' % (output_dir, sec_str, nits))	
 ###################################

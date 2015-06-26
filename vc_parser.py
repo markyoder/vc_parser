@@ -124,23 +124,6 @@ class io_capture_strlike(object):
 		#
 		sys.stdout = self._stdout	
 
-#def get_h5_object(h5_in='../ALLCAL2_1-7-11_no-creep_dyn-05_st-20.h5', h5_mode='r'):
-#	# return an h5 file object.
-#	# ... but it looks like we really can't do this because if we leave the file object open, it creates a context problems.
-#	# ... and it's just too easy to open the file (same one line of code).
-#	return h5py.File(h5_in, h5_mode)
-
-# example: to get column names:
-#> f1=get_h5_object()
-#> # sweeps talbe:
-#> sweeps = fh5['event_sweep_table']
-#> sweep_cols = sweeps.id.dtype
-# returns:
-# dtype([('event_number', '<u4'), ('sweep_num', '<u4'), ('block_id', '<u4'), ('slip', '<f8'), ('area', '<f8'), ('mu', '<f8'), ('shear_init', '<f8'), ('normal_init', '<f8'), ('shear_final', '<f8'), ('normal_final', '<f8')])
-#
-# then:
-#> fields = sweep_cols.fields.keys()
-
 
 def get_emc_events(sim_file=allcal_full_mks, sortby='event_magnitude', show=None, event_range=None, section_filter=emc_section_filter, magnitude_filter=None,return_data=True, print_data=False, min_mag=0.0):
 #def get_emc_events(*args, **kwargs):
@@ -219,43 +202,64 @@ def get_event_block_details(sim_file=allcal_full_mks, event_number=None, block_t
 	#
 	return [block_cols] + event_blocks
 #
-def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, is_sorted=False):
+def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, is_sorted=False, recarray=False):
 	#
-	# is_sorted: some sort based indexing in the find_it() (or whatever) function. this shortens the list over which
-	# the data are searched, but at the expense of the list comprehension... so it actually runs slower by about 30% in preliminary tests.
+	# TODO: there is a little bit of an inconsistenty. when we make the pre-calc data sets, we include some derived fields, namely CFF calcs.
+	# so for now, let's include these in the recarray, but to avoid compatibility problems, not in the list-type returns (though since we'd be
+	# tacking onto the ends of each row, we could probably get away with doing that... and anyway, we'll want to move in the direction of
+	# including those information -- aka, so the dynamic/pre-calc returns are as identical as possible.
 	#
-	
-	# ... and what's weird is that this seems to run WAY faster using multiprocessing (non-linearly faster) -- 1 cpu running for a minute or so
-	# and maybe a second or two using 4 processors... and in fact, even running 1 processor but using the multiprocessing structure is much,
-	# much faster.
-	# ... (but give this a second look and be sure that it includes piping the data back to the head-node. sometimes 
-	#     these appear to be running really fast, but they're only being prepped; they don't actually run until they are called
-	#     to pipe back the results).
+	# note in comments and code that this is optimized using the h5py.File()[{index}][()]  (specifically, the
+	# [()] ) syntax ), which immediately copies the hdf5 content to a numpy array. note also that this is not
+	# always a good idea for large data sets, or when we only want to fetch a small piece of a data set
+	# (see inline comments).
 	#
-	# allow for multi-processing:
+	# note on multiprocessing: the basic trend seems to be that 1) there is overhead in using mpp (aka, use mpp
+	# for 1 cpu; it takes a bit longer than the "raw" SPP process (for overhead, pickling, etc.).
+	# BUT, all and all, multiprocessing seems to be faster, even for just 2 processors (though perhaps
+	# marginally so for a single section).
+	#
 	if n_cpus == None: n_cpus = mpp.cpu_count()
 	#
 	with h5py.File(sim_file,'r') as vc_data:
 		#
 		#
-		view_ebs = vc_data['events_by_section']		# "events by section" view
-		event_ids_tbl = view_ebs['section_%d' % section_id]
+		# note: vc_data['events_by_section'] is a group, not an array. each entry is an array, so we can't
+		# just use [()] syntax. but we can make a dict. of the entries. if we wanted to:
+		# ebs_index = {key:tbl for key,tbl in ebs.iteritems()}
+		# which returns immediately and returns a dict. of pointers/iterators to the hdf5 entries. this would be,
+		# probably, fastest for a scenario in which we want to return a few arrays from a large data set, particularly
+		# if data volume is an issue. note, however, that the hdf5 File object must remain open.
+		# alternatively:
+		# ebs_index = {key:tbl[()] for key,tbl in ebs.iteritems()}
+		# returns a dict with the tables automatically loaded into nd arrays, so type(key)=string, type(value)=ndarray
+		# this syntax loads a bit more slowly but is then faster if we want to look at many or all of the arrays
+		# note also that we can close the h5py.File() object, and of course that this approach is memory intensive.
+		view_ebs = vc_data['events_by_section']		# "events by section" group
 		#
-		event_ids_ary = numpy.array(numpy.zeros(event_ids_tbl.len()), dtype='int64')	# array needs to be initialized with data type for hdf5.read_direct()
-		#event_ids_ary.shape(numpy.zeros(event_ids_tbl.len(), len(event_ids_tbl[0])))
-		event_ids_tbl.read_direct(event_ids_ary)
+		#event_ids_tbl = view_ebs['section_%d' % section_id]
+		event_ids_ary = view_ebs['section_%d' % section_id][()]
+		#
+		#event_ids_ary = numpy.array(numpy.zeros(event_ids_tbl.len()), dtype='int64')	# array needs to be initialized with data type for hdf5.read_direct()
+		##event_ids_ary.shape(numpy.zeros(event_ids_tbl.len(), len(event_ids_tbl[0])))
+		#event_ids_tbl.read_direct(event_ids_ary)		# so we initialize the array, then read_direct() into it. can we insteadn just x=XX[()] ??
+		
+		#print "types: ", type(event_ids_ary2), type(event_ids_tbl), type(event_ids_ary)
+		#print "dtypes: ", event_ids_ary2.dtype, event_ids_tbl.dtype, event_ids_ary.dtype
+		
 		#
 		# now, fetch event data:
 		# this is a choice, computationally. we can do it in a list comprehension [], or we can index the source list (event_id values
 		# are sorted, so once we find one event in the master list, we can stop looking for it in the event_ids_ary list.
 		# list comprehension is simpler...
-		src_data = vc_data['event_table']
-		col_names = cols_from_h5_dict(src_data.id.dtype.fields)
+		src_data = vc_data['event_table'][()]
+		#col_names = cols_from_h5_dict(src_data.id.dtype.fields)		# or this can be done from .dtype.names, .dtype.formats (or whatever that is).
+		col_names = src_data.dtype.names
 		col_name = 'event_number'
 		#if n_cpus in (1, None):
-		if n_cpus == None:
-			# this should never be true any longer. see note above. strangely, using the mpp setup seems to make this run much, much
-			# faster, even if only using the single CPU.
+		if n_cpus == None or n_cpus==1:
+			# this should never be true any longer. see note above.
+			print "running in SPP mode"
 			#
 			#section_events = [x for x in vc_data[src_data] if x[col_name] in event_ids_ary[:]]
 			section_events = find_in(tbl_in=src_data, col_name=col_name, in_list=event_ids_ary, pipe_out=None) 
@@ -289,27 +293,42 @@ def get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=None, 
 	#
 	#return event_ids_ary
 	# columns we might care about:
-	return [col_names] + section_events
+	# add 'cff_initial', 'cff_final' columns. try for both list and recarray return. if backwards compatiblity is a problem, well, handle it...??
+	#
+	if not recarray:
+		return [col_names] + section_events
+	else:
+		return numpy.core.records.fromarrays(zip(*section_events), names=col_names, formats=[type(x).__name__ for x in section_events[0]])
 #
 def get_blocks_info_dict(sim_file=allcal_full_mks, block_ids=None):
 	# if block_ids==None, get all of them...
 	# and we could parallelize this, or we can use it as a single processor implementation that can be run in parallel...
 	#
+	if isinstance(block_ids,float) or isinstance(block_ids,int):
+		block_ids = [int(block_ids)]
+	#
 	with h5py.File(sim_file, 'r') as vc_data:
-		blocks_table = vc_data['block_info_table']
-		block_cols = cols_from_h5_dict(blocks_table.id.dtype.fields)
+		blocks_table = vc_data['block_info_table'][()]		# "blocks" should be pretty small, and this runs about
+															# 10,000 times faster (literally maybe... at least) with [()]
+
+		#block_cols = vc_data['block_info_table'].dtype.names
 		#
+		'''
 		blockses = {}
 		for block in blocks_table:
 			if block_ids!=None and block['block_id'] not in block_ids: continue
 			#
-			block_dict = {}
+			#block_dict = {}
+			block_dict = {key:block[key] for key in block_cols}
 			#
-			[block_dict.__setitem__(key, block[key]) for key in block_cols]
+			#[block_dict.__setitem__(key, block[key]) for key in block_cols]
 			blockses[block['block_id']] = block_dict
+		'''
 		#
+		#blockses = {block['block_id']:{key:block[key] for key in block_cols} for block in blocks_table if not (block_ids!=None and block['block_id'] not in block_ids)}
+		#blockses = {block['block_id']:{key:block[key] for key in vc_data['block_info_table'].dtype.names} for block in blocks_table if not (block_ids!=None and block['block_id'] not in block_ids)}
 	#
-	return blockses
+	return {block['block_id']:{key:block[key] for key in blocks_table.dtype.names} for block in blocks_table if not (block_ids!=None and block['block_id'] not in block_ids)}
 #
 # a suite of functions to get total CFF for an event by summing the CFF from all the blocks in the event.
 # the variety of functions are to facilitate different approaches to multiprocessing...
@@ -333,9 +352,17 @@ def calc_CFFs_from_blocks(sweep_blocks, pipe=None):
 	#
 	n_blocks = float(len(sweep_blocks))
 	#
+	total_cff_init = sum(sweep_blocks['shear_init'] - sweep_blocks['mu']*sweep_blocks['normal_init'])
+	total_cff_final = sum(sweep_blocks['shear_final'] - sweep_blocks['mu']*sweep_blocks['normal_final'])
+	
+	#
+	'''
 	for blk in sweep_blocks:
 		total_cff_init  += blk['shear_init']  - blk['mu']*blk['normal_init']
 		total_cff_final += blk['shear_final'] - blk['mu']*blk['normal_final']
+	if total_cff_init2!=total_cff_init: print "total_init error"
+	if total_cff_final2!=total_cff_final: print "total final error"
+	'''
 	#
 	if pipe!=None:
 		try:
@@ -453,7 +480,7 @@ def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_sect
 			#
 			combined_catalog = numpy.append(combined_catalog, numpy.load(ary_in_format % sec_id))
 		except:
-			print "failed to add sub-catalog for %d" % sec_id
+			print "failed to add sub-catalog for %d:: %s, %d" % (sec_id, ary_in_format % sec_id, len(combined_catalog))
 	#
 	#l_cat=[rw.tolist() for rw in combined_catalog if rw['event_year']>=start_year]
 	#print "type: ", type(l_cat)
@@ -3143,6 +3170,8 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	# the WT fits can get a bit ugly because some fits don't naturally converge, so we use a MC method... which is, of
 	# course questionable because it does not seem to converge, but it does seem to give the best fit.
 	#
+	# fits_data_file_CDF: looks like we don't use this any longer.
+	#
 	if section_ids=='emc': section_ids = list(emc_sections) 	# globally defined list of emc_sections
 	if isinstance(section_ids, int) or isinstance(section_ids,float): section_ids = [section_ids]
 	section_ids = list(set(section_ids))
@@ -4652,9 +4681,19 @@ def vc_ETAS_catalog(section_ids=None, sim_file=allcal_full_mks, start_year=None,
 
 # CFF and catalog management helper functions.
 #
-def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
+# def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True):
+def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_plots=False, do_clf=True, use_precalc=True, section_ids=[], h5data=default_sim_file):
 	# find mean, stdev Delta_t, N between m>=m0 events in ary_in.
 	# for now, assume ary_in is a structured array, h5, or name of a structured array file.
+	#
+	# TODO: we want to test our pre-calcs against optimized array loading/searches, aka using [()] syntax.
+	#if use_precalc==False and section_ids!=None and (hasattr(section_ids, '__len__') and len(section_ids)>0):
+	if use_precalc==False and section_ids!=None:
+		#if not hasattr(section_ids, '__len__'): section_ids=[section_ids]
+		#if isinstance(section_ids, str): list(eval(section_ids))		# give it a shot anyway...
+		#
+		print "not-precalcing"
+		ary_in = get_event_time_series_on_section(sim_file=h5data, section_id=section_ids, n_cpus=None, is_sorted=False, recarray=True)
 	#
 	if isinstance(ary_in, str)==True:
 		ary_in = numpy.load(ary_in)
@@ -4663,6 +4702,10 @@ def mean_recurrence(ary_in='data/VC_CFF_timeseries_section_123.npy', m0=7.0, do_
 		ary_in.sort(order='event_year')
 	except:
 		print "ary_in sorting failed, but continuing anyway, hoping for not nonsense..."
+	#
+	if not hasattr(ary_in, 'dtype') and isinstance(ary_in[0][0], str):
+		# probably a cols + data list format. convert to recarray:
+		ary_in = numpy.core.records.fromarrays(zip(*ary_in[1:]), names=ary_in[0], formats=[type(x).__name__ for x in ary_in[0]])
 	#
 	Ns, Js, Ts, Ms = zip(*[[x['event_number'], j, x['event_year'], x['event_magnitude']] for j, x in enumerate(ary_in) if float(x['event_magnitude'])>=m0])
 	Ns_total, Js_total, Ts_total = zip(*[[x['event_number'], j, x['event_year']] for j, x in enumerate(ary_in) ])
@@ -5084,7 +5127,7 @@ def get_EMC_CFF(sections=None, file_out_root='data/VC_CFF_timeseries_section'):
 		#
 	return None
 #
-def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, event_sweeps_dict=None):
+def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, event_sweeps_dict=None, verbose=False):
 	# CFF = shear_stress - mu*normal_stress
 	#  blocks: dictionary of blocks indexed by event number: {<event_number>:[block_data, block_data, etc.], <>:[]}
 	# for runs of multiple instances, this can be pre-calculated and shared.
@@ -5098,54 +5141,42 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 	print "starting CFF(t) for section: %d (%s)" % (section_id, time.ctime())
 	if n_cpus==None: n_cpus = mpp.cpu_count()
 	CFF=[]
-	events = get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=section_id, n_cpus=n_cpus)
+	# return as a list since we'll be adding columns.
+	events = get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=section_id, n_cpus=n_cpus, recarray=False)
 	t0=time.time()
-	#
-	# not using this any longer...
-	#col_dict = {}
-	#map(col_dict.__setitem__, events[0], range(len(events[0])))
-	#col_dict = {event:i for i, event in enumerate(events[0])}
 	#
 	# so, events is a time series of events (earthquakes) on a particular fault section.
 	# for each event, the normal/shear stresses are calculated.
 	#
-	# now, fetch block level data. for now, let's return a simpler data set than we initially read.
+	# now, fetch block/sweep level data. for now, let's return a simpler data set than we initially read.
 	#
 	with h5py.File(sim_file) as vc_data:
-		sweep_data = vc_data['event_sweep_table']
-		max_index = len(events)-1
-		#
-		# pre-calc a dictionary of event-sweeps. each event_number will include a list of sweep events.
-		#if event_sweeps_dict==None: 
-		#	print "setting up sweeps dictionary..."
-		#	event_sweeps_dict = make_h5_indexed_dict_spp(h5_in=sweep_data, index_col='event_number')
+		vq_events = vc_data['event_table'][()]		# we might want a smart way of handling different-labeled data (aka, i think new vq is just ['events']
+		sweep_data = vc_data['event_sweep_table']	# we won't be able to load the whole sweeps table, but events gives 'start_sweep', 'end_sweep' indices.
+		max_index = len(events)-1					# where the full sequence is sweeps[start_sweep:end_sweep], aka, end_sweep = {actual end sweep} + 1
 		#
 		# make some mpp queues:
-		jobs     = []
+		#jobs     = []
 		#pipes    = []
 		#cff_outs = []
 		for ev_count, event in enumerate(events[1:]):
+			# this row indexing should be cleaned up to allow for a recarray, or similar, here. so we should sweep over events, not events[1:]
 			# get_event_blocks(sim_file=allcal_full_mks, event_number=None, block_table_name='block_info_table')
 			#
 			# "events" is a list type, but each row is some sort of numpy recarray (returns numpy.void), but acts like rec_array
 			event_id=event['event_number']
 			event_year = event['event_year']
-			event_area = event['event_area']
-			# this needs to be sped up maybe -- perhaps by maintaining the hdf5 context?
+			event_area = float(event['event_area'])
+			event_magnitude = event['event_magnitude']
 			#
-			#blocks = fetch_h5_data(sim_file=sim_file, n_cpus=n_cpus, table_name='event_sweep_table', col_name='event_number', matching_vals=[event_id])
+			# yoder:
+			start_sweep = vq_events['start_sweep_rec'][event_id]
+			end_sweep   = vq_events['end_sweep_rec'][event_id]
 			#
-			# this should be faster, since we don't have to open and reopen the file... but i'm not sure how much
-			# faster it is. certainly for smaller jobs, the sipler syntax is probably fine.
-			# ... but still slow, so use a pre-indexed list of sweep events...
-			if event_sweeps_dict ==None:
-				blocks = fetch_h5_table_data(h5_table=sweep_data, n_cpus=None, col_name='event_number', matching_vals=[event_id])
-			else:
-				# ... though i'm starting to think that this dict. object is not any faster (in fact likely slower)
-				# than (repeatedly) accessing the h5 table directly.
-				blocks = event_sweeps_dict[event_id]
+			blocks = sweep_data[start_sweep:end_sweep][()]		# ... and i think this should be the fastest way to do this... and new vq will probably alwo require
+																# a query to the fault model data.
 			#
-			if ev_count%250==0:
+			if verbose and ev_count%250==0:
 				#print "(%d) blocks (%d) fetched: %d" % (ev_count, event_id, len(blocks))
 				t1=time.time()
 				print "fetching CFF events: %d/%d, %d blocks fetched, dt=%s" % (ev_count, max_index, len(blocks), str(t1-t0))
@@ -5156,65 +5187,32 @@ def get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, e
 			#
 			#CFF+=[[event_id, event_year, event['event_magnitude'], get_event_CFF(blocks), get_final_event_CFF(blocks)]]
 			#
-			# ... and this approach appears to be killing us. i think mpp is simply not efficient with this generalized approach
-			#  (aka, doing the mpp on each set of blocks.). it may be faster and more memory efficient
-			# to do each set of blocks as a process, either by mapping (which i think will kill us in memory)
-			# or by using processes (and for now, just suck up that larger chunks are going to slow down smaller chunks
-			# inthe join).
+			# note: this will be a change in the CFF calculation, namely that we're going to weight each CFF contribution by block area and then average
+			# by dividing by total area. the previous calc_CFFs_from_blocks() averages over the count of blocks or sweeps... which is probably meaningless,
+			# but we never really did anything with it either, so it's probably ok... but also, all the pre-calculated sets have bogus CFF measures (at the event level).
 			#
-			# ... and instead of returning a list of dicts, let's return a structured numpy.array().
-			# we can define the column names and types; see below.
+			# ... but otherwise, this method of calculation is simple, stable, and fast.
+			cff_initial = sum(blocks['area']*(blocks['normal_init']-blocks['shear_init']*blocks['mu']))/event_area
+			cff_final   = sum(blocks['area']*(blocks['normal_final']-blocks['shear_final']*blocks['mu']))/event_area
 			#
-			pipe1, pipe2 = mpp.Pipe()
-			P=mpp.Process(target=calc_CFFs_from_blocks, args=[blocks, pipe1])
-			P.start()
-			#jobs+=[{'process':P, 'pipe':pipe2, 'cff_out':{'event_id':event_id, 'event_year':event_year,'event_magnitude':event['event_magnitude']}}]
-			jobs+=[{'process':P, 'pipe':pipe2, 'cff_out':[event_id, event_year, event['event_magnitude']]}]
-			#pipes+=[pipe2]
-			#cff_outs += [{'event_id':event_id, 'event_year':event_year,'event_magnitude':event['event_magnitude']}]
 			#
-			# we're spinning through this, so we should have n>1 processes running. let's slow them down...
-			if ev_count%n_cpus==(n_cpus-1) or ev_count==max_index:
-				#print "do joins..."
-				for j, job in enumerate(jobs):
-					#print "from pipe[%d]: " % (j), pipes[j].recv()
-					cff_vals = job['pipe'].recv()
-					job['pipe'].close()
-					#job['cff_out'].update(cff_vals)		# cff_vals like: {'cff_init':total_cff_init, 'cff_final':total_cff_final}
-					#job['cff_out'] += [cff_vals['cff_init'], cff_vals['cff_final'], cff_vals['mean_cff_init'], cff_vals['mean_cff_final']]
-					# ... but instead of the "block-mean" value returned by calc_CFFs_from_blocks, let's use the event_area:
-					job['cff_out'] += [cff_vals['cff_init']/event_area, cff_vals['cff_final']/event_area, event_area]
-					#
-					CFF+=[job['cff_out']]
-				#
-				#print "waiting on pipes..."
-				# and just to be sure, join until we're all done with this set:
-				for j, job in enumerate(jobs):
-					job['process'].join()
-				#print "joins complete"
-				jobs=[]
+			#names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final', 'event_area']
+			# ... and this is WAY faster...
+			CFF += [[event_id, event_year, event_magnitude, cff_initial, cff_final, event_area]]
 			#
-			##CFF+=[{'event_id':event_id, 'event_year':event_year,'event_magnitude':event['event_magnitude'], 'CFF':get_event_CFF(blocks), 'CF_final':get_final_event_CFF(blocks)}]
-			#CFF+=[{'event_id':event_id, 'event_year':event_year,'event_magnitude':event['event_magnitude']}]
-			#CFF['CFF']      = get_event_CFF(blocks, chunksize=128)
-			#CFF['CF_final'] = get_final_event_CFF(blocks, chunksize=128)		# process quasi-serially...
-			#
-			# calc_CFFs_from_blocks(sweep_blocks)
-			#
-			blocks=None
+			
 		#
 	# convert CFF to a structured array (basically, we're after named columns; in this case, defining the data types is
 	# easy as well).
 	# this is what we'll want to do, but for some reason it doesn't work worth a damn. just send back the list for now...
 	#CFF = numpy.array(CFF, dtype=[('event_number', 'int32'), ('event_year', 'int32'), ('event_magnitude', 'float64'), ('CFF_init', 'float64'), ('CFF_final', 'float64')])
 	#
-	print "finished CFF(t) for section: %d (%s: %f)" % (section_id, time.ctime(), time.time()-time_start)
+	if verbose: print "finished CFF(t) for section: %d (%s: %f)" % (section_id, time.ctime(), time.time()-time_start)
 	#
 	# convert to structured array with named cols (note this syntax, because this is not as easy as it should be):
 	CFF = numpy.core.records.fromarrays(zip(*CFF), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final', 'event_area'], formats=[type(x).__name__ for x in CFF[0]])
 	#
 	return CFF
-#
 #
 def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, fignum=0):
 	# ... and "time_series" is implied.
@@ -5222,9 +5220,10 @@ def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None
 	# note: the CFF, what we'll ultimately want, is:
 	# CFF_j = shear_stress_j(t) - mu_j*normal_stress_j(t)
 	#
-	events = get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=section_id, n_cpus=n_cpus)
-	col_dict = {}
-	map(col_dict.__setitem__, events[0], range(len(events[0])))
+	events = get_event_time_series_on_section(sim_file=allcal_full_mks, section_id=section_id, n_cpus=n_cpus, recarray=True)
+	#col_dict = {}
+	#map(col_dict.__setitem__, events[0], range(len(events[0])))
+	col_dict = {col:j for j,col in enumerate(events.dtype.names)}
 	#
 	# each time step has an initial + final stress value.
 	ts_single = []
@@ -5234,11 +5233,16 @@ def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None
 	normal_stress = []
 	ave_slip = []
 	for rw in events[1:]:
-		ts += [rw[col_dict['event_year']], rw[col_dict['event_year']]]
-		ts_single += [rw[col_dict['event_year']]]
-		mags += [rw[col_dict['event_magnitude']]]
-		shear_stress += [rw[col_dict['event_shear_init']], rw[col_dict['event_shear_final']]]
-		normal_stress += [rw[col_dict['event_normal_init']], rw[col_dict['event_normal_final']]]
+		#ts += [rw[col_dict['event_year']], rw[col_dict['event_year']]]
+		#ts_single += [rw[col_dict['event_year']]]
+		#mags += [rw[col_dict['event_magnitude']]]
+		#shear_stress += [rw[col_dict['event_shear_init']], rw[col_dict['event_shear_final']]]
+		#normal_stress += [rw[col_dict['event_normal_init']], rw[col_dict['event_normal_final']]]
+		ts += [rw['event_year'], rw['event_year']]
+		ts_single += [rw['event_year']]
+		mags += [rw['event_magnitude']]
+		shear_stress += [rw['event_shear_init'], rw['event_shear_final']]
+		normal_stress += [rw['event_normal_init'], rw['event_normal_final']]
 		ave_slip += ['event_average_slip']
 	#
 	#
@@ -5257,24 +5261,25 @@ def get_stress_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None
 		#
 	#
 	# let's look at peak values...
-	upper_shear_init = get_peaks(events[1:], col=col_dict['event_shear_init'], peak_type='upper')
-	upper_shear_final = get_peaks(events[1:], col=col_dict['event_shear_final'], peak_type='upper')
+	upper_shear_init = get_peaks(events[1:], col='event_shear_init', peak_type='upper')
+	upper_shear_final = get_peaks(events[1:], col='event_shear_final', peak_type='upper')
 	#print "lens: ", len(upper_shear_init), len(upper_shear_final)
 	#print upper_shear_init[-5:]
 	#print upper_shear_final[-5:]
-	lower_shear_init = get_peaks(events[1:], col=col_dict['event_shear_init'], peak_type='lower')
-	lower_shear_final = get_peaks(events[1:], col=col_dict['event_shear_final'], peak_type='lower')
+	lower_shear_init = get_peaks(events[1:], col='event_shear_init', peak_type='lower')
+	lower_shear_final = get_peaks(events[1:], col='event_shear_final', peak_type='lower')
 	#
-	upper_normal_init = get_peaks(events[1:], col=col_dict['event_normal_init'], peak_type='upper')
-	upper_normal_final = get_peaks(events[1:], col=col_dict['event_normal_final'], peak_type='upper')
-	lower_normal_init = get_peaks(events[1:], col=col_dict['event_normal_init'], peak_type='lower')
-	lower_normal_final = get_peaks(events[1:], col=col_dict['event_normal_final'], peak_type='lower')
+	upper_normal_init = get_peaks(events[1:], col='event_normal_init', peak_type='upper')
+	upper_normal_final = get_peaks(events[1:], col='event_normal_final', peak_type='upper')
+	lower_normal_init = get_peaks(events[1:], col='event_normal_init', peak_type='lower')
+	lower_normal_final = get_peaks(events[1:], col='event_normal_final', peak_type='lower')
 	#
 	ax = myfig.axes[0]
 	ax.plot(ts, shear_stress, '.-', label='shear stress')
 	for tbl, col,lbl in [(upper_shear_init, 'event_shear_init', 'init_upper'), (upper_shear_final, 'event_shear_final', 'final_upper'), (lower_shear_init, 'event_shear_init', 'init_lower'), (lower_shear_final, 'event_shear_final', 'final_lower')]:
 		#ax.plot(map(operator.itemgetter(col_dict['event_year'], upper_shear_init)), map(operator.itemgetter(col_dict['event_shear_init'], upper_shear_init)),
 		#print tbl[0]
+		#
 		X = map(operator.itemgetter(col_dict['event_year']), tbl)
 		Y = map(operator.itemgetter(col_dict[col]), tbl)
 		ax.plot(X, Y, '--.', label=lbl)

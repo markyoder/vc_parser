@@ -16,9 +16,13 @@ plt.ion()
 #
 import math
 import h5py
+#
 import numpy
 import scipy
 import scipy.optimize as spo
+from scipy.spatial import KDTree
+from scipy.spatial import cKDTree
+#
 import operator
 import glob
 import random
@@ -39,6 +43,7 @@ import inspect
 import multiprocessing as mpp
 #
 import ANSStools
+import pca_tools
 try:
 	import BASScast
 
@@ -69,6 +74,10 @@ emc_section_filter = {'filter': (16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28,
 allcal_full_mks = '../ALLCAL2_1-7-11_no-creep_dyn-05_st-20.h5'
 default_sim_file = allcal_full_mks
 emc_sections = list(emc_section_filter['filter'])
+
+# all sections:
+with h5py.File(default_sim_file, 'r') as F:
+	all_section_ids = list(set(F['block_info_table']['section_id'][()]))
 
 class getter(object):
 	# a simple container class to emulate objects that return values. for example,
@@ -997,7 +1006,7 @@ def plot_interval_roc(roc_data=16, fignum_0=0):
 		ax3d = figs[-1].add_subplot(111, projection='3d')
 		ax3d.plot(roc_data['nyquist_factor'], roc_data['dt_0']/roc_data['dt_m0'], roc_data['H']-roc_data['F'], '.')
 		ax3d.set_xlabel('nyquist_factor')
-		ax3d.set_ylabel('dt_0')
+		ax3d.set_ylabel('dt_0/dt_m0')
 		ax3d.set_zlabel('score')
 	#
 	return scoreses
@@ -1429,7 +1438,7 @@ def check_psa_metric(section_id=16, m0=7.0, fignum=0, nyquist_factor=.5):
 	ax_dt.set_ylabel('Cumulative probability $P(N)$ that $\\Delta t(alert)<\\Delta t$')
 	#
 #
-def plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_factor=None, b_0=None, opt_data='dumps/gji_roc_lt_500/roc_sec_lt_%d_nits_1000_allprams.npy', lw=2.):
+def plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_factor=None, b_0=None, opt_data='dumps/gji_roc_lt_500/roc_sec_lt_%d_nits_1000_allprams.npy', lw=2., **kwargs):
 	# create forecast metric figure(s). we'll work on generalizing this to use multiple forecasts later. for now, let's be specific
 	# to psa_forecast_1()
 	#
@@ -1440,6 +1449,11 @@ def plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_
 		#											# ... and note we do CFF=ary_in in the if-else clause below...
 	if isinstance(CFF, str):
 		CFF = numpy.load(CFF)
+	#
+	# fetch some possible kwargs...
+	fs_label  = kwargs.get('fs_label', 12)
+	fs_title  = kwargs.get('fs_title', 12)
+	fs_legend = kwargs.get('fs_legend', 12)
 	#
 	# get opt. data:
 	# optimization data will probably be provided as a string pointing to an optimization run output, which will be list of dicts[ {},{}...]
@@ -1488,9 +1502,9 @@ def plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_
 	#plt.clf()
 	#ax_rate = plt.gca()
 	ax_rate.set_yscale('log')
-	ax_b.set_ylabel('Interval slope $b=d(\\Delta t)/dt$')
-	ax_rate.set_ylabel('Interval $\\Delta t_i = t_i - t_{i-1}$')
-	ax_rate.set_xlabel('Simulation time $t$ years')
+	ax_b.set_ylabel('Interval slope $b=d(\\Delta t)/dt$', size=fs_label)
+	ax_rate.set_ylabel('Interval $\\Delta t_i = t_i - t_{i-1}$', size=fs_label)
+	ax_rate.set_xlabel('Simulation time $t$ years', size=fs_label)
 	#
 	ax_b.plot([CFF['event_year'][0], CFF['event_year'][-1]], [0., 0.], 'k-', zorder=0, lw=lw)
 	ax_b.plot([CFF['event_year'][0], CFF['event_year'][-1]], [b_0, b_0], 'k--', zorder=0, lw=lw)
@@ -1526,19 +1540,19 @@ def plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_
 	#ax_n.set_yscale('log')
 	#ax_n.set_xscale('log')
 	ax_n.plot(fc_lens, [x/float(len(fc_lens)) for x in xrange(1, len(fc_lens)+1)], 'b.-', label='alert sequence length')
-	ax_n.legend(loc='best', numpoints=1)
-	ax_n.set_xlabel('alert segment lengths $n$')
+	ax_n.legend(loc='best', numpoints=1, prop={'size':fs_legend})
+	ax_n.set_xlabel('alert segment lengths $n$', size=fs_label)
 	#
 	ax_dt = plt.twiny(plt.gca())
 	#ax_dt.set_yscale('log')
 	#ax_dt.set_xscale('log')
 	ax_dt.plot(fc_delta_ts, [x/float(len(fc_delta_ts)) for x in xrange(1, len(fc_delta_ts)+1)], 'g.-', label='alert intervals $\\Delta t$')
-	ax_dt.legend(loc='best', numpoints=1)
-	ax_dt.set_xlabel('Alert durations $\\Delta t$')
+	ax_dt.legend(loc='best', numpoints=1, prop={'size':fs_legend})
+	ax_dt.set_xlabel('Alert durations $\\Delta t$', size=fs_label)
 	#
 	#plt.ylabel('cumulative count $N$')
-	ax_n.set_ylabel('Cumulative probability $P(N)$ that $len(alert)<n$')
-	ax_dt.set_ylabel('Cumulative probability $P(N)$ that $\\Delta t(alert)<\\Delta t$')
+	ax_n.set_ylabel('Cumulative probability $P(N)$ that $len(alert)<n$', size=fs_label)
+	ax_dt.set_ylabel('Cumulative probability $P(N)$ that $\\Delta t(alert)<\\Delta t$', size=fs_label)
 	#
 	# note: evaluate_alert_segments() can also be used to create a figure.
 	#z=evaluate_alert_segments(alert_segments=fc, CFF=CFF, section_id=section_id, m0=7.0, do_plot=True, fnum=11)
@@ -1859,7 +1873,7 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	# make a recarray:
 	#
 	# duh... this won't work because we have a list data type (there may be a way to include lists, etc in recarrays, but i don't know
-	# it.) do we really want to keep the alert segments? they're easy enough to recover given the pramset. let's just kill them.
+	# it.) do we really want to keep the alert segments? they're easy enough to recover given the paramset. let's just kill them.
 	#
 	# screw this. there are strings... or one string anyway, so we have to fix its length and all of that. do this alter (or not at all)
 	# ... or maybe we'll get the recarray; for string, the type is 's%d' % s_len or 'S%d' % s_len (i think).
@@ -2307,14 +2321,27 @@ def plot_ROC_optimized_prams(roc_data=None, fignum=0, section_id=None, nits=1000
 	# opts_124=vc_parser.simple_metric_optimizer(nits=100, b_min=-.15, b_max=.25, keep_set=True, section_id=124)[1]
 	# where the [1] gives the results from the full space explored by the MC simulation (and it's pretty huge since it includes
 	# all the "alerts" sections).
+	# simple_metric_optimizer() returns a list: [{dict of best prams}, {all prams}]
+	# simple_metric_optimizer()[1] returns a list of dict objects like: 
+	{'F': 0.26949814476171824,
+ 'H': 0.8216216216216217,
+ 'b': 0.19840002124380476,
+ 'n_missed': 66,
+ 'n_predicted': 304,
+ 'nyquist_factor': 0.5959081323587745,
+ 'score': 0.55212347685990348,
+ 'total_alert_time': 13372.468020446951,
+ 'total_time': 49619.888969070511}
+	#
 	#
 	# roc_data: optimization data, namely the full parameter space output from simple_metric_optimizer(keep_set=True) {plus a bunch of
 	# other inputs).
 	'''
 	#
+	#if isinstance(roc_data, int): roc_data = 'interval_metric_output/roc_interval_metric_%d_LT.npy' % roc_data
 	if isinstance(roc_data, str): roc_data=numpy.load(roc_data)
 	if roc_data==None and section_id!=None:
-		roc_data = simple_metric_optimizer(section_id=section_id, keep_set=True, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, nits=nits, f_gt_lt=operator.gt)[1]
+		roc_data = simple_metric_optimizer(section_id=section_id, keep_set=True, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, nits=nits, f_gt_lt=operator.lt)[1]
 	#
 	b_vals = [rw['b'] for rw in roc_data]
 	alpha_vals = [rw['nyquist_factor'] for rw in roc_data]
@@ -2348,6 +2375,39 @@ def plot_ROC_optimized_prams(roc_data=None, fignum=0, section_id=None, nits=1000
 	ax3d.set_zlabel('ROC metric, (H-F)')
 	plt.title('Linear ROC metric')
 	#
+	# can i get a PCA analysis from this?
+	#from  matplotlib.mlab import PCA
+	#my_pca = PCA(numpy.array(zip(b_vals, alpha_vals)))
+	#print "pca: ", my_pca
+	my_pca = pca_tools.PCA_transform(zip(b_vals, alpha_vals))
+	#
+	print "pca axes (eigen vector matrix): ", my_pca.eig_vals, my_pca.eig_vecs
+	# ... and it looks like this approach is not super conclusive. typically, you'd track along the largest axis. in this case, i think we'd track along the scaled diagonal
+	# between them. so maybe try a [x,x] projection...
+	# now, the idea will be to map a vector along the primary axis to nyquist_factor - b_0 space and show that we can turn this into a more traditional ROC analysis.
+	min_xy = [min(b_vals), min(alpha_vals)]
+	vx = numpy.array([my_pca.mus, my_pca.to_PCA([.5,0.])])
+	vy = numpy.array([my_pca.mus, my_pca.to_PCA([0.,.5])])
+	min_z = min(scores_lin)
+	#ax3d.plot(zip(*vx)[0], zip(*vx)[1], [min_z for z in vx], color='r', lw=1.5, ls='-', marker='s')
+	#ax3d.plot(zip(*vy)[0], zip(*vy)[1], [min_z for z in vx], color='g', lw=1.5, ls='-', marker='s')
+	trace = numpy.arange(-.6, .6, .1)
+	trace = zip(trace, trace)
+	trace_pca = [list(my_pca.to_PCA(tr))+[min_z] for tr in trace]
+	ax3d.plot(*zip(*trace_pca), color='r', lw=1.5, ls='-', marker='s', ms=5, alpha=.5)
+	#
+	# now, find (approximately) where this would end up in the ROC metric (H-F) point-cloud. get (b_0, alpha) from (x', y'), then find NN from MC set.
+	# these data sets should be fairly small, so we could be sloppy about this (aka, just do a loop-loop). but instead, we'll use scipy.spatial.KDTree
+	# or cKDTree, which i assume is the c implementation, or core class or something. more research and/or some benchmarking is needed.
+	#
+	K = cKDTree(numpy.array(zip(b_vals,alpha_vals)))
+	NNpts = K.query(numpy.array(zip(*zip(*trace_pca)[0:2])), k=1, eps=0., p=2.)
+	ax3d.plot(*zip(*[[b_vals[j], alpha_vals[j], scores_lin[j]] for j in NNpts[1]]), marker='.', color='r')
+	ax3d.plot(*zip(*[[b_vals[j], alpha_vals[j], scores_lin[j]] for j in NNpts[1]]), marker='.', color='r')
+	ax3d.plot(*zip(*[[b_vals[j], alpha_vals[j], min_z] for j in NNpts[1]]), marker='.', color='r')
+	#
+	###############################
+	#
 	f2=plt.figure(fignum+2)
 	plt.clf()
 	ax3d2 = f2.add_subplot(111, projection='3d')
@@ -2375,6 +2435,8 @@ def plot_ROC_optimized_prams(roc_data=None, fignum=0, section_id=None, nits=1000
 	ax3d2.set_xlabel('$F$')
 	ax3d2.set_ylabel('nyquist factor')
 	ax3d2.set_zlabel('$H$')
+	#
+	return my_pca
 
 #
 def plot_aggregate_metric(scores_in, n_top=None):
@@ -3160,7 +3222,9 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	# does it mean? could be used for tabulated uncertainties. unfortunately, it seems to break down on the right hand side of the dist.
 	# ... and work out the details later...
 	# if we have a catalog, pass it in (preferably a recarray). otherwise, provide section_ids).
-	# n_t0: number of data points (number ot t0 values)
+	# TODO:
+	# n_t0: number of data points (number ot t0 values) ... and note, this is an error (in optimization anyway). we should limit this to just
+	#   the set of {t0} for t0=t_{new_earthquake}, since there's no new information between earthquakes. so fix this later.
 	#
 	# note: for now,use a pre-compiled catalog. assembling event-section_id catalogs requires some parsing. these catalogs
 	# have been queried and stored in VC/vc_parser/data as *.npy files. there is a script here somewhere to compile an event-section-wise
@@ -3701,7 +3765,7 @@ def waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_
 	return best_fit_dict
 #
 #def waiting_time_figs_2(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None):
-def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None, keep_figs=False):
+def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None, start_year=10000, end_year=None, keep_figs=False, **kwargs):
 	'''
 	# ... note as soon as we work out of these early yoder et al. 2015ab papers, we can dump def waiting_time_figs() entirely... (see above)
 	# ... and phase 2 of this retro-fit will be to separate this into a loop (which we'll move elsewhere) and a caller for a single cRI
@@ -3732,7 +3796,14 @@ def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 	# 2) including a weibull fit.
 	# 3) do this for a set of waiting times:0, <t>/2, <t>, 1.5<t>, 2<t>, 2.5<t>
 	# 4) a cumulative figure
+	# TODO: ... and we should save all of these data (including the fits), so we can re-run these much faster.
 	'''
+	#
+	# fetch some possible kwargs:
+	# font sizes:
+	fs_title  = kwargs.get('fs_title', 12)
+	fs_legend = kwargs.get('fs_legend', 12)
+	fs_label  = kwargs.get('fs_label', 12)
 	#
 	if section_ids in (None, [], ()):
 		section_ids='emc'
@@ -3919,12 +3990,12 @@ def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 			best_fit_dict[sec_id] = numpy.core.records.fromarrays(zip(*best_fit_dict[sec_id]), names=fit_columns, formats = fit_columns_types)
 			best_fit_dict[sec_id].dump('%s/VC_CDF_WT_fits_m%s_section_%s.npy' % (output_dir, str(m0).replace('.', ''), '_'.join([str(x) for x in sec_id])))
 		#
-		plt.legend(loc=0, numpoints=1)
+		plt.legend(loc=0, numpoints=1, prop={'size':fs_legend})
 		plt.gca().set_ylim([0., 1.1])
-		plt.title('CDF for m>%s on fault section %s' % (str(m0), ', '.join([str(x) for x in sec_id])))
-		plt.legend(loc=0, numpoints=1)
-		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t_r$ (years)' % m0)
-		plt.ylabel('Probability $P(\\Delta t_r)$')
+		plt.title('CDF for m>%s on fault section %s' % (str(m0), ', '.join([str(x) for x in sec_id])), size=fs_title)
+		plt.legend(loc=0, numpoints=1, prop={'size':fs_legend})
+		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t_r$ (years)' % m0, size=fs_label)
+		plt.ylabel('Probability $P(\\Delta t_r)$', size=fs_label)
 		plt.savefig('%s/RI_conditional_CDF_m%s_section_%s.png' % (output_dir, str(m0).replace('.', ''), '_'.join([str(x) for x in sec_id])))
 		
 		#if keep_figs==False and not sec_id<0: plt.close(i)	# ?? sec_id in [list-o-sec_ids]...
@@ -4037,7 +4108,8 @@ def vc_basemap(projection='cyl', resolution='i', **kwargs):
 	framelabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9)
 	legendfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9)
 	smtitlefont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9, weight='bold')
-	cbticklabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9)
+	cbticklabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=12)
+	ticklabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=12)
 	#
 	water_color             = '#bed5ff'
 	land_color              = '#ffffff'

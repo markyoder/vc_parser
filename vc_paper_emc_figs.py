@@ -18,6 +18,7 @@ sectionses = {'napa':napa_sections, 'emc':emc_sections}
 #emc_event = {'lat': 32.128, 'lon':-115.303, 'mag':7.2, 'event_time':dtm.datetime(2010,4,4,3,40,41,tzinfo=pytz.timezone('US/Pacific'))}
 #
 # some decorator stuff:
+# set font sizes for figures:
 fs_title  = 16
 fs_label = 16.
 fs_legend = 14.
@@ -41,12 +42,16 @@ def make_gji_figs():
 	# it might be neccessary to re-make the appendix .tex:
 	# EMC_WT_dist_Appendix(wt_dir='figs_gji/pri', output_file = 'figs_gji/pri/appendix_wt_probs.tex', section_ids=vc_parser.emc_sections)
 	#
-	# full ROC plots:
+	# create all the ROC data (note: use delta_b1 parameter to adjust the b_intiaite/b_maintain alert thresholds):
+	#create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=1000, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_lt_500', output_descriptions=[], fig_title_strs=[], m0=7.0, delta_b1=0.)
+	#
 	# section 16 ROC:
 	z=roc_figure(section_id=16, title_str='Section 16 ROC', output_dir='figs_gji/rev1/ROCs/', fname=None)
+	# full ROC plots:
 	a=roc_figure(roc_data='dumps/gji_roc_lt_500/roc_sec_lt_EMC_nits_1000_allprams.npy', title_str='EMC Aggregate', section_id=vfp.emc_sections, output_dir='figs_gji/rev1/ROCs/', fname='ROC_scatter_EMCsections.png')
 	z=vfp.EMC_EWT_figs(output_dir='figs_gji/rev1/EWTs', section_ids=vfp.emc_sections)
 	rocs = plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='figs_gji/rev1/ROCs')
+	z = gji_forecast_fig(fignum=0, section_id=16, f_out = 'figs_gji/rev1/forecast_section_16.png', time_range=(13400., 14850.) )
 
 def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, f_out=None, plot_quake_dots=False, plot_section_labels=None, fault_colors=None, plot_sections=[], verbose=True, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, n_cpus=None, fignum=0):
 	# make an etas map from a vc catalog. we probably have to pare down the catalog, since simulated catalogs are super huge.
@@ -432,6 +437,7 @@ def gji_forecast_fig(fignum=0, section_id=16, f_out = 'dumps/figs_gji/forecast_s
 	if f_out!=None:
 		path_name = os.path.dirname(f_out)
 		if not os.path.isdir(path_name): os.makedirs(path_name)
+		print "saving to: ", f_out
 		plt.savefig(f_out)
 	#
 	return f
@@ -1008,11 +1014,11 @@ def create_ROC_aggregate(section_ids=[vc_parser.emc_sections], nits=1000, fnum=0
 	z_lt=create_ROC_figs_LT_data(section_ids=section_ids, nits=nits, fnum=fnum, num_roc_points=num_roc_points, output_dir=output_dir_lt, m0=m0)
 	#
 	# ... and why not... also do one for the GT metric:
-	z_gt=create_ROC_figs_GT_data(section_ids=section_ids, nits=nits, fnum=fnum, num_roc_points=num_roc_points, output_dir=output_dir_gt, m0=m0)
+	#z_gt=create_ROC_figs_GT_data(section_ids=section_ids, nits=nits, fnum=fnum, num_roc_points=num_roc_points, output_dir=output_dir_gt, m0=m0)
 	#
 	return None
 #
-def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_gt_500', output_descriptions=[], fig_title_strs=[], m0=7.0):
+def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_lt_500', output_descriptions=[], fig_title_strs=[], m0=7.0, delta_b1=0.):
 	'''
 	# for LT metric (acceleration): 
 	#create a whole slew of ROC data. this will include the optimized "best fit" (using whatever metric) and also the raw, full MC output.
@@ -1025,6 +1031,8 @@ def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 	# to assemble an aggregate catalog.
 	#
 	'''
+	if not os.path.isdir(output_dir):
+		os.makedirs(output_dir)
 	if isinstance(output_descriptions, str): output_descriptions = [output_descriptions]
 	if not hasattr(output_descriptions, '__len__'): output_descriptions=[]
 	#
@@ -1057,7 +1065,7 @@ def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 		#
 		CFF = vc_parser.combine_section_CFFs(sec_id)
 		#
-		opt_datas, raw_datas = simple_metric_optimizer(CFF=CFF, section_id=sec_id, m0=m0, b_min=-.25, b_max=.25, d_b=.01, nyquist_min=.2, nyquist_max=1.2, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name, f_gt_lt=operator.lt, f_score=operator.sub, opt_func=vc_parser.psa_forecast_1)
+		opt_datas, raw_datas = simple_metric_optimizer(CFF=CFF, section_id=sec_id, m0=m0, b_min=-.25, b_max=.25, d_b=.01, delta_b1=delta_b1, nyquist_min=.2, nyquist_max=1.2, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name, f_gt_lt=operator.lt, f_score=operator.sub, opt_func=vc_parser.psa_forecast_1b)
 		#
 		roc_random = vc_parser.get_random_forecast_set(CFF=CFF, section_id=sec_id, m0=m0, P_min=0., P_max=1.0, set_name=None, nits=nits, format='recarray', do_roc_plot=False, fignum=None)
 		#

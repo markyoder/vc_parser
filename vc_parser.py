@@ -469,6 +469,7 @@ def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_sect
 			return sections
 	#
 	# let's just do this here... check all section_ids to see that their pre-processed catalogs have been made. if not, make them.
+	# ... and we probably want to start skipping this step, since we made direct access to the h5 file faster...
 	for i,sec_id in enumerate(sections):
 			# get_CFF_on_section(sim_file=allcal_full_mks, section_id=None, n_cpus=None, event_sweeps_dict=None)
 			# get_EMC_CFF(sections=None, file_out_root='data/VC_CFF_timeseries_section')
@@ -479,6 +480,7 @@ def combine_section_CFFs(sections=[], ary_in_format='data/VC_CFF_timeseries_sect
 				ary_data = get_EMC_CFF(sections=[sec_id], file_out_root=ary_in_format.split('_%d')[0])
 	
 	#
+	# this could probably be done with reduce().
 	if len(sections)>=1:
 		combined_catalog = numpy.load(ary_in_format % sections[0])
 	#
@@ -808,6 +810,10 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 	# [ [time, alert_value]
 	'''
 	#
+	# note, generalized (motly copied version):
+	return psa_forecast_1b(ary_in=ary_in, m0=m0, b_0=b_0, b_1=b_0, nyquist_factor=nyquist_factor, do_plot=do_plot, fnum=fnum, set_name=set_name, f_gt_lt=f_gt_lt, section_id=section_id, detail=detail)
+	'''
+	#
 	# copied (mostly) from the first half of forecast_metric_1() (which can probably be removed at this point).:
 	#
 	if (ary_in==None or len(ary_in)==0) and section_id!=None:
@@ -871,6 +877,7 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 			if len(alert_segments[-1])>0:
 				#
 				alert_segments+= [[]]
+				#if len(alert_segments[-1])!=0: alert_segments+= [[]]
 		
 		else:
 			# f_gt_lt(this_b, b_0) is True
@@ -887,9 +894,8 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 					alert_segments[-1]+=[alert_year]
 			#
 			# these two cases are additional entries into this alert segment. if it's a small event, extend alert to the
-			# next event (aka, in real live, we'd turn "on" the alert and reevaluate at the next event. if it's a big event,
-			# it's the one we've been lookng for. we have a rule to turn off an alert immediately after a big event... though we might
-			# reevaluate this since we've started to favor the operator.gt() version of this metric.
+			# next event (aka, in real life, we'd turn "on" the alert and reevaluate at the next event. if it's a big event,
+			# it's the one we've been lookng for. we have a rule to turn off an alert immediately after a big event... 
 			if this_mag<m0:
 				# add the *next* event as the alert (aka, issue an alert until we have new data).
 				#print "len alert_seg: %d" % len(alert_segments[-1])
@@ -910,8 +916,160 @@ def psa_forecast_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot=Fa
 					alert_segments[-1]+=[[alert_year, this_b]]
 				else:
 					alert_segments[-1]+=[alert_year]
+				#
+				# and if it's not already terminated, to it now:
+				if len(alert_segments[-1])!=0: alert_segments += [[]]
 			#
 		#
+	#
+	while len(alert_segments)>0 and len(alert_segments[-1])==0: alert_segments.pop()
+	#
+	return alert_segments
+	'''
+#
+def psa_forecast_1b(ary_in=None, m0=7.0, b_0 = 0.0, b_1=None, nyquist_factor=.5, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.lt, section_id=16, detail=False):
+	'''
+	# a simplified version of forecast_metric_1...
+	# 2015-07-14: and now, a mildly revised version of psa_forecast_1:
+	#	use two b parameters. initiate an alert when b<b_0, but cancel only if b>b1. basically, we see patterns where, apparently, a rapid sequence of events
+	#	occurs, and triggers a bit of a casacade, but there is a bit of relaxation (intervals slope up a bit (ironically, i think, because intervals drop to super
+	#	low values during the 'triggering' event(s)) before the large event). so, require a higher standard to initiate an alert...
+	#
+	# note: also corrected a minor error in psa_forecast_1() in which alerts were sometimes not being properly turned off for m>m0 events. these 
+	#
+	# output only the alert segments; then use evaluate_alert_segments() to get ROC data.
+	# note that, at least in its native form, this outputs a binary alert: alert is on/off; there is no 'value' (aka, slope value b)
+	# or degree associated. note that another model for this sort of work is to just output a full 1:1 alert set, aka
+	# [ [time, alert_value]
+	'''
+	#
+	# copied (mostly) from the first half of forecast_metric_1() (which can probably be removed at this point).:
+	#
+	# by default, set b_0=b_1. b_0 determines when an alert starts; b_1 determines if that alert persists. for LT operations, b_1>b_0 should be true.
+	b_1 = (b_1 or b_0)
+	#
+	if (ary_in==None or len(ary_in)==0) and section_id!=None:
+		#ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id		
+		ary_in=combine_section_CFFs(section_id)		# ... and this function knows to use the string format above...
+		#											# ... and note we do CFF=ary_in in the if-else clause below...
+		#
+	if isinstance(ary_in, str):
+		CFF = numpy.load(ary_in)
+	else:
+		# otherwise, assume we've been passed a proper CFF object:
+		CFF = ary_in
+		# give the set a name  so we don't return the whole input data object...
+		if set_name==None: set_name='unnamed_CFF'
+	#
+	if set_name==None:
+		# still none? must be a string type ary_in...
+		set_name=str(ary_in)
+	#
+	#print "get recurrence...** %d **" % len(CFF)
+	recurrence_data = mean_recurrence(ary_in=CFF, m0=m0)
+	nyquist_len = max(int(nyquist_factor*recurrence_data['mean_dN_fault']), 2)
+	nyquist_time = nyquist_factor*recurrence_data['mean_dT']
+	#
+	#print "recurrenced. get trend data..."
+	#
+	trend_data = get_trend_analysis(ary_in=CFF, nyquist_len = nyquist_len, nyquist_time=nyquist_time)
+	#trend_data_dict = {trend_data['event_year']:x for x in trend_data}
+	#CFF_dict = {x['event_year']:x for x in CFF}
+	CFF_dict = {x['event_number']:x for x in CFF}
+	
+	print "trend lengths: ", len(trend_data), len(CFF), nyquist_len
+	max_n = len(trend_data)
+	#
+	# trend_data includes columns: ['event_number', 'event_year', 'lin_fit_a', 'lin_fit_b', 'rb_ratio', 'interval_rate_ratios']
+	#
+	# first, just get the total time under alert:
+	alert_segments = [[]]		# a collection of lists...
+	#alert_segments = []
+	#
+	for i, rw in enumerate(trend_data):
+		# when we find b<b_0, we issue an alert until the next earthquake -- unless this one was 'big',
+		# in this case m>=7.
+		#
+		if i>=(max_n-1): break
+		#
+		# note the comment evidence of variations on this metric, primarily involving some sort of mean-slope averaging.
+		# a more exhaustive, automated MC approach, analysis is necessary to be certain, but preliminary analysis suggests that
+		# we don't gain anything from the averaging... in fact, we tend to loose measurable gain, at least on fault 16, where most
+		# of the prelim examination was done.
+		
+		#mean_b = numpy.mean(trend_data['lin_fit_b'][max(0, i-nyquist_len) : i+1])
+		#
+		this_b = rw['lin_fit_b']
+		#
+		# basically, we have three conditions:
+		alert_is_active = len(alert_segments[-1])>0
+		alert_new       = f_gt_lt(this_b, b_0)		# eligible for a "new" alert, b<b_0
+		alert_existing  = f_gt_lt(this_b, b_1)		# eligible for an "existing" alert b<b_1
+		#alert_year = trend_data[i+1]['event_year']
+		# probability_volume = 8
+		#
+		# start with the null case; alert may have faded away.
+		#if alert_is_active==False and alert_new==False and alert_existing==False: pass		# this is the null case; do nothing. prob_vol = 2
+		# ... need to work through this logic and also check previous version... are alerts being turned off after all large events?
+		#
+		# note: these two conditions can potentially conflict. the typical model is that it is easier to maintain an alert than initiat it (b_0<b_1) for LT operator.
+		# nominally, one might want a b_0>b_1 model, so it is easier to initiate than maintain an alert... but i think this requires a more complicated designation
+		# of behavior. let's try to handle this strictly (and then avoid ever doing it) so that this will produce zero-length events for the threshold overlap domain.
+		# in any case, just to define the behavior, turn on new alerts first:
+		#
+		# is this a new alert?
+		if (not alert_is_active) and alert_new:
+			# new alert. this will be the first entry; add the current date and set alert_is_active-> True.
+			# prob_vol = 2
+			alert_year = trend_data[i]['event_year']
+			alert_is_active=True
+			if detail:
+				alert_segments[-1]+=[[alert_year, trend_data[i]['lin_fit_b']]]
+			else:
+				alert_segments[-1]+=[alert_year]
+		#
+		# if we have an active alert, does it persist?
+		if alert_is_active and alert_existing==False:
+			# no; it fails the slope check.
+			#
+			# prob_vol = 2
+			# noting that nominally, alert_existing==False implies alert_new==False, but let's nominally allow that parameter space to abstract.
+			# terminate current alert by adding a new alert segment. (note, this year-element has already been added)
+			alert_is_active=False
+			if len(alert_segments[-1])>0: alert_segments+= [[]]
+			#
+		#
+		if alert_is_active and alert_existing:
+			# prob_vol=2
+			# alert is active passes slope-check.
+			this_mag = CFF_dict[rw['event_number']]['event_magnitude']
+			#
+			if this_mag<m0:
+				# a small earthquake:
+				# evaluate intervals to see if alert persists and extend alert to next event (alert remains active).
+				# still below(above) the continuation threshold...					
+				alert_year = trend_data[i+1]['event_year']
+				if detail:
+					alert_segments[-1]+=[[alert_year, this_b]]
+				else:
+					alert_segments[-1]+=[alert_year]
+				#
+				#
+			#
+			elif this_mag>=m0:
+				# large event: we cancel the alert, alert_existing or not. 
+				alert_year = trend_data[i]['event_year']		# we'll be terminating the alert; add this year (if it's not already added).
+																# so we get double-entries when we terminate an alert due to a large event. it doesn't make any difference
+																# for most analyses, so it might be ok to leave it as a tracer of why alerts were canceled.
+				if detail:
+					alert_segments[-1]+=[[alert_year, this_b]]
+				else:
+					alert_segments[-1]+=[alert_year]
+				if len(alert_segments[-1])>0: alert_segments+= [[]]
+			#
+			
+				
+				#
 	#
 	while len(alert_segments)>0 and len(alert_segments[-1])==0: alert_segments.pop()
 	#
@@ -1126,7 +1284,8 @@ def interval_forecast_mc_set(section_ids=emc_sections, nits=1000, dt_min=None, d
 	plt.plot(F,H, 'o')
 	plt.xlabel('False alarm rate $F$')
 	plt.ylabel('Hit rate $H$')
-		
+#
+#def interval_optimizer_mpp(nits=1000, dt_min=None, dt_max=None, section_id=None, CFF=None, m0=7.0, f_gt_lt=operator.lt, detail=False, 
 	
 #
 def interval_forecast_mc(nits=1000, dt_min=None, dt_max=None, nyquist_min=.2, nyquist_max=1.2, CFF=None, m0=7.0, do_plot=False, fnum=0, set_name=None, f_gt_lt=operator.lt, section_id=16, detail=False, percentile_lower=.1, percentile_upper=.8, dump_file=None):
@@ -1503,8 +1662,8 @@ def plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_
 	#ax_rate = plt.gca()
 	ax_rate.set_yscale('log')
 	ax_b.set_ylabel('Interval slope $b=d(\\Delta t)/dt$', size=fs_label)
-	ax_rate.set_ylabel('Interval $\\Delta t_i = t_i - t_{i-1}$', size=fs_label)
-	ax_rate.set_xlabel('Simulation time $t$ years', size=fs_label)
+	ax_rate.set_ylabel('Interval $\\Delta t_i = t_i - t_{i-1} (years)$', size=fs_label)
+	ax_rate.set_xlabel('Simulation time $t$ (years)', size=fs_label)
 	#
 	ax_b.plot([CFF['event_year'][0], CFF['event_year'][-1]], [0., 0.], 'k-', zorder=0, lw=lw)
 	ax_b.plot([CFF['event_year'][0], CFF['event_year'][-1]], [b_0, b_0], 'k--', zorder=0, lw=lw)
@@ -1819,6 +1978,81 @@ def forecast_metric_1(ary_in=None, m0=7.0, b_0 = 0.0, nyquist_factor=.5, do_plot
 	#return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments, 'ary_in_name':ary_in, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 	return {'total_alert_time': total_alert_time, 'total_time':total_total_time, 'n_predicted':n_predicted, 'n_missed':n_missed, 'alert_segments':alert_segments, 'ary_in_name':set_name, 'b':b_0, 'm0':m0, 'nyquist_factor':nyquist_factor}
 #
+def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None):
+	'''
+	# depricated? this script seems to be showing its age as well...
+	#
+	# simple ROC diagram. see the optimized one...
+	# also note that the parameter list for forecast_metric_1() has changed, so generally speaking this 
+	# function needs some maintenance or to be retired.
+	#
+	# scatter plot of hit_ratio vs alert_time_ratio for as many data as we throw at it.
+	# note, this uses a single value(s) for (b_0, nyquist_factor). see optimized versions as well.
+	#
+	# ... and this works ok, but it is a bit limited in exactly what sets we can optimise. see simple_mpp_optimizer()
+	# and simple_metric_optimzer() above.
+	'''		
+	# 
+	G=glob.glob(file_profile)
+	#
+	X, Y = [], []
+	#
+	if do_spp:
+		# SPP version (if we want to force this for some reason):
+		for g in G:
+			fc_data = forecast_metric_1(ary_in=g, m0=m0, b_0 = b_0, nyquist_factor=nyquist_factor)
+			#
+			Y+=[float(fc_data['n_predicted'])/(fc_data['n_predicted'] + float(fc_data['n_missed']))]
+			X+=[fc_data['total_alert_time']/fc_data['total_time']]
+	#
+	else:
+		# use MPP:
+		if n_cpus==None: n_cpus = mpp.cpu_count()
+		pool = mpp.Pool(n_cpus)
+		if (m0, b_0, nyquist_factor)==forecast_metric_1.__defaults__[1:4]:
+			print "defaults. use map_async()"
+			# i'm guessing this is faster...
+			result_set = pool.map_async(forecast_metric_1, G)
+			pool.close()
+			pool.join()
+			#
+			#print result_set
+			resultses = result_set.get()	# will be a list of dictionary objects
+			
+		else:
+			# add/"apply" each file to the pool.
+			print "not default. use apply_async()"
+			result_set_list = [pool.apply_async(forecast_metric_1, args = (g, m0, b_0, nyquist_factor)) for g in G]
+			pool.close()
+			pool.join()
+			#
+			#print "these prams: ", b_0, nyquist_factor
+			#return result_set_list
+			resultses = [x.get() for x in result_set_list]	# each entry in result_set_list is a dict; now we have a list of dicts.
+			
+		#
+		# still MPP...
+		#
+		XY = [[x['total_alert_time']/x['total_time'] ,float(x['n_predicted'])/(x['n_predicted'] + float(x['n_missed']))] for x in resultses]
+		X,Y = zip(*XY)
+	# end MPP. now, either by SPP or MPP, we have X,Y
+	#
+	#
+	#return fc_datas
+	#
+	if do_plot:
+		#
+		plt.figure(0)
+		if do_clf: plt.clf()
+		plt.plot(X, Y, '.')
+		plt.plot([0., 1.], [0., 1.], '-')
+		plt.ylabel('n_predicted/n_total')
+		plt.xlabel('percent alert time')
+	#
+	#if resultses[0].has_key('alert_segments'): [x.pop('alert_segments') for x in resultses]
+	resultses[0] = {key:val for key,val in resultses[0].iteritems() if key!='alert_segments'}	# a little bit faster and more elegant...
+	return resultses
+#
 def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=True, dump_file=None, n_cpus=None, f_gt_lt=operator.lt):
 	# (production run function for the ROC diagram and fits).
 	#
@@ -1887,8 +2121,9 @@ def simple_mpp_optimizer(sections=[], section_names=None, start_year=0., m0=7.0,
 	#
 	return pool_results
 #
-def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=True, set_name='data_set', dump_file=None, f_gt_lt=operator.lt, f_score=operator.sub, section_id=16, opt_func=psa_forecast_1):
+def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, delta_b1=0., nyquist_min=.2, nyquist_max=.8, d_nyquist=.01,  nits=1000, keep_set=True, set_name='data_set', dump_file=None, f_gt_lt=operator.lt, f_score=operator.sub, section_id=16, opt_func=psa_forecast_1b):
 	'''
+	# delta_b: difference between b_0 and b_1, the initial vs maintain alert thresholds.
 	# this does an MC thing to optimize a forecast metric for a CFF (presumably a section catalog like 'data/VC_CFF_timeseries_section_16.npy'
 	# or the data therein. it can be run independently or (it's primary purpose) wrapped by simple_mpp_optimizer()
 	#
@@ -1936,6 +2171,7 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 	#
 	R_b   = random.Random()
 	R_nyq = random.Random()
+	R_deltab1 = random.Random()		# but it might (eventually) make more sense to sample these more systematically... our parameter space is getting pretty big.
 	delta_b = b_max-b_min
 	delta_nyq = nyquist_max - nyquist_min
 	# and let's do this right and randomly sample...
@@ -1955,14 +2191,19 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 		print "optimizer n_iteration: %d" % i
 		this_b   = b_min       + delta_b*R_b.random()
 		this_nyq = nyquist_min + delta_nyq*R_nyq.random()
+		this_b1 = this_b + delta_b1*R_deltab1.random()
 		#
 		# this needs to be abstracted to take a set of prams...
 		# so eventually we'd want something like opt_func(**opt_prams)
 		#fit_data = opt_func(ary_in=CFF, m0=m0, b_0=this_b, nyquist_factor=this_nyq, do_plot=False, set_name=set_name, f_gt_lt=f_gt_lt)
-		alert_segments = opt_func(ary_in=CFF, m0=m0, b_0=this_b, nyquist_factor=this_nyq, do_plot=False, set_name=set_name, f_gt_lt=f_gt_lt)
+		#
+		#alert_segments = opt_func(ary_in=CFF, m0=m0, b_0=this_b, nyquist_factor=this_nyq, do_plot=False, set_name=set_name, f_gt_lt=f_gt_lt)
+		alert_segments = opt_func(ary_in=CFF, m0=m0, b_0=this_b, b_1=this_b1, nyquist_factor=this_nyq, do_plot=False, set_name=set_name, f_gt_lt=f_gt_lt)
+		#
 		fit_data = evaluate_alert_segments(alert_segments=alert_segments, CFF=CFF, do_plot=False)
 		fit_data['b']=this_b
 		fit_data['nyquist_factor']=this_nyq
+		fit_data['b1']=this_b1
 		#
 		# get hits/falsies:
 		if fit_data.has_key('H'):
@@ -2038,82 +2279,7 @@ def simple_metric_optimizer(CFF=None, m0=7.0, b_min=-.1, b_max=.1, d_b=.01, nyqu
 	print "[from simple_metric_optimizer()]: finished optimizing (%s)" % (best_prams)
 	return best_prams, all_prams
 
-	
 
-def plot_fc_metric_1(file_profile = 'data/VC_CFF_timeseries_section_*.npy', m0=7.0, b_0=0.0, nyquist_factor=.5, do_spp=False, do_plot=False, do_clf=True, n_cpus=None):
-	'''
-	# depricated? this script seems to be showing its age as well...
-	#
-	# simple ROC diagram. see the optimized one...
-	# also note that the parameter list for forecast_metric_1() has changed, so generally speaking this 
-	# function needs some maintenance or to be retired.
-	#
-	# scatter plot of hit_ratio vs alert_time_ratio for as many data as we throw at it.
-	# note, this uses a single value(s) for (b_0, nyquist_factor). see optimized versions as well.
-	#
-	# ... and this works ok, but it is a bit limited in exactly what sets we can optimise. see simple_mpp_optimizer()
-	# and simple_metric_optimzer() above.
-	'''		
-	# 
-	G=glob.glob(file_profile)
-	#
-	X, Y = [], []
-	#
-	if do_spp:
-		# SPP version (if we want to force this for some reason):
-		for g in G:
-			fc_data = forecast_metric_1(ary_in=g, m0=m0, b_0 = b_0, nyquist_factor=nyquist_factor)
-			#
-			Y+=[float(fc_data['n_predicted'])/(fc_data['n_predicted'] + float(fc_data['n_missed']))]
-			X+=[fc_data['total_alert_time']/fc_data['total_time']]
-	#
-	else:
-		# use MPP:
-		if n_cpus==None: n_cpus = mpp.cpu_count()
-		pool = mpp.Pool(n_cpus)
-		if (m0, b_0, nyquist_factor)==forecast_metric_1.__defaults__[1:4]:
-			print "defaults. use map_async()"
-			# i'm guessing this is faster...
-			result_set = pool.map_async(forecast_metric_1, G)
-			pool.close()
-			pool.join()
-			#
-			#print result_set
-			resultses = result_set.get()	# will be a list of dictionary objects
-			
-		else:
-			# add/"apply" each file to the pool.
-			print "not default. use apply_async()"
-			result_set_list = [pool.apply_async(forecast_metric_1, args = (g, m0, b_0, nyquist_factor)) for g in G]
-			pool.close()
-			pool.join()
-			#
-			#print "these prams: ", b_0, nyquist_factor
-			#return result_set_list
-			resultses = [x.get() for x in result_set_list]	# each entry in result_set_list is a dict; now we have a list of dicts.
-			
-		#
-		# still MPP...
-		#
-		XY = [[x['total_alert_time']/x['total_time'] ,float(x['n_predicted'])/(x['n_predicted'] + float(x['n_missed']))] for x in resultses]
-		X,Y = zip(*XY)
-	# end MPP. now, either by SPP or MPP, we have X,Y
-	#
-	#
-	#return fc_datas
-	#
-	if do_plot:
-		#
-		plt.figure(0)
-		if do_clf: plt.clf()
-		plt.plot(X, Y, '.')
-		plt.plot([0., 1.], [0., 1.], '-')
-		plt.ylabel('n_predicted/n_total')
-		plt.xlabel('percent alert time')
-	#
-	#if resultses[0].has_key('alert_segments'): [x.pop('alert_segments') for x in resultses]
-	resultses[0] = {key:val for key,val in resultses[0].iteritems() if key!='alert_segments'}	# a little bit faster and more elegant...
-	return resultses
 #
 def plot_section_ROC_curve(roc_data=None, section_id=None, fignum=0, num_points=100, do_clf=True, label_str=None, markers='.-'):
 	# construct an ROC curve for a section (or more generally, a collection of ROC optimizer data collected by some unknown parsing).

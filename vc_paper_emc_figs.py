@@ -57,8 +57,8 @@ def make_gji_figs():
 	a=roc_figure(roc_data='dumps/gji_roc_lt_500/roc_sec_lt_EMC_nits_1000_allprams.npy', title_str='EMC Aggregate', section_id=vfp.emc_sections, output_dir='figs_gji/rev1/ROCs/', fname='ROC_scatter_EMCsections.png')
 	z=vfp.EMC_EWT_figs(output_dir='figs_gji/rev1/EWTs', section_ids=vfp.emc_sections)
 	rocs = plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='figs_gji/rev1/ROCs')
-	z = gji_forecast_fig(fignum=0, section_id=16, f_out = 'figs_gji/rev1/forecast_section_16.png', time_range=(13400., 14850.) )
-
+	z = gji_forecast_fig(fignum=0, section_id=16, f_out = 'figs_gji/rev1/forecast_section_16.png', time_range=(13400., 14850.), opt_data='dumps/gji_roc_lt_500_b/roc_sec_lt_%d_nits_1000_allprams.npy' )
+	
 def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, f_out=None, plot_quake_dots=False, plot_section_labels=None, fault_colors=None, plot_sections=[], verbose=True, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, n_cpus=None, fignum=0):
 	# make an etas map from a vc catalog. we probably have to pare down the catalog, since simulated catalogs are super huge.
 	# sectionses: a list of a list of sections[ [secs1], [secs2], etc.] to (over)plot separately.
@@ -421,11 +421,12 @@ def EMC_WT_dist_Appendix(wt_dir='figs_gji/pri', output_file = 'figs_gji/pri/appe
 		f.write('\\end{document}')
 		#
 	#
-def gji_forecast_fig(fignum=0, section_id=16, f_out = 'dumps/figs_gji/forecast_section_16.png', time_range=(13400., 14850.) ):
+def gji_forecast_fig(fignum=0, section_id=16, f_out = 'dumps/figs_gji/forecast_section_16.png', time_range=(13400., 14850.), opt_data='dumps/gji_roc_lt_500_b/roc_sec_lt_%d_nits_1000_allprams.npy' ):
 	#
 	# "earthquake predictability" forecast time-series figure:
 	#
-	A=vc_parser.plot_psa_metric_figure(section_id=section_id, fignum=fignum)
+	# plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_factor=None, b_0=None, opt_data='dumps/gji_roc_lt_500/roc_sec_lt_%d_nits_1000_allprams.npy', lw=2., **kwargs)
+	A=vc_parser.plot_psa_metric_figure(section_id=section_id, fignum=fignum, opt_data=opt_data)
 	#
 	# axes are added in order "rate", then "b", then "mags" clones 'rate'
 	#f=plt.gcf()

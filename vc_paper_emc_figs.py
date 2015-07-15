@@ -52,11 +52,14 @@ def make_gji_figs():
 	#best_fit_ROC_table({and get the calling parameters...})
 	#
 	# section 16 ROC:
-	z=roc_figure(section_id=16, title_str='Section 16 ROC', output_dir='figs_gji/rev1/ROCs/', fname=None)
+	z=roc_figure(section_id=16, title_str='Section 16 ROC', output_dir='figs_gji/rev1/ROCs/', fname=None, roc_data='dumps/gji_roc_lt_500_b/roc_sec_lt_16_nits_1000_allprams.npy')
 	# full ROC plots:
 	a=roc_figure(roc_data='dumps/gji_roc_lt_500/roc_sec_lt_EMC_nits_1000_allprams.npy', title_str='EMC Aggregate', section_id=vfp.emc_sections, output_dir='figs_gji/rev1/ROCs/', fname='ROC_scatter_EMCsections.png')
+	
 	z=vfp.EMC_EWT_figs(output_dir='figs_gji/rev1/EWTs', section_ids=vfp.emc_sections)
-	rocs = plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='figs_gji/rev1/ROCs')
+	
+	rocs = plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='figs_gji/rev1/ROCs', input_data_format='dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy'))
+	
 	z = gji_forecast_fig(fignum=0, section_id=16, f_out = 'figs_gji/rev1/forecast_section_16.png', time_range=(13400., 14850.), opt_data='dumps/gji_roc_lt_500_b/roc_sec_lt_%d_nits_1000_allprams.npy' )
 	
 def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, f_out=None, plot_quake_dots=False, plot_section_labels=None, fault_colors=None, plot_sections=[], verbose=True, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, n_cpus=None, fignum=0):
@@ -695,7 +698,7 @@ def best_fit_ROC_table(section_ids=vc_parser.emc_sections + ['EMC'], output_file
 	
 #
 #def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='dumps/figs_gji/', font_size=16):
-def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='dumps/figs_gji/'):
+def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='dumps/figs_gji/', input_data_format='dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy'):
 	# some plots of best ROC parameters:
 	# ROC for best optimized forecasts:
 	#   1)simple plot, only best fit, 
@@ -716,7 +719,7 @@ def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_di
 		#print "reset mpl font.size: ", (font_size_original, font_size, mpl.rcParams['font.size'])
 	'''
 	#
-	my_files = glob.iglob('dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy')
+	my_files = glob.iglob(input_data_format)
 	colors_ =  mpl.rcParams['axes.color_cycle']
 	#
 	output_dir=output_dir.strip()
@@ -856,7 +859,7 @@ def roc_figure(roc_data=None, roc_random=None, CFF=None, section_id=None, fignum
 		label_str = 'Forecast score'
 	if roc_data==None:
 		section_id = (16 or section_id)
-		roc_data = 'dumps/gji_roc_lt_500/roc_sec_lt_%d_nits_1000_allprams.npy' % section_id
+		roc_data = 'dumps/gji_roc_lt_500_b/roc_sec_lt_%d_nits_1000_allprams.npy' % section_id
 	#
 	if isinstance(roc_data, str): roc_data = numpy.load(roc_data)
 	#

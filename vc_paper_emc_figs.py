@@ -58,7 +58,7 @@ def make_gji_figs():
 	
 	z=vfp.EMC_EWT_figs(output_dir='figs_gji/rev1/EWTs', section_ids=vfp.emc_sections)
 	
-	rocs = plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='figs_gji/rev1/ROCs', input_data_format='dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy'))
+	rocs = plot_best_roc(n_rank=5, save_figs=True, b_0=None, nyquist_factor=None, output_dir='figs_gji/rev1/ROCs', input_data_format='dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy')
 	
 	z = gji_forecast_fig(fignum=0, section_id=16, f_out = 'figs_gji/rev1/forecast_section_16.png', time_range=(13400., 14850.), opt_data='dumps/gji_roc_lt_500_b/roc_sec_lt_%d_nits_1000_allprams.npy' )
 	

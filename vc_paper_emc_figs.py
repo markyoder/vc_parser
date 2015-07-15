@@ -44,7 +44,12 @@ def make_gji_figs():
 	#
 	# create all the ROC data (note: use delta_b1 parameter to adjust the b_intiaite/b_maintain alert thresholds):
 	#create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=1000, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_lt_500', output_descriptions=[], fig_title_strs=[], m0=7.0, delta_b1=0.)
+	# aggreagate:
+	create_ROC_figs_LT_data(section_ids = [vc_parser.emc_sections], nits=1500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_lt_500_b', output_descriptions=[], fig_title_strs=['EMCaggregate'], m0=7.0, delta_b1=0.)
+	
 	# now, we need to create the ROC tabular data and the composite figures -- which should be straight forward, since the runner script (i think) compiles those data.
+	#
+	#best_fit_ROC_table({and get the calling parameters...})
 	#
 	# section 16 ROC:
 	z=roc_figure(section_id=16, title_str='Section 16 ROC', output_dir='figs_gji/rev1/ROCs/', fname=None)

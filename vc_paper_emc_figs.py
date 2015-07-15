@@ -698,7 +698,7 @@ def best_fit_ROC_table(section_ids=vc_parser.emc_sections + ['EMC'], output_file
 	
 #
 #def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='dumps/figs_gji/', font_size=16):
-def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='dumps/figs_gji/', input_data_format='dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy'):
+def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='dumps/figs_gji/', input_data_format='dumps/gji_roc_lt_500_b/roc_sec_lt_*_allprams*.npy'):
 	# some plots of best ROC parameters:
 	# ROC for best optimized forecasts:
 	#   1)simple plot, only best fit, 

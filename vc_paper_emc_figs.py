@@ -28,16 +28,20 @@ def make_gji_figs():
 	# of course, choose output directories appropriately...
 	
 	# make the map(s) with fault sections:
-	a=vfp.vc_map_with_fault_sections(map_flavor='emc', f_out='figs_gji/rev1/maps')
+	a=vc_map_with_fault_sections(map_flavor='emc', f_out='figs_gji/rev1/maps')
 	# make the etas map (but only if necessary; this one takes a while...)
 	#vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, plot_sections=[], f_out=None, plot_quake_dots=False, fault_colors = None):
+	#
+	# non-conditional CDFs:
+	a=vc_parser.recurrence_figs(section_ids=vpp.vc_parser.emc_sections, output_dir='figs_gji/rev1/CDF_figs', fs_title=16, fs_legend=12, fs_label=16)
 	#
 	# surface deformation:
 	# (note: 1) not fully save, etc. scripted, 2) we're pulling this fig from the paper since we don't really develop it.
 	#vc_surface_deformation(map_flavor = 'napa', map_resolution='i')
 	#
-	a=vfp.closest_emc_fault_section_figs()
-	a=vfp.gji_RI_probabilities(section_ids=vc_parser.emc_sections, output_dir='figs_gji/rev1/pri')
+	a=closest_emc_fault_section_figs(output_dir='figs_gji/rev1/closest_sections/', fs_title=16, fs_label=16, fs_legend=12)
+	a=gji_RI_probabilities(section_ids=vc_parser.emc_sections, output_dir='figs_gji/rev1/pri', fs_title=16, fs_label=16, fs_legend=12)
+	
 	#
 	# it might be neccessary to re-make the appendix .tex:
 	# EMC_WT_dist_Appendix(wt_dir='figs_gji/pri', output_file = 'figs_gji/pri/appendix_wt_probs.tex', section_ids=vc_parser.emc_sections)
@@ -50,15 +54,17 @@ def make_gji_figs():
 	# now, we need to create the ROC tabular data and the composite figures -- which should be straight forward, since the runner script (i think) compiles those data.
 	#
 	#best_fit_ROC_table({and get the calling parameters...})
+	# best_fit_ROC_table(section_ids=vc_parser.emc_sections + ['EMC'], output_file='dumps/gji_roc_lt_500/roc_bestfits', m0=7.0, roc_file_format='dumps/gji_roc_lt_500/roc_sec_lt_%s_nits_1000_allprams.npy', longtable=True, lbl_str='tbl:roc_prams')
+	z = best_fit_ROC_table(section_ids=vc_parser.emc_sections + ['EMC'], output_file='dumps/gji_roc_lt_500_b/roc_bestfits', m0=7.0, roc_file_format='dumps/gji_roc_lt_500_b/roc_sec_lt_%s_nits_1000_allprams.npy', longtable=True, lbl_str='tbl:roc_prams')
 	#
 	# section 16 ROC:
-	z=roc_figure(section_id=16, title_str='Section 16 ROC', output_dir='figs_gji/rev1/ROCs/', fname=None, roc_data='dumps/gji_roc_lt_500_b/roc_sec_lt_16_nits_1000_allprams.npy')
+	z=roc_figure(section_id=16, title_str='Section 16 ROC', output_dir='figs_gji/rev1/ROCs_b/', fname=None, roc_data='dumps/gji_roc_lt_500_b/roc_sec_lt_16_nits_1000_allprams.npy')
 	# full ROC plots:
-	a=roc_figure(roc_data='dumps/gji_roc_lt_500/roc_sec_lt_EMC_nits_1000_allprams.npy', title_str='EMC Aggregate', section_id=vfp.emc_sections, output_dir='figs_gji/rev1/ROCs/', fname='ROC_scatter_EMCsections.png')
+	a=roc_figure(roc_data='dumps/gji_roc_lt_500_b/roc_sec_lt_EMC_nits_1000_allprams.npy', title_str='EMC Aggregate', section_id=vfp.emc_sections, output_dir='figs_gji/rev1/ROCs_b/', fname='ROC_scatter_EMCsections.png')
 	
 	z=vfp.EMC_EWT_figs(output_dir='figs_gji/rev1/EWTs', section_ids=vfp.emc_sections)
 	
-	rocs = plot_best_roc(n_rank=5, save_figs=True, b_0=None, nyquist_factor=None, output_dir='figs_gji/rev1/ROCs', input_data_format='dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy')
+	rocs = plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='figs_gji/rev1/ROCs', input_data_format='dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy')
 	
 	z = gji_forecast_fig(fignum=0, section_id=16, f_out = 'figs_gji/rev1/forecast_section_16.png', time_range=(13400., 14850.), opt_data='dumps/gji_roc_lt_500_b/roc_sec_lt_%d_nits_1000_allprams.npy' )
 	
@@ -216,7 +222,8 @@ def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, 
 	# note: this takes a LONG time for the current ETAS model (which can be very much optimized, but is not yet). we should script up a bit to save the
 	# [[xyz]] data so we can modify this map more easily.
 	#
-	my_map = vc_parser.seismicity_map(section_ids=sectionses[map_flavor], start_date=10000., etas_catalog={'catalog':list(catalog[i_min:i_max]), 'sweep_index':sweep_index}, p_map=0., etas_gridsize=etas_gridsize)
+	if f_out!=None: fout_xyz = f_out[:-4]+'.xyz'
+	my_map = vc_parser.seismicity_map(section_ids=sectionses[map_flavor], start_date=10000., etas_catalog={'catalog':list(catalog[i_min:i_max]), 'sweep_index':sweep_index}, p_map=0., etas_gridsize=etas_gridsize, etas_output_xyz=fout_xyz)
 	#
 	# extras:
 	if map_flavor.lower()=='napa':
@@ -311,7 +318,7 @@ def vc_surface_deformation(map_flavor = 'napa', map_resolution='i'):
 #	return vc_etas_RI_map(map_flavor='emc', i_min=1000, i_max=4000, etas_gridsize=.1, plot_sections=[secs])
 #	#
 #
-def closest_emc_fault_section_figs(n_sections=5, sections=None, m0=7.0, output_dir='figs_gji/rev1/closest_sections/'):
+def closest_emc_fault_section_figs(n_sections=5, sections=None, m0=7.0, output_dir='figs_gji/rev1/closest_sections/', fs_title=16, fs_label=16, fs_legend=12):
 	'''
 	# a few plots based on the nearest sections to the EMC event.
 	# sections: overrides n_sections? maybe we'll truncate. anyway, you can provide sections or leave it None and fetch them.
@@ -329,7 +336,7 @@ def closest_emc_fault_section_figs(n_sections=5, sections=None, m0=7.0, output_d
 	#q=waiting_time_figs(section_ids=sections, file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='emc_WT_figs_n_%d' % n_sections, mc_nits=100000, n_cpus=None)
 	#
 	# ... but we should already have these from gji_RI_probabilities(), and we don't use the individual figures anyway...
-	fig_kwargs = {'fs_label':fs_title, 'fs_title':fs_title, 'fs_legend':fs_legend}
+	fig_kwargs = {'fs_label':fs_label, 'fs_title':fs_title, 'fs_legend':fs_legend}
 	#q1=conditional_RI_figs(section_ids=sections,file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir=output_dir, mc_nits=100000, n_cpus=None, start_year=10000, end_year=None, **fig_kwargs)
 	#
 	q1=conditional_RI_figs(section_ids=[sections],file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir=output_dir, mc_nits=100000, n_cpus=None, start_year=10000, end_year=None, **fig_kwargs)
@@ -353,7 +360,7 @@ def closest_emc_fault_section_figs(n_sections=5, sections=None, m0=7.0, output_d
 	return EWTf
 
 #
-def gji_RI_probabilities(section_ids=vc_parser.emc_sections, output_dir='figs_gji/rev1/pri/', production_gen_figs='/home/myoder/Dropbox/Research/VC/VC_EMC_gji_yoder/general_figs/'):
+def gji_RI_probabilities(section_ids=vc_parser.emc_sections, output_dir='figs_gji/rev1/pri/', production_gen_figs='/home/myoder/Dropbox/Research/VQ/VC_EMC_gji_yoder/general_figs/', fs_title=16, fs_label=16, fs_legend=12):
 	#
 	# ... and we should write a script to plot pre-fit data. it's probably better to just write a separate script, since matching the 
 	# existing t_0 values with the parent (fit + fig generating script) is tricky (since they're floats). the better approach is to separate
@@ -366,6 +373,7 @@ def gji_RI_probabilities(section_ids=vc_parser.emc_sections, output_dir='figs_gj
 	# get individual section figures:
 	plt.figure(0, figsize=(9,8))
 	fig_kwargs = {'fs_label':fs_title, 'fs_title':fs_title, 'fs_legend':fs_legend}
+	#
 	z=conditional_RI_figs(section_ids=section_ids,file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], output_dir=gji_pri_figs_dir, mc_nits=100000, n_cpus=None, start_year=10000, end_year=None, **fig_kwargs)
 	#
 	# now get the aggregate figure:
@@ -460,7 +468,7 @@ def EMC_exp_WT_Appendix(wt_dir='\WTexpfigs', wt_prob_dir='\WTPfigs', output_file
 	#
 	'''
 	#
-	manuscript_folder = '/home/myoder/Dropbox/Research/VC/VC_EMC_gji_yoder'
+	manuscript_folder = '/home/myoder/Dropbox/Research/VQ/VC_EMC_gji_yoder'
 	#
 	src_template_file = '%s/VC_forecasting_yoder.tex' % manuscript_folder
 	header_string = ''
@@ -602,7 +610,7 @@ def best_fit_ROC_table(section_ids=vc_parser.emc_sections + ['EMC'], output_file
 	#pass
 	#
 	# we'll make two outputs: 1) simple CSV, 2) .tex format. do we have a csv->tex script already?
-	# final copies of output files will (eventually) end up in: /home/myoder/Dropbox/Research/VC/VC_EMC_gji_yoder/general_figs
+	# final copies of output files will (eventually) end up in: /home/myoder/Dropbox/Research/VQ/VC_EMC_gji_yoder/general_figs
 	'''
 	#
 	fname_csv = '%s.csv' % (output_file)
@@ -688,7 +696,7 @@ def best_fit_ROC_table(section_ids=vc_parser.emc_sections + ['EMC'], output_file
 		f.write(end_string)
 	
 	#
-	production_fig_path = '/home/myoder/Dropbox/Research/VC/VC_EMC_gji_yoder/general_figs'
+	production_fig_path = '/home/myoder/Dropbox/Research/VQ/VC_EMC_gji_yoder/general_figs'
 	dir_tex, fname_tex = os.path.split(fname_tex)
 	dir_csv, fname_csv = os.path.split(fname_csv)
 	#print "fnames...", dir_tex, " ** ", fname_tex
@@ -739,7 +747,7 @@ def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_di
 	total_t_alert = 0.
 	total_t = 0.
 	#
-	# for reference, 'default' roc with b=0, alpha=.5 (or whatever we comeup with later)
+	# for reference, 'default' roc with b=0, alpha=.5 (or whatever we come up with later)
 	roc_default = ROC_single_prams(section_ids=emc_sections, b_0=b_0, nyquist_factor=nyquist_factor, m0=7.0, fignum=None)
 	#
 	col_names = ['H', 'F','b', 'nyquist_factor']
@@ -767,7 +775,7 @@ def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_di
 	#
 	mean_H/=(float(j+1))
 	mean_F/=(float(j+1))
-	print "mean_H,mean_F: ", mean_H, mean_F
+	#
 	plt.plot([mean_F], [mean_H], 'r*', ms=15, zorder=4, alpha=.9)
 	plt.plot([mean_F], [mean_H], 'k*', ms=18, zorder=3, alpha=.9)
 	#
@@ -824,12 +832,26 @@ def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_di
 	plt.xlabel('$b_0$', size=fs_label)
 	plt.ylabel('score $H-F$', size=fs_label)
 	#
+	print "\n\noutput report:"
+	print "optimized:"
+	print "mean_H,mean_F: %f, %f (%f)" % (mean_H, mean_F, mean_H-mean_F) 
+	print "medain_H, median_F: %f, %f (%f) " % (numpy.median(my_lists['H']), numpy.median(my_lists['F']), numpy.median(my_lists['H'])-numpy.median(my_lists['F']))
+	#return my_lists
+	print "stdev(H-F)]: %f" % (numpy.std([h-f for f,h in zip(my_lists['F'], my_lists['H'])]))
+	roc_default_means = {'H':numpy.mean([rw['H'] for rw in roc_default.itervalues()]), 'F':numpy.mean([rw['F'] for rw in roc_default.itervalues()])}
+	roc_default_meds = {'H':numpy.median([rw['H'] for rw in roc_default.itervalues()]), 'F':numpy.median([rw['F'] for rw in roc_default.itervalues()])}
+	print "Defaults:"
+	print "mean_H,mean_F: %f, %f (%f) " % (roc_default_means['H'], roc_default_means['F'], roc_default_means['H']-roc_default_means['F'])
+	print "median_H,median_F: %f, %f (%f) " % (roc_default_meds['H'], roc_default_meds['F'], roc_default_meds['H']-roc_default_meds['F'])
+	print "stdev[(H-F)]: %f" % (numpy.std([h-f for h,f in zip([rw['H'] for rw in roc_default.itervalues()],[rw['F'] for rw in roc_default.itervalues()])]))
+	#
 	# return original font size:
 	#if font_size!=None and (isinstance(font_size, int) or isinstance(font_size, float)):
 	#	#font_size_original = mpl.rcParams['font.size']
 	#	mpl.rcParams['font.size'] = font_size_original
 	#
-	return my_files
+	#return my_files
+	return my_lists, roc_default
 
 # plotting helper functions:
 def roc_figure(roc_data=None, roc_random=None, CFF=None, section_id=None, fignum=0, do_clf=True, label_str=None, title_str=None, markers='.-', n_rand=1000, m0=7.0, bin_size=.1, output_dir='figs_gji/rev1/', fname=None):
@@ -1028,7 +1050,7 @@ def create_ROC_aggregate(section_ids=[vc_parser.emc_sections], nits=1000, fnum=0
 	#
 	return None
 #
-def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_lt_500', output_descriptions=[], fig_title_strs=[], m0=7.0, delta_b1=0.):
+def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_lt_500', output_descriptions=[], fig_title_strs=[], m0=7.0, delta_b1=0., f_gt_lt=operator.lt):
 	'''
 	# for LT metric (acceleration): 
 	#create a whole slew of ROC data. this will include the optimized "best fit" (using whatever metric) and also the raw, full MC output.
@@ -1048,6 +1070,9 @@ def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 	#
 	if isinstance(fig_title_strs, str): fig_title_strs = [fig_title_strs]
 	if not hasattr(fig_title_strs, '__len__'): fig_title_strs=[]
+	#
+	# a string to indicate whether we're doing LT or GT operations:
+	str_lt_gt = {operator.lt:'lt', operator.gt:'gt'}.get(f_gt_lt, 'some_operator')
 
 	#
 	R=random.Random()
@@ -1070,12 +1095,12 @@ def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 		#print "fig_title: ", fig_title_str
 		#continue
 		#
-		f_output_name = '%s/roc_sec_lt_%s_nits_%d.npy' % (output_dir, sec_str, nits)
-		f_output_name_rand = '%s/roc_sec_lt_rand_%s_nits_%d.npy' % (output_dir, sec_str, nits)
+		f_output_name = '%s/roc_sec_%s_%s_nits_%d.npy' % (output_dir, str_lt_gt, sec_str, nits)
+		f_output_name_rand = '%s/roc_sec_%s_rand_%s_nits_%d.npy' % (output_dir, str_lt_gt, sec_str, nits)
 		#
 		CFF = vc_parser.combine_section_CFFs(sec_id)
 		#
-		opt_datas, raw_datas = simple_metric_optimizer(CFF=CFF, section_id=sec_id, m0=m0, b_min=-.25, b_max=.25, d_b=.01, delta_b1=delta_b1, nyquist_min=.2, nyquist_max=1.2, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name, f_gt_lt=operator.lt, f_score=operator.sub, opt_func=vc_parser.psa_forecast_1b)
+		opt_datas, raw_datas = simple_metric_optimizer(CFF=CFF, section_id=sec_id, m0=m0, b_min=-.25, b_max=.25, d_b=.01, delta_b1=delta_b1, nyquist_min=.2, nyquist_max=1.2, d_nyquist=.01,  nits=nits, keep_set=True, set_name=None, dump_file=f_output_name, f_gt_lt=f_gt_lt, f_score=operator.sub, opt_func=vc_parser.psa_forecast_1b)
 		#
 		roc_random = vc_parser.get_random_forecast_set(CFF=CFF, section_id=sec_id, m0=m0, P_min=0., P_max=1.0, set_name=None, nits=nits, format='recarray', do_roc_plot=False, fignum=None)
 		#
@@ -1094,14 +1119,14 @@ def create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=2500, fnu
 		#plt.title('Optimal ROC (PSA) for Section %s' % sec_str)
 		plt.title('Optimal ROC (PSA) for %s' % fig_title_str)
 		plt.legend(loc=0, numpoints=1)
-		plt.savefig('%s/roc_psa_lt_opt_sec_%s_nits_%d.png' % (output_dir, sec_str, nits))
+		plt.savefig('%s/roc_psa_%s_opt_sec_%s_nits_%d.png' % (output_dir, str_lt_gt, sec_str, nits))
 		#
 		plt.figure(fnum+1)
 		plt.plot(roc_random['F'], roc_random['H'], '.', alpha=.6, zorder=1, label='Random forecast')
 		#plt.title('Raw ROC (PSA) for Section %s' % sec_str)
 		plt.title('Raw ROC (PSA) for %s' % fig_title_str)
 		plt.legend(loc=0, numpoints=1)
-		plt.savefig('%s/roc_psa_lt_raw_sec_%s_nits_%d.png' % (output_dir, sec_str, nits))	
+		plt.savefig('%s/roc_psa_%s_raw_sec_%s_nits_%d.png' % (output_dir, str_lt_gt, sec_str, nits))	
 ###################################
 #
 # IAGS paper (short, letter bit for IAGS special publication):

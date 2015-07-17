@@ -2418,7 +2418,7 @@ def mean_recurrenceses(section_ids=[], m0=7.0, file_path_format='data/VC_CFF_tim
 	#
 	return None
 #
-def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, keep_figs=False, output_dir='CDF_figs'):
+def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, keep_figs=False, output_dir='CDF_figs', **fig_kwargs):
 	'''
 	# (these should be the non-conditional weibull plots, equivalent to cond_wiebul(t0=0).
 	# for each section_id, fetch the mean_recurrence data.
@@ -2427,6 +2427,10 @@ def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_se
 	# 3) plot each cum. prob onto a single figure
 	# 4) a cumulative figure
 	'''
+	#
+	fs_title = fig_kwargs.get('fs_title', 16)
+	fs_legend = fig_kwargs.get('fs_title', 12)
+	fs_label = fig_kwargs.get('fs_title', 16)
 	#
 	if section_ids in (None, [], ()): section_ids = list(emc_section_filter['filter'])
 	section_ids=list(section_ids)
@@ -2569,8 +2573,8 @@ def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_se
 		f = plt.figure(i)
 		plt.plot(X,Y, '.-', color=this_color, label=this_lbl)
 		plt.plot(X_fit, [f_weibull(x=x, chi=fit_prams[0], beta=fit_prams[1], x0=0.) for x in X_fit], '--', color=this_color, label='$\\beta=%.3f, \\tau=%.3f, \\chi ^2=%.3e/%.3e$' % (fit_prams[1], fit_prams[0], mean_chi_sqr, stdErr), lw=lw, ms=ms)
-		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$ (years)' % m0)
-		plt.ylabel('Probability $P(t)$')
+		plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$ (years)' % m0, size=fs_label)
+		plt.ylabel('Probability $P(t)$', size=fs_label)
 		
 		sec_name = str(sec_id)
 		if sec_id==-1:
@@ -2578,8 +2582,8 @@ def recurrence_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_se
 			#plt.gca().set_xlim([0., 4500.])
 			plt.show()
 		plt.gca().set_ylim([0., 1.1])
-		plt.title('CDF for m>7 on fault section %s' % sec_name)
-		plt.legend(loc=0, numpoints=1)
+		plt.title('CDF for m>7 on fault section %s' % sec_name, size=fs_title)
+		plt.legend(loc=0, numpoints=1,  prop={'size':fs_legend})
 		plt.savefig('%s/VC_CDF_m%s_section_%d.png' % (output_dir, str(m0).replace('.', ''), sec_id))
 		if keep_figs==False and sec_id!=-2:
 			plt.close(i)
@@ -3819,7 +3823,7 @@ def get_fault_model_extents(section_ids=None, sim_file=allcal_full_mks, n_cpus=N
 	#
 	return {'lat_min': min_lat, 'lat_max':max_lat, 'lon_min':min_lon, 'lon_max':max_lon}
 #
-def vc_basemap(projection='cyl', resolution='i', **kwargs):
+def vc_basemap(projection='cyl', resolution='i', tick_font_size=12, **kwargs):
 	#
 	titlefont1 = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=12)
 	titlefont2 = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=14, weight='bold')
@@ -3828,8 +3832,8 @@ def vc_basemap(projection='cyl', resolution='i', **kwargs):
 	framelabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9)
 	legendfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9)
 	smtitlefont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=9, weight='bold')
-	cbticklabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=12)
-	ticklabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=12)
+	cbticklabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=tick_font_size)
+	ticklabelfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=tick_font_size)
 	#
 	water_color             = '#bed5ff'
 	land_color              = '#ffffff'
@@ -4298,7 +4302,7 @@ def get_anss_seismicity(section_ids=None, sim_file=allcal_full_mks, start_date=N
 	#	
 	return earthquake_catalog	
 #
-def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], etas_gridsize=.25, etas_mc=3.0, etas_contour_intervals=24, etas_cat_len=500, etas_catalog=None, p_map=0.0, map_resolution = 'i'):
+def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, end_date=None, n_cpus=None, fignum=0, map_size=[10,8], etas_gridsize=.25, etas_mc=3.0, etas_contour_intervals=24, etas_cat_len=500, etas_catalog=None, p_map=0.0, map_resolution = 'i', etas_output_xyz=None, etas_output_figure=None):
 	# make a map of real seismicity around our model area. use the fault model to determine extents.
 	#
 	# emc section_ids: emc_section_filter['filter']
@@ -4332,7 +4336,7 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	plt.figure(fignum, figsize=map_size)
 	plt.clf()
 	#bm = vc_basemap(llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution='i', projection='cyl')
-	bm = vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution=map_resolution)
+	bm = vc_basemap( projection='cyl', llcrnrlon=ll_range['lon_min'], llcrnrlat=ll_range['lat_min'], urcrnrlon=ll_range['lon_max'], urcrnrlat=ll_range['lat_max'], lon_0=lon_0, lat_0=lat_0, resolution=map_resolution, tick_font_size=14)
 	
 	# note: we could also specify lon_0, lat_0, width, height {in meters}.
 	#bm.drawcoastlines()
@@ -4342,8 +4346,6 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	plt.title('VC fault model map\n\n')
 	plt.show()
 	#
-	# looks like there might be some GIT synching problems to be handled here. maybe a change from Buller didn't manage
-	# to push up properly?
 	print "start_date, end_date: ", start_date, end_date
 	#
 	if etas_catalog in (None, 'etas'):
@@ -4397,6 +4399,18 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 			new_pair = [etas.cm(x,y) for x,y in pair]
 			plt.plot([x[0] for x in new_pair], [y[1] for y in new_pair], '-', color=fault_color, lw=1.5)
 		#	
+	#
+	#
+	if etas_output_xyz!=None:
+		pth, fname = os.path.split(etas_output_xyz)
+		if not os.path.ispath(pth): os.makedirs(pth)
+		#
+		etas.xyztofile(etas_output_xyz)
+	if etas_output_figure!=None:
+		pth, fname = os.path.split(etas_output_figure)
+		if not os.path.ispath(pth): os.makedirs(pth)
+		#
+		plt.savefig(etas_output_figure)
 	#
 	return etas
 #
@@ -4691,209 +4705,12 @@ def plot_trend(CFF_in=None, section_ids=[16], nyquist_len=10, fignum=0, do_clf=T
 		if rw['event_magnitude']<m0: continue
 		ax_main.plot([rw['event_year'], rw['event_year']], [min_dt, max_dt], 'r-', lw=2, alpha=.7, zorder=4)
 		ax_b.plot([rw['event_year'], rw['event_year']], [min_b, max_b], 'r-', lw=2, alpha=.7, zorder=4)
-#
-def plot_CFF_ary(ary_in=None, fnum=0, nyquist_factor=.5, gt_lt_eval=operator.lt, section_id=16):
-	'''
-	# (depricate? this bit can probably be removed. it was originally intended to investigate the usefulness of plotting CFF
-	# time series... which appear to be mostly useless. subsequent figure-scripts plotting  interval \Delta t and d(\Delta t)/dt
-	# apper more useful, and the alert system appears to be a little bit more complicated with nyquist_factor and b_0, so this script might 
-	# be more clutter than useful at this stage.
-	#
-	# this script is for some of the earlier CFF numpy array types. newer arrays may require different scripting. (but it seems to work ok).
-	# basics: plots the triple time-series figure with [intervals, magnitudes, alert], [CFF, Delta CFF (?)], and [mags,slopes] ].
-	# this was a development figure where be basically decided not to use CFF. and the alert figure got moved to ???.
-	# for older data sets (most likely):
-	#	# 2 cols: event_number, CFF_initial
-	#   # 3 cols: event_number, event_year, CFF_initial
-	#   # 4 cols: event_number, event_year, CFF_initial, CFF_final
-	#  later versions will include column names.
-	#
-	# ary_in: can be a numpy.recarray or a string/filename like: 'data/VC_CFF_timeseries_section_125.npy'
-	#   numpy array would be like numpy.load(ary_in)
-	#
-	# gt_lt_eval: how do we evaluate greter/less than? submit gt/lt functions: operator.{lt, le, gt, ge} or
-	# strings: {'le', 'leq', 'ge', 'geq'}, and we trap a few others as well.
-	#
-	# (this is primarily a development script and may need to be depricated).
-	#
-	'''
-	#
-	# are we going to be a greater to less than camp?
-	#gl_lt_eval = operator.lt		# "less than", "less that or equal", "greater than", "greater than or equal"
-	#gl_lt_eval = operator.le
-	#gl_lt_eval = operator.gt
-	#gt_lt_eval = operator.ge		# greater than or equal to; ge(4,5)=False, ge(4,4)=True, ge(4,3)=True
-	# and allow for string inputs:
-	if isinstance(gt_lt_eval, str):
-		gt_lt_eval = gt_lt_eval.lower()
-		if gt_lt_eval in ('lt', 'less', 'lessthan', 'less_than'): gl_lt_eval = operator.lt
-		if gt_lt_eval in ('lte', 'leq', 'lessthanorequal', 'less_than_or_equal'): gl_lt_eval = operator.le
-		if gt_lt_eval in ('ge', 'greater', 'greaterthan', 'greater_than'): gl_lt_eval = operator.gt
-		if gt_lt_eval in ('gte', 'geq', 'greaterthanorequal', 'greater_than_or_equal'): gl_lt_eval = operator.ge
-	#
-	if section_id!=None and (ary_in==None or len(ary_in)==0):
-		# guess the ary_in file name from section_id (and later on, trap for multiple section_id values):
-		ary_in = 'data/VC_CFF_timeseries_section_%d.npy' % section_id
-		
-	if isinstance(ary_in, str):
-		CFF = numpy.load(ary_in)
-	else:
-		CFF = ary_in
-	#
-	recurrence_data = mean_recurrence(ary_in=CFF, m0=7.0)
-	nyquist_len = int(nyquist_factor*recurrence_data['mean_dN_fault'])
-	nyquist_time = nyquist_factor*recurrence_data['mean_dT']
-	#
-	trend_data = get_trend_analysis(ary_in=CFF, nyquist_len = nyquist_len, nyquist_time=nyquist_time)
-	#
-	# what kind of array did we get?
-	# this is not very efficient, in that we rewrite the whole enchilada for the new types, but i don't
-	# expect that we'll be returning to these unformatted (unstructured) array types.
-	# so, focus on newer structured arrays. leave the old thing in out of principle.
-	#	
-	if isinstance(CFF, numpy.recarray)==True:
-		# it's a structured array.
-		#cols = map(operator.itemgetter(0), CFF.dtype.descr)
-		col = CFF.dtype.names
-		# cols should be like: ['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final', 'event_area']
-		#
-		f=plt.figure(fnum)
-		f.clf()
-		#
-		# create two axes:
-		# magnitudes plot
-		# bottom:
-		ax_mag = f.add_axes([.1, .05, .85, .25])
-		#
-		# CFF plot. (center):
-		ax_CFF = f.add_axes([.1, .35, .85, .25], sharex=ax_mag)
-		ax_dCFF = ax_CFF.twinx()	# over-plot stress (CFF) drop...
-		#
-		# top (intervals, etc.)
-		ax_ints  = f.add_axes([.1, .65, .85, .25], sharex=ax_mag)
-		ax_mag2  = ax_ints.twinx()
-		ax_trend2 = ax_ints.twinx()
-		#
-		ax_trend = ax_mag.twinx()
-		#
-		X_init = CFF['event_year']
-		X_finals = [x+.01 for x in X_init]	# this to show the stress drops after a mainshock (X_final is the time of the data point after the event).
-		#
-		Y0 = -1.*CFF['cff_initial']
-		Y_final = -1.*(CFF['cff_final'])
-		
-		X = list(X_init) + list(X_finals)
-		X.sort()
-		#
-		intervals = X_init[1:] - X_init[:-1]
-		
-		big_mags = zip(*[[x['event_year'], x['event_magnitude']] for x in CFF if x['event_magnitude']>7.0])
-		#
-		Y = []
-		CFF_drops = [(x['cff_initial'] - x['cff_final'])**2. for x in CFF]
-		for i, y in enumerate(Y0):
-			Y += [Y0[i]]
-			Y += [Y_final[i]]
-		#
-		# use "peak" values to cut through some noise.
-		peaks = get_peaks(zip(*[X,Y]), col=1, peak_type='upper')
-		X_peaks, Y_peaks = zip(*peaks)
-		#
-		# CFF Plot:
-		#ax = plt.gca()
-		ax_CFF.set_xscale('linear')
-		ax_CFF.set_yscale('log')
-		ax_CFF.set_ylabel('CFF')
-		ax_dCFF.set_xscale('linear')
-		ax_dCFF.set_yscale('log')
 
-		# first, raw CFF (initial):
-		ax_CFF.plot(X, Y, '.-', color='b', alpha=.2, zorder=4)
-		ax_CFF.fill_between(X, Y, y2=min(Y), color='b', alpha=.2, zorder=4)
-		ax_CFF.plot(X_peaks, Y_peaks, '-', zorder=5)
-		ax_dCFF.plot(CFF['event_year'], CFF_drops, 'g.-', zorder=7, alpha=.9)
-		#
-		# Magnitude plot (by itself):
-		ax_mag.set_xscale('linear')
-		ax_mag.set_yscale('linear')
-		ax_mag.set_ylabel('event magnitude $m$')
-		ax_mag.set_xlabel('event year $t$')
-		min_mag = min(CFF['event_magnitude']) - .5
-		ax_mag.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='b', alpha=.9)
-		#
-		ax_trend.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], 'r-', zorder=5, alpha=.8)
-		#ax_trend.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], y2=[0.0 for x in trend_data], where=[x['lin_fit_b']<0. for x in trend_data], color='r', zorder=2, alpha=.8)
-		ax_trend.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], y2=[0.0 for x in trend_data], where=[gt_lt_eval(x['lin_fit_b'],0.) for x in trend_data], color='r', zorder=2, alpha=.8)
-		ax_trend.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
-		ax_trend.set_ylabel('(log) interval slope $b$')
-		#
-		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] for x in trend_data], 'r-', zorder=5, alpha=.8)
-		#
-		ax_trend2.fill_between([x['event_year'] for x in trend_data], [x['lin_fit_b']  for x in trend_data], y2=[0.0 for x in trend_data], where=[gt_lt_eval(x['lin_fit_b'],0.) for x in trend_data], color='m', zorder=1, alpha=.5)
-		ax_trend2.fill_between([x['event_year'] for x in trend_data], [1.  for x in trend_data], y2=[0.0 for x in trend_data], where=[gt_lt_eval(x['lin_fit_b'],0.) for x in trend_data], color='m', zorder=1, alpha=.25)
-		#		
-		ax_trend2.plot([trend_data['event_year'][0], trend_data['event_year'][-1]], [0., 0.], 'k--')
-		#
-		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['rb_ratio'] for x in trend_data], 'c--')
-		#ax_trend2.plot([x['event_year'] for x in trend_data], [x['lin_fit_b'] + x['rb_ratio'] for x in trend_data], 'c-')
-		
-		#
-		# Interval Plots:
-		ax_ints.set_xscale('linear')
-		ax_ints.set_yscale('log')
-		ax_ints.set_ylabel('intervals $\\Delta t$')
-		ax_ints.plot(X_init[1:], intervals, '.-', alpha=.9)
-		ax_mag2.vlines(CFF['event_year'], [min_mag for x in CFF['event_magnitude']], CFF['event_magnitude'], color='g', alpha=.9, lw=2)
-		ax_mag2.vlines(big_mags[0], [min_mag for x in big_mags[1]], big_mags[1], color='r', lw=2.5, alpha=.9)
-		ax_mag2.set_ylabel('magnitude $m$')
-	#	
-	if isinstance(CFF, numpy.recarray)==False:
-		# a regular, old-style, numpy.ndarray -- aka, no columns. guess the column structure from what we know...
-		#
-		# assume either [event_id/num, year, CFF] or [event_id/num, CFF]
-		if len(CFF[0])==2:
-			y_col=1
-		if len(CFF[0])>=3:
-			x_col=1
-			y_col=2
-		if len(CFF[0])>=5:
-			x_col=1
-			y_col=3
-		#CFF_peaks = get_peaks(data_in=CFF, col=y_col, peak_type='lower')
-		#
-		zCFF = zip(*CFF)
-		X=zCFF[x_col]
-		Y=zCFF[y_col]
-		Y=[-1*y for y in Y]
-		CFF_peaks = get_peaks(data_in = zip(*[X,Y]), col=1, peak_type='upper')
-		#
-		zCFF_peaks = zip(*CFF_peaks)
-		X_peaks = zCFF_peaks[0]
-		Y_peaks = zCFF_peaks[1]
-		#
-		'''
-		if len(CFF[0])==2:
-			X=zCFF[0]
-			Y=zCFF[1]
-		if len(CFF[0])>=3:
-			X=zCFF[1]
-			Y=zCFF[2]
-		'''
-		#
-		plt.figure(fnum)
-		plt.clf()
-		#
-		ax = plt.gca()
-		ax.set_xscale('linear')
-		ax.set_yscale('log')
-		plt.fill_between(X, Y, y2=min(Y), color='b', alpha=.2, zorder=4)
-		plt.plot(X_peaks, Y_peaks, '.-', zorder=5)				
-	#
-	return CFF
-	
 #
 def get_EMC_CFF(sections=None, file_out_root='data/VC_CFF_timeseries_section'):
 	# make pre-calculated CFF,event time-series for EMC sections.
+	# note: this is probably no longer necessary since we figured out that the h5_object[()] syntax is super fast.
+	#
 	# (wrapper script for get_CFF_on_section()  , so this maybe should move to vc_paper_emc_figs ?)
 	#if sections==None: sections = [16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 56, 57, 69, 70, 73, 83, 84, 92, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 123, 124, 125, 126, 149]
 	if sections==None: sections = emc_sections
@@ -5172,159 +4989,6 @@ def in_rec_array(rec_array, col_name, in_list, pipe=None):
 		# even with just the single cpu. in fact, the 1-cpu implementation appears to run faster than n_cpus.
 		#
 		pipe.send([rw for rw in rec_array if rw[col_name] in in_list])
-#
-def in_rec_test(section_ids=None, sim_file=allcal_full_mks, n_cpus=None):
-	# results summary:
-	# 1) filter(), with a lambda: function, is a little bit slower than the list comprehension
-	# 2) Process() and Pipe() is pretty slow -- about the same as the in-line list comprehsnsion (if i recall, it's
-	#    the Pipe() part that is really slow. might be able to improve this by using direct reference to a structured array.
-	# 3) the list-comprehension approach is pretty slow as well (all of these 9-10 seconds for EMC faults.
-	# 4) using Pool() and apply_async() is almost 10x faster (about 1.1 seconds).
-	if n_cpus==None: n_cpus = mpp.cpu_count()
-	#
-	section_ids = (section_ids or emc_section_filter['filter'])
-	print "section_ids: ", section_ids
-	#
-	with h5py.File(sim_file) as vc_data:
-		if True:
-			print "len_0: %d" % len(vc_data['block_info_table'])
-			t0=time.time()
-			print t0
-			block_info = numpy.array([rw for rw in vc_data['block_info_table'] if rw['section_id'] in section_ids], dtype=vc_data['block_info_table'].dtype)
-			print "bi_len: %d" % len(block_info)
-			#
-			print time.time(), " :: ", time.time()-t0
-			t0=time.time()
-			#
-			#pipe_in, pipe_out = mpp.Pipe()
-			#proc = mpp.Process(target=in_rec_array, kwargs={'rec_array':vc_data['block_info_table'], 'col_name':'section_id', 'in_list':section_ids, 'pipe':pipe_out})
-			#proc.start()
-			#proc.join()
-			#
-			#block_info = numpy.array(pipe_in.recv(), dtype=vc_data['block_info_table'].dtype)
-			block_info = numpy.array(filter(lambda rw: rw['section_id'] in section_ids, vc_data['block_info_table']), dtype=vc_data['block_info_table'].dtype) 
-			print "bi_len: %d" % len(block_info)
-			#
-			print time.time(), " :: ", time.time()-t0
-		if True:
-			t0=time.time()
-			print t0
-			pool = mpp.Pool(n_cpus)
-			results = []
-			tbl = vc_data['block_info_table']
-			N_len = len(tbl)
-			dN = int(N_len/n_cpus)
-			#for i in xrange(n_cpus):
-			#
-			for i in xrange(n_cpus):
-				#
-				N_term = (1+i)*dN
-				if i==N_len-1: N_term = N_len
-				results+=[pool.apply_async(in_rec_array, args=(), kwds={'rec_array':tbl[(i)*dN:N_term], 'col_name':'section_id', 'in_list':section_ids})]
-				#
-			pool.close()
-			pool.join()
-			#
-			if len(results)>1:
-				block_info2 = numpy.array(reduce(numpy.append, [x.get() for x in results]), dtype=tbl.dtype)
-			else:
-				# reduce() will throw an error if you give it only one value.
-				block_info2 = results[0].get()
-			#
-			print "bi_len: %d" % len(block_info)
-			print time.time(), " :: ", time.time()-t0
-	return block_info, block_info2
-#
-def make_structured_arrays(file_profile = 'data/VC_CFF_timeseries_section_*.npy'):
-	# wrapper to convert a bunch of normal arrays or maybe lists to numpy structured arrays (numpy.recarray).
-	# (aka, this is a one time, or at least special occasion, script. with the exception that it might be instructive
-	# for developing new array handling scripts, it can probably be chucked).
-	G=glob.glob(file_profile)
-	#
-	for g in G:
-		print "fixing file: %s" % g
-		try:
-			z=make_structured_array_from_file(fname_in=g, fname_out=g)
-			print "successful..."
-		except:
-			print "failed to 'fix' file %s. it might have already been converted..." % g
-#
-def fix_CFF_in_struct_arrays(file_profile = 'data/VC_CFF_timeseries_section_*.npy', h5file = allcal_full_mks):
-	# ALMOST CERTAINLY A ONE-TIME JOB SCRIPT...
-	#
-	# when the CFF time series were initially compiled, we summed the CFF functions but did not provide a mean value,
-	# so the CFF is sort of nonsense. <CFF> can be calculated from the event_table['event_area'], or
-	# it can be caluclated from the length of the sweep-subset -- which is probably how it would be caluclated in real-time,
-	# so for now, let's just do that (recognizing that it will take a bit longer).
-	G=glob.glob(file_profile)
-	#
-	with h5py.File(h5file, 'r') as f:
-		for g in G:
-			print "fixing file: %s" % g
-			#
-			with open(g, 'r') as f_read:
-				datas = numpy.load(f_read)
-			new_data=[]
-			names, types = zip(*datas.dtype.descr)
-			#
-			# now, for each event in the data:
-			# get the event_number and corresponding event data
-			# update the CFF as CFF/Area
-			# add area to the data
-			# then, output a new structured array.
-			#
-			for i, rw in enumerate(datas):
-				event_number = rw['event_number']
-				event_data = f['event_table'][event_number]	# noting that event_number will be the index of this table (i=event_number)
-				event_area = event_data['event_area']
-				#
-				new_data_row = rw.copy()
-				new_data_row['cff_initial']/=event_area
-				new_data_row['cff_final']/=event_area
-				#
-				new_data += [list(new_data_row.tolist())]
-				#print "new data: ", new_data[-1]
-				new_data[-1] += [event_area]
-			#
-			# make structured array from new_data
-			new_data = numpy.array(new_data)
-			new_data = numpy.core.records.fromarrays(new_data.transpose(), names=['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final', 'event_area'], formats=[type(x).__name__ for x in new_data[0]])
-			#
-			with open(g, 'w') as f2:
-				new_data.dump(f2)
-			#
-			print "fixed (hopefully) file: ", g
-		
-def make_structured_array_from_file(fname_in, col_names = ['event_number', 'event_year', 'event_magnitude', 'cff_initial', 'cff_final', 'mean_cff_init', 'mean_cff_final'], col_formats = None, fname_out=None):
-	# note: this yields a numpy.recraray, as opposed to the standard numpy.ndarray type/instance. note that, given
-	# recarray A and ndarray B:
-	#
-	# isinstance(A, numpy.ndarray):  True
-	# isinstance(B, numpy.ndarray):  True
-	# isinstance(A, numpy.recarray): True
-	# isinstance(B, numpy.recarray): False
-	#
-	# so, recarray inherits ndarray.
-	#
-	with open(fname_in, 'r') as f:
-		X  = numpy.load(f)
-		X=numpy.array(X.tolist())		# if we want to modify an existing array, we'll probably need to convert it first.
-		#
-		if col_formats == None: col_formats = [type(x).__name__ for x in X[0]]
-		#
-		Xs = numpy.core.records.fromarrays(X.transpose(), names=col_names, formats=col_formats)
-		#
-	#
-	if fname_out==None:
-		dot_index = fname_in.rfind('.')
-		fname_out = fname_in[0:dot_index] + '_struct' + fname_in[dot_index:]
-	#
-	with open(fname_out, 'w') as f:
-		Xs.dump(f)
-	#
-	return Xs
-	
-		
 #
 def h5_index_event_number(h5_in=None, index_col='event_number'):
 	# this is a little helper funciton to facilitate map() and other mpp scripts.

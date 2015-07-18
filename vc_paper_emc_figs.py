@@ -25,32 +25,42 @@ fs_legend = 14.
 
 def make_gji_figs():
 	#
+	# non-conditional CDFs:
+	fs_title=16
+	fs_legend=12
+	fs_label=16
+
 	# of course, choose output directories appropriately...
 	
 	# make the map(s) with fault sections:
 	a=vc_map_with_fault_sections(map_flavor='emc', f_out='figs_gji/rev1/maps')
 	# make the etas map (but only if necessary; this one takes a while...)
-	#vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, plot_sections=[], f_out=None, plot_quake_dots=False, fault_colors = None):
+	#vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=10000, etas_gridsize=.1, plot_sections=[], f_out=None, plot_quake_dots=False, fault_colors = None):
+	# the third map, i think, has to be mande manually using G.Earth.
 	#
-	# non-conditional CDFs:
-	a=vc_parser.recurrence_figs(section_ids=vpp.vc_parser.emc_sections, output_dir='figs_gji/rev1/CDF_figs', fs_title=16, fs_legend=12, fs_label=16)
+		#
+	a=vc_parser.recurrence_figs(section_ids=vpp.vc_parser.emc_sections, output_dir='figs_gji/rev1/CDF_figs', fs_title=fs_title, fs_legend=fs_legend, fs_label=fs_label)
+	z=vfp.EMC_EWT_figs(output_dir='figs_gji/rev1/EWTs', section_ids=vfp.emc_sections)
+	waiting_time_aggregate(section_ids=vc_parser.emc_sections, do_local_fit=False, fs_title=fs_title, fs_legend=fs_legend, fs_label=fs_label, f_out='figs_gji/rev1/EWTs/EMC_expected_intervals.png')
+	a=gji_RI_probabilities(section_ids=vc_parser.emc_sections, output_dir='figs_gji/rev1/pri', fs_legend=fs_legend, fs_label=fs_label)
+	
+	
+	# it might be neccessary to re-make the appendix .tex:
+	# EMC_WT_dist_Appendix(wt_dir='figs_gji/pri', output_file = 'figs_gji/pri/appendix_wt_probs.tex', section_ids=vc_parser.emc_sections)
+	#
+	# "closest 5" figures:
+	a=closest_emc_fault_section_figs(output_dir='figs_gji/rev1/closest_sections/', fs_legend=fs_legend, fs_label=fs_label)
 	#
 	# surface deformation:
 	# (note: 1) not fully save, etc. scripted, 2) we're pulling this fig from the paper since we don't really develop it.
 	#vc_surface_deformation(map_flavor = 'napa', map_resolution='i')
 	#
-	a=closest_emc_fault_section_figs(output_dir='figs_gji/rev1/closest_sections/', fs_title=16, fs_label=16, fs_legend=12)
-	a=gji_RI_probabilities(section_ids=vc_parser.emc_sections, output_dir='figs_gji/rev1/pri', fs_title=16, fs_label=16, fs_legend=12)
-	
-	#
-	# it might be neccessary to re-make the appendix .tex:
-	# EMC_WT_dist_Appendix(wt_dir='figs_gji/pri', output_file = 'figs_gji/pri/appendix_wt_probs.tex', section_ids=vc_parser.emc_sections)
 	#
 	# create all the ROC data (note: use delta_b1 parameter to adjust the b_intiaite/b_maintain alert thresholds):
 	#create_ROC_figs_LT_data(section_ids = vc_parser.emc_sections, nits=1000, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_lt_500', output_descriptions=[], fig_title_strs=[], m0=7.0, delta_b1=0.)
 	# aggreagate:
 	create_ROC_figs_LT_data(section_ids = [vc_parser.emc_sections], nits=1500, fnum=0, num_roc_points=100, output_dir = 'dumps/gji_roc_lt_500_b', output_descriptions=[], fig_title_strs=['EMCaggregate'], m0=7.0, delta_b1=0.)
-	
+	#
 	# now, we need to create the ROC tabular data and the composite figures -- which should be straight forward, since the runner script (i think) compiles those data.
 	#
 	#best_fit_ROC_table({and get the calling parameters...})
@@ -59,15 +69,27 @@ def make_gji_figs():
 	#
 	# section 16 ROC:
 	z=roc_figure(section_id=16, title_str='Section 16 ROC', output_dir='figs_gji/rev1/ROCs_b/', fname=None, roc_data='dumps/gji_roc_lt_500_b/roc_sec_lt_16_nits_1000_allprams.npy')
-	# full ROC plots:
+	# full catalog ROC:
 	a=roc_figure(roc_data='dumps/gji_roc_lt_500_b/roc_sec_lt_EMC_nits_1000_allprams.npy', title_str='EMC Aggregate', section_id=vfp.emc_sections, output_dir='figs_gji/rev1/ROCs_b/', fname='ROC_scatter_EMCsections.png')
-	
-	z=vfp.EMC_EWT_figs(output_dir='figs_gji/rev1/EWTs', section_ids=vfp.emc_sections)
-	
+	#
 	rocs = plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_dir='figs_gji/rev1/ROCs', input_data_format='dumps/gji_roc_lt_500/roc_sec_lt_*_allprams*.npy')
-	
+	#
 	z = gji_forecast_fig(fignum=0, section_id=16, f_out = 'figs_gji/rev1/forecast_section_16.png', time_range=(13400., 14850.), opt_data='dumps/gji_roc_lt_500_b/roc_sec_lt_%d_nits_1000_allprams.npy' )
-	
+
+def waiting_time_aggregate(section_ids=vc_parser.emc_sections, do_local_fit=False, fs_title=fs_title, fs_legend=fs_legend, fs_label=fs_label, f_out='figs_gji/rev1/EWTs/EMC_expected_intervals.png'):
+	#
+	b=vc_parser.expected_waiting_time_t0(section_ids=vc_parser.emc_sections, do_local_fit=False)
+
+	plt.xlabel('Time since last $m>%.2f$ event, $t_0$ (years)' % 7.0, size=fs_label)
+	plt.ylabel('Expected interval $\Delta t$', size=fs_label)
+	plt.title('Expected waiting times for all EMC fault sections (aggregated)\n', size=fs_title)
+	if not f_out==None:
+		pth, fnm = os.path.split(f_out)
+		if not os.path.isdir(pth): os.makedirs(pth)
+		#
+		plt.savefig(f_out)
+
+
 def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, f_out=None, plot_quake_dots=False, plot_section_labels=None, fault_colors=None, plot_sections=[], verbose=True, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, n_cpus=None, fignum=0):
 	# make an etas map from a vc catalog. we probably have to pare down the catalog, since simulated catalogs are super huge.
 	# sectionses: a list of a list of sections[ [secs1], [secs2], etc.] to (over)plot separately.
@@ -196,7 +218,7 @@ def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_g
 	#
 	return my_map
 
-def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, plot_sections=[], f_out=None, plot_quake_dots=False, fault_colors = None):
+def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, plot_sections=[], f_out=None, plot_quake_dots=False, fault_colors = ['b'], plot_section_labels=False):
 	# note, here "RI" means "Relative Intensity", NOT "recurrence interval"
 	# make an etas map from a vc catalog. we probably have to pare down the catalog, since simulated catalogs are super huge.
 	# sectionses: a list of a list of sections[ [secs1], [secs2], etc.] to (over)plot separately.
@@ -205,7 +227,9 @@ def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, 
 	#colors_ =  mpl.rcParams['axes.color_cycle']		# use like: this_color = colors_[j%len(colors_)]
 	# ... which is a list, like: ['b', 'g', 'r', 'c', 'm', 'y', 'k']
 	if fault_colors==None: fault_colors = mpl.rcParams['axes.color_cycle']	
-	if isinstance(fault_colors, str): fault_colors = [fault_colors]
+	if isinstance(fault_colors, str):
+		# take a guess at the format:
+		fault_colors = fault_colors.replace(' ', '').split(',')	#returns as list.
 	#	
 	# first, get a catalog (we can do this inline wiht the map script, but this provides some added flexibility):
 	section_ids = sectionses.get(map_flavor, None)
@@ -273,7 +297,7 @@ def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, 
 		#
 		for j, (fault_id, fault) in enumerate(ft.iteritems()):
 			#this_color = 'r'
-			this_color = fault_colors[j*len(fault_colors)]	# note: if we provide only one color, this will always produce that entry.
+			this_color = fault_colors[j%len(fault_colors)]	# note: if we provide only one color, this will always produce that entry.
 			X,Y=[],[]
 			for vec in fault:
 				for compon in vec:
@@ -394,6 +418,75 @@ def gji_RI_probabilities(section_ids=vc_parser.emc_sections, output_dir='figs_gj
 		# and eventualy, finish this...
 		pass
 
+# this isn't quite right for what we'r trying to do. "pre-fit" should just be a line in the regurlar figure fitter that loads fit prams and skips fitting.
+def PRI_faultwise_composite(fit_data='VC_CDF_WT_figs/VC_CDF_WT_fits_m70_section_-2.npy', fname_out='figs_gji/rev1/pri/EMC_waiting_times_faultwise_composite.png', section_ids=vc_parser.emc_sections, m0=7.0, fs_title=16, fs_label=16, fs_legend=12, sim_file=vc_parser.default_sim_file, fnum=0):
+	# , t0s=[0., 180., 360., 720., 900.]
+	# make the faultwise aggregated PRI distribution plot. we probably don't need to make this too slick, since i'm not sure this figure will ever be made again.
+	# basically, get all fault-wise intervals on all sections; then sort them.
+	# load the pre-fit data. we'd nominally have to figure out how to recalculate these if we were going to use this figure again, but actually, by itself i
+	# don't think it's a great figure. it should probably be a plot of interval ratios (aka, dt/<dt> for each fault section). but even then, the interesting figures
+	# are for each fault segment. this is only meant to serve as a transition from regional to faultwise analyses.
+	
+	# (script under development).
+	#
+	colors_ =  mpl.rcParams['axes.color_cycle']
+	str_m0 = str(m0).replace('.','')[:2]
+	if not fname_out==None:
+		pth, fnm = os.path.split(fname_out)
+		if not os.path.isdir(pth): os.makedirs(pth)
+	#
+	fitses = numpy.load(fit_data)	# for now, require this...
+	#
+	# now, get all intervals:
+	delta_ts = []
+	for sec_id in section_ids:
+		X=vc_parser.get_CFF_on_section(sim_file=sim_file, section_id=sec_id)
+		tm0 = [rw['event_year'] for rw in X if rw['event_magnitude']>=m0]
+		#TdT += [[t, t-tm0[j]] for j,t in enumerate(tm0[1:])]
+		delta_ts += [t-tm0[j] for j,t in enumerate(tm0[1:])]
+	#
+	delta_ts.sort()
+	max_delta_ts = delta_ts[-1]*1.2
+	X_fit = numpy.arange(0., max_delta_ts, max_delta_ts/10000.)
+	#
+	plt.figure(fnum, figsize=(12,10))
+	plt.clf()
+	#
+	chi_t0 = fitses[0]['chi']
+	beta_t0 = fitses[0]['beta']
+	#
+	N=float(len(delta_ts))
+	for k,rw in enumerate(fitses):
+		#
+		clr = colors_[k%len(colors_)]
+		t0=rw['t0']
+		weib_chi=rw['chi']
+		weib_beta = rw['beta']
+		#sec_id = rw['section_id']
+		#
+		dts = [dt for dt in delta_ts if dt>=t0]
+		n = float(len(dts))
+		if n==0.: continue
+		plt.plot(dts, [float(x)/n for x in xrange(len(dts))], '-', lw=2, label='data, $t_0=%.3f$' % t0, color=clr)
+		#
+		# use vc_parser.f_weibull(x=None, chi=1.0, beta=1.0, x0=None) for weibull fits.
+		plt.plot(filter(lambda x:x>=t0,X_fit), [vc_parser.f_weibull(x=x, chi=weib_chi, beta=weib_beta, x0=t0) for x in X_fit if x>=t0], '-.', label='$t_0=%.2f$, $\\beta=%.3f$, $\\tau=%.3f$' % (t0, weib_beta, weib_chi), lw=2, color=clr)
+		plt.plot(filter(lambda x:x>=t0,X_fit), [vc_parser.f_weibull(x=x, chi=chi_t0, beta=beta_t0, x0=t0) for x in X_fit if x>=t0], '-.', label='$t_0=%.2f$, $\\beta=%.3f$, $\\tau=%.3f$' % (t0, weib_beta, weib_chi), lw=2, color=clr)
+		
+	ax=plt.gca()
+	ax.set_xlim(left=0, right=4000.)
+	ax.set_ylim(0, 1.1)
+	plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$ (years)' % (m0), size=fs_label)
+	plt.ylabel('Cumulative Probability $P(\\Delta t)$', size=fs_label)
+	plt.title('Conditional Recurrence Probabilities for $m>%.2f$, faultwise mean' % (m0), size=fs_title)
+	plt.legend(loc=0, numpoints=1, prop={'size':fs_legend})
+	#
+	if fname_out!=None:
+		plt.savefig(fname_out)
+	
+	return delta_ts
+	
+
 def EMC_WT_dist_Appendix(wt_dir='figs_gji/pri', output_file = 'figs_gji/pri/appendix_wt_probs.tex', section_ids=vc_parser.emc_sections):
 	'''
 	# make at least the framework for an appendix of all the WT distribution figures.
@@ -432,12 +525,12 @@ def EMC_WT_dist_Appendix(wt_dir='figs_gji/pri', output_file = 'figs_gji/pri/appe
 		f.write('\\end{document}')
 		#
 	#
-def gji_forecast_fig(fignum=0, section_id=16, f_out = 'dumps/figs_gji/forecast_section_16.png', time_range=(13400., 14850.), opt_data='dumps/gji_roc_lt_500_b/roc_sec_lt_%d_nits_1000_allprams.npy' ):
+def gji_forecast_fig(fignum=0, section_id=16, f_out = 'dumps/figs_gji/forecast_section_16.png', time_range=(13400., 14850.), opt_data='dumps/gji_roc_lt_500_b/roc_sec_lt_%d_nits_1000_allprams.npy',f_gt_lt=operator.lt ):
 	#
 	# "earthquake predictability" forecast time-series figure:
 	#
 	# plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_factor=None, b_0=None, opt_data='dumps/gji_roc_lt_500/roc_sec_lt_%d_nits_1000_allprams.npy', lw=2., **kwargs)
-	A=vc_parser.plot_psa_metric_figure(section_id=section_id, fignum=fignum, opt_data=opt_data)
+	A=vc_parser.plot_psa_metric_figure(section_id=section_id, fignum=fignum, opt_data=opt_data,f_gt_lt=f_gt_lt)
 	#
 	# axes are added in order "rate", then "b", then "mags" clones 'rate'
 	#f=plt.gcf()
@@ -752,9 +845,11 @@ def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_di
 	#
 	col_names = ['H', 'F','b', 'nyquist_factor']
 	my_lists = {key:[] for key in col_names}
+	j=0	# make a place-holder for j in case the for loop has no values to loop over, so j never gets assigned.
 	for j, fl in enumerate(my_files):
 		this_color = colors_[j%len(colors_)]
 		roc = numpy.load(fl)
+		#
 		roc.sort(key=lambda x:x['H']-x['F'])
 		#
 		[my_lists[key].append(roc[-1][key]) for key in col_names]
@@ -773,6 +868,7 @@ def plot_best_roc(n_rank=5, save_figs=True, b_0=0., nyquist_factor=.5, output_di
 		plt.plot(f,h, 'o', color=this_color, alpha=.35)
 		plt.plot([f[0], f[-1]], [h[0], h[-1]], 'o', color=this_color)
 	#
+	j=(0 or j)
 	mean_H/=(float(j+1))
 	mean_F/=(float(j+1))
 	#

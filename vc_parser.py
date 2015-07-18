@@ -1485,7 +1485,7 @@ def check_psa_metric(section_id=16, m0=7.0, fignum=0, nyquist_factor=.5):
 	ax_dt.set_ylabel('Cumulative probability $P(N)$ that $\\Delta t(alert)<\\Delta t$')
 	#
 #
-def plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_factor=None, b_0=None, opt_data='dumps/gji_roc_lt_500/roc_sec_lt_%d_nits_1000_allprams.npy', lw=2., **kwargs):
+def plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_factor=None, b_0=None, opt_data='dumps/gji_roc_lt_500/roc_sec_lt_%d_nits_1000_allprams.npy', lw=2.,f_gt_lt=operator.lt, **kwargs):
 	# create forecast metric figure(s). we'll work on generalizing this to use multiple forecasts later. for now, let's be specific
 	# to psa_forecast_1()
 	#
@@ -1523,7 +1523,7 @@ def plot_psa_metric_figure(CFF=None, section_id=None, m0=7.0, fignum=0, nyquist_
 	nyquist_len = max(int(nyquist_factor*recurrence_data['mean_dN_fault']), 2)
 	#
 	# alert segments:
-	fc=psa_forecast_1(ary_in=CFF, f_gt_lt=operator.lt, b_0=b_0, nyquist_factor=nyquist_factor)
+	fc=psa_forecast_1(ary_in=CFF, f_gt_lt=f_gt_lt, b_0=b_0, nyquist_factor=nyquist_factor)
 	trends = get_trend_analysis(ary_in=CFF, nyquist_len=nyquist_len)
 	#
 	fc_lens = [len(x) for x in fc]
@@ -2966,20 +2966,6 @@ def expected_waiting_time_t0(section_ids=None, catalog=None, m0=7.0, fits_data_f
 	#
 	# load the pre-calced fits? if they don't exist, run them.
 	# (but then, we never ended up using these...)
-	'''
-	try:
-		# but it looks like we don't use this any longer...
-		cdf_fits = numpy.load(fits_data_file_CDF)	# recarray with dtype: dtype=[('t0', '<f8'), ('section_id', '<i8'), ('chi', '<f8'), ('beta', '<f8'), ('sigma_chi', '<f8'), ('sigma_beta', '<f8'), ('chi_sqr', '<f8'), ('fit_type', 'S16')])
-	except:
-		# ... ok, this is the right idea, but it's complicated, so let's handle it externally for now.
-		# anyway, we might not want to do it this way because it might run for a long, long time...
-		# fits failed. run a new set:
-		# waiting_time_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeseries_section_%d.npy', m0=7.0, t0_factors = [0., .5, 1.0, 1.5, 2.0, 2.5], keep_figs=False, output_dir='VC_CDF_WT_figs', mc_nits=100000, n_cpus=None)
-		print "fits data not found. run waiting_time_figs()"
-		return None
-		
-		#wt_temp = waiting_time_figs(section_ids=section_ids, m0=m0, output_dir='temp_weibul_fits', mcnits=2000)
-	'''	
 	#
 	# we want the expected \Delta t to the next "big one" as a function of t_0 (aka, <Delta t> (t_0) ), and in this case
 	# t_0 is basically current ellapsed time. nominally, we shoul do this 1) directly from data, 2) using t0=0 fits, 3)
@@ -3570,7 +3556,7 @@ def conditional_RI_figs(section_ids=[], file_path_pattern='data/VC_CFF_timeserie
 	fit_type_str_len = 32
 	#fit_columns_types = ['float', 'int', 'float', 'float', 'float', 'float', 'float', 'S%d' % fit_type_str_len]
 	fit_columns_types = ['float', 'S256', 'float', 'float', 'float', 'float', 'float', 'S%d' % fit_type_str_len]
-	#	
+	#
 	plt.figure(i, figsize=(12,10))
 	plt.clf()
 	#
@@ -3825,6 +3811,7 @@ def get_fault_model_extents(section_ids=None, sim_file=allcal_full_mks, n_cpus=N
 #
 def vc_basemap(projection='cyl', resolution='i', tick_font_size=12, **kwargs):
 	#
+	# ... and so far, i don't do anything with any of these things...
 	titlefont1 = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=12)
 	titlefont2 = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=14, weight='bold')
 	sectionkeyfont = mfont.FontProperties(family='Arial', style='normal', variant='normal', size=7)
@@ -3877,13 +3864,22 @@ def vc_basemap(projection='cyl', resolution='i', tick_font_size=12, **kwargs):
 		projection
 	except:
 		projection = 'cyl'
-	llcrnrlon=kwargs['llcrnrlon']
-	llcrnrlat=kwargs['llcrnrlat']
-	urcrnrlon=kwargs['urcrnrlon']
-	urcrnrlat=kwargs['urcrnrlat']
+	#llcrnrlon=kwargs['llcrnrlon']
+	#llcrnrlat=kwargs['llcrnrlat']
+	#urcrnrlon=kwargs['urcrnrlon']
+	#urcrnrlat=kwargs['urcrnrlat']
+	llcrnrlon=kwargs.get('llcrnrlon', -119.)
+	llcrnrlat=kwargs.get('llcrnrlat', 31.5)
+	urcrnrlon=kwargs.get('urcrnrlon', -114.6)
+	urcrnrlat=kwargs.get('urcrnrlat', 35.5)
+	#
+	kwargs.update({'llcrnrlon':llcrnrlon, 'llcrnrlat':llcrnrlat, 'urcrnrlon':urcrnrlon, 'urcrnrlat':urcrnrlat})
 	#
 	lat_0 = llcrnrlat + (urcrnrlat - llcrnrlat)/2.
 	lon_0 = llcrnrlon + (urcrnrlon - llcrnrlon)/2.
+	#
+	#print "map bounds: ", llcrnrlon, llcrnrlat, urcrnrlon, urcrnrlat
+	#print "center: ", lon_0, lat_0
 	#
 	bm = bmp.Basemap(projection=projection, resolution=resolution, **kwargs)
 	aspect = bm.aspect
@@ -4403,12 +4399,12 @@ def seismicity_map(section_ids=None, sim_file=allcal_full_mks, start_date=None, 
 	#
 	if etas_output_xyz!=None:
 		pth, fname = os.path.split(etas_output_xyz)
-		if not os.path.ispath(pth): os.makedirs(pth)
+		if not os.path.isdir(pth): os.makedirs(pth)
 		#
 		etas.xyztofile(etas_output_xyz)
 	if etas_output_figure!=None:
 		pth, fname = os.path.split(etas_output_figure)
-		if not os.path.ispath(pth): os.makedirs(pth)
+		if not os.path.isdir(pth): os.makedirs(pth)
 		#
 		plt.savefig(etas_output_figure)
 	#

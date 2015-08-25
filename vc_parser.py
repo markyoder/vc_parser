@@ -12,7 +12,7 @@ import mpl_toolkits.basemap as bmp
 import matplotlib as mpl
 from matplotlib import cm
 import itertools
-plt.ion()
+#plt.ion()
 #
 import math
 import h5py
@@ -4185,7 +4185,7 @@ def get_block_traces(fault_blocks=None, section_ids=None, sim_file=allcal_full_m
 	#
 	if fault_blocks==None:
 		with h5py.File(sim_file) as vc_data:
-			blks = vc_data['block_info_table']
+			blks = vc_data['block_info_table'][()]
 			fault_blocks = [rw.tolist() for rw in blks if rw['section_id'] in section_ids]
 			# numpy.core.records.fromarrays(zip(*field_data_prime), names=['x', 'y', 'z', 'dx', 'dy', 'dz', 'dxyz', 'dxy'], formats=[type(x).__name__ for x in field_data_prime[0]])
 			fault_blocks = numpy.core.records.fromarrays(zip(*fault_blocks), dtype=blks.dtype)
@@ -5510,7 +5510,15 @@ def mcfitter(func=f_weibull, X=None, Y=None, prams_dict=None, nits=10**6, n_cpus
 		#
 		return min_pramses, pramses	
 #		
-	
+#
+if __name__=='__main__':
+	# running from command-line (or something like it). can we use backend for mpl or is it too late?
+	mpl.use('Agg')
+	#
+else:
+	# imported...
+	plt.ion()
+		
 	
 			
 

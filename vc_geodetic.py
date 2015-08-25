@@ -4,7 +4,7 @@
 # Rundle research group
 # additional affiliations:
 #  NASA Jet Propulsion Laboratory
-#  NASA QuakeSim and E-DECIDER missions
+#  NASA QuakeSim, GeoGateway, and E-DECIDER missions
 #
 # author: Mark R. Yoder, PhD
 # email:  mark.yoder@gmail.com
@@ -81,6 +81,8 @@ class meta_dict(dict):
 	# aka, return a dictionary containing indices, coordinates, and values for a displacement field.
 	# also include the meta-data from which the data were generated. the object will, for most purposes,
 	# behave just like a dictionary, and with minimal allowances, a dict. object can be substituted.
+	#
+	# ... probably better to (usually) use recarray or h5py objects, but this thing works well too.
 	#
 	def __init__(self, dict_in=None, **kwargs):
 		if dict_in==None: dict_in={}
@@ -179,14 +181,14 @@ def get_blocks_dict(sim_file=default_sim_file, faults=None, sections=None, pipe=
 	#block_dict = {}		#--> {block_id:{values...}}
 	#
 	with h5py.File(sim_file, 'r') as vc_data:
-		block_info = vc_data['block_info_table']
+		block_info = vc_data['block_info_table'][()]
 		'''
 		for rw in block_info:
 			#block_dict[rw['block_id']] = rw		# if we want this to actually be a dict, it might be necessary to 
 												# loop over vc_data['info_table'].dtype.names
 			block_dict[rw['block_id']] = {name:rw[name] for name in block_info.dtype.names}
 		'''
-		block_dict = {rw['block_id']:{name:rw[name] for name in block_info.dtype.names} for rw in block_info if (sections==None or rw['section_id'] in sections) or (faults==None or rw['fault_id'] in faults)}
+	block_dict = {rw['block_id']:{name:rw[name] for name in block_info.dtype.names} for rw in block_info if (sections==None or rw['section_id'] in sections) or (faults==None or rw['fault_id'] in faults)}
 		#
 	#
 	if pipe!=None:
@@ -195,6 +197,9 @@ def get_blocks_dict(sim_file=default_sim_file, faults=None, sections=None, pipe=
 		return block_dict
 #
 def block_slip_for_mpp(rws, block_info, events_data, plot_factor=1.0):
+	#
+	# diagnostic:
+	print 'input types: ', [type(x) for x in [rws, block_info, events_data]]
 	return_positions = {key:[key, 0., 0., 0., 0., 0.] for key in block_info.keys()}
 	for i_rw, rw in enumerate(rws):
 		#
@@ -217,7 +222,7 @@ def block_slip_for_mpp(rws, block_info, events_data, plot_factor=1.0):
 		return_positions[block_id] += [[block_id, event_time, x0 + slip_vector[0], y0 + slip_vector[1], z0 + slip_vector[2], slip]]
 		#
 		if i_rw%10**5==0:
-			print 'rw: %d (dt=%f)' % (i_rw, time.time()-t0)
+			print 'rw_a: %d (dt=%f)' % (i_rw, time.time()-t0)
 	return return_positions
 
 #
@@ -287,19 +292,20 @@ def blockwise_slip_mpp(sim_file=default_sim_file, faults=None, sections=None, pi
 	#
 	with h5py.File(sim_file, 'r') as vc_data:
 		t0=time.time()
-		events_data = {key:{'event_year':val_year, 'event_magnitude':val_mag} for key,val_year,val_mag in zip(*[vc_data['event_table']['event_number'], vc_data['event_table']['event_year'], vc_data['event_table']['event_magnitude']])}
+		events_data = {key:{'event_year':val_year, 'event_magnitude':val_mag} for key,val_year,val_mag in zip(*[vc_data['event_table']['event_number'][()], vc_data['event_table']['event_year'][()], vc_data['event_table']['event_magnitude'][()]])}
 		#events_data = vc_data['event_table']['event_year']
 		# vc_data['event_table'][event_number]['event_year']
 		print "events are indexed: %f" % (time.time()-t0)
 		t0-time.time()
 		#
-		N=len(vc_data['event_sweep_table'])
+		event_sweep_table = vc_data['event_sweep_table'][()]
+		N=len(event_sweep_table)
 		dN = N/n_cpus
 		pool = mpp.Pool(n_cpus)
 		i=0
 		pool_results = []
 		while dN*(i+1)<N:
-			pool_results += [pool.apply_async(block_slip_for_mpp, args=(vc_data['event_sweep_table'][i*dN:(i+1)*dN], block_info, events_data))]
+			pool_results += [pool.apply_async(block_slip_for_mpp, args=(event_sweep_table[i*dN:(i+1)*dN], block_info, events_data))]
 		pool.close()
 		#
 		print "now, compile from mpp results: ", time.time()-t0
@@ -367,7 +373,7 @@ def plot_block_slip_vector(block_id=0, sim_file=default_sim_file):
 	# for development and testing: plot a single block and it's supposed slip direction(s).
 	#
 	with h5py.File(sim_file, 'r') as vc_data:
-		block=vc_data['block_info_table'][block_id]
+		block=vc_data['block_info_table'][block_id][()]
 		#
 		block_vertices = [[block['m_%s_pt%d' % (xyz, 1+corner_index)] for xyz in ('x', 'y', 'z')] for corner_index in xrange(4)]
 		# get strike direction vector:
@@ -467,9 +473,10 @@ def plot_block_slip_vector(block_id=0, sim_file=default_sim_file):
 	
 #
 def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=None, f_pickle_out='dumps/blockwise_slip_0.pkl', plot_factor=1.0):
+	#
 	# note: plot_factor is being (effectively) moved to the plotting routines, so should not typically be used here.
 	t0=time.time()
-	print "getting blocks_dict...", t0
+	print "getting blocks_dict... ...", t0
 	block_info = get_blocks_dict(sim_file=sim_file, faults=faults, sections=sections)
 	#with h5py.File(sim_file, 'r') as vc_data:
 	#	block_info=vc_data['block_info'].copy()
@@ -557,13 +564,21 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	with h5py.File(sim_file, 'r') as vc_data:
 		t0=time.time()
 		#events_data = {key:val for key,val in zip(*[vc_data['event_table']['event_number'], vc_data['event_table']['event_year']])}
-		#events_data = {key:val for key,val in zip(*[vc_data['event_table']['event_number'], {'event_year':vc_data['event_table']['event_year'], 'event_magnitude':vc_data['event_table']['event_magnitude']}])}		
-		events_data = {key:{'event_year':val_year, 'event_magnitude':val_mag} for key,val_year,val_mag in zip(*[vc_data['event_table']['event_number'], vc_data['event_table']['event_year'], vc_data['event_table']['event_magnitude']])}
+		#events_data = {key:val for key,val in zip(*[vc_data['event_table']['event_number'], {'event_year':vc_data['event_table']['event_year'], 'event_magnitude':vc_data['event_table']['event_magnitude']}])}
+		#
+		events = vc_data['event_table'][()]
+		sweeps = vc_data['event_sweep_table'][()]
+		#	
+		#events_data = {key:{'event_year':val_year, 'event_magnitude':val_mag} for key,val_year,val_mag in zip(*[vc_data['event_table']['event_number'][()], vc_data['event_table']['event_year'][()], vc_data['event_table']['event_magnitude'][()]])}
+		events_data = {key:{'event_year':val_year, 'event_magnitude':val_mag} for key,val_year,val_mag in zip(*[events['event_number'], events['event_year'], events['event_magnitude']])}
 		#
 		print "events are indexed: %f" % (time.time()-t0)
+		print "sweeps type: ", type(sweeps)
 		t0-time.time()
 		#
-		for i_rw, rw in enumerate(vc_data['event_sweep_table']):
+		# this might not be tenable in the future; sweeps might be too big.
+		#for i_rw, rw in enumerate(vc_data['event_sweep_table'][()]):
+		for i_rw, rw in enumerate(sweeps):
 			#
 			# we'll need to get the direction of motion... which nominally will need to be encoded into block_info.
 			block_id=rw['block_id']
@@ -599,7 +614,7 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 			#block_info[block_id]['positions'] += [[event_time, x0 + slip_vector[0], y0 + slip_vector[1], z0 + slip_vector[2], slip]]
 			#
 			if i_rw%10**5==0:
-				print 'rw: %d (dt=%f)' % (i_rw, time.time()-t0)
+				print 'rw_b: %d (dt=%f)' % (i_rw, time.time()-t0)
 		
 		#
 	print "finished spinning all the sweep events: ", time.time()-t0

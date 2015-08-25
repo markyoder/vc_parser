@@ -467,18 +467,18 @@ def PRI_faultwise_composite(fit_data='VC_CDF_WT_figs/VC_CDF_WT_fits_m70_section_
 		dts = [dt for dt in delta_ts if dt>=t0]
 		n = float(len(dts))
 		if n==0.: continue
-		plt.plot(dts, [float(x)/n for x in xrange(len(dts))], '-', lw=2, label='data, $t_0=%.3f$' % t0, color=clr)
+		plt.plot(dts, [float(x)/n for x in xrange(len(dts))], '-', lw=2.5, label='data, $t_0=%.3f$' % t0, color=clr)
 		#
 		# use vc_parser.f_weibull(x=None, chi=1.0, beta=1.0, x0=None) for weibull fits.
-		plt.plot(filter(lambda x:x>=t0,X_fit), [vc_parser.f_weibull(x=x, chi=weib_chi, beta=weib_beta, x0=t0) for x in X_fit if x>=t0], '-.', label='$t_0=%.2f$, $\\beta=%.3f$, $\\tau=%.3f$' % (t0, weib_beta, weib_chi), lw=2, color=clr)
-		plt.plot(filter(lambda x:x>=t0,X_fit), [vc_parser.f_weibull(x=x, chi=chi_t0, beta=beta_t0, x0=t0) for x in X_fit if x>=t0], '-.', label='$t_0=%.2f$, $\\beta=%.3f$, $\\tau=%.3f$' % (t0, weib_beta, weib_chi), lw=2, color=clr)
+		plt.plot(filter(lambda x:x>=t0,X_fit), [vc_parser.f_weibull(x=x, chi=weib_chi, beta=weib_beta, x0=t0) for x in X_fit if x>=t0], '-.', label='$t_0=%.2f$, $\\beta=%.3f$, $\\tau=%.3f$' % (t0, weib_beta, weib_chi), lw=2.5, color=clr)
+		plt.plot(filter(lambda x:x>=t0,X_fit), [vc_parser.f_weibull(x=x, chi=chi_t0, beta=beta_t0, x0=t0) for x in X_fit if x>=t0], '-.', label='$t_0=%.2f$, $\\beta=%.3f$, $\\tau=%.3f$' % (t0, weib_beta, weib_chi), lw=2.5, color=clr)
 		
 	ax=plt.gca()
 	ax.set_xlim(left=0, right=4000.)
 	ax.set_ylim(0, 1.1)
 	plt.xlabel('$m=%.2f$ Recurrence interval $\\Delta t$ (years)' % (m0), size=fs_label)
 	plt.ylabel('Cumulative Probability $P(\\Delta t)$', size=fs_label)
-	plt.title('Conditional Recurrence Probabilities for $m>%.2f$, faultwise mean' % (m0), size=fs_title)
+	plt.title('Recurrence CDF for $m>%.2f$, faultwise mean' % (m0), size=fs_title)
 	plt.legend(loc=0, numpoints=1, prop={'size':fs_legend})
 	#
 	if fname_out!=None:

@@ -5,7 +5,8 @@
 # portable ways. in the end, we want to push a button and have all the datasets, figs, etc. come out (mabye with a bit of layering).
 '''
 # to run headless, use this:
-#import matplotlib
+import matplotlib as mpl
+import pylab as plt
 #matplotlib.use('Agg')
 #import pylab as plt
 
@@ -34,6 +35,7 @@ def make_gji_figs():
 	
 	# make the map(s) with fault sections:
 	a=vc_map_with_fault_sections(map_flavor='emc', f_out='figs_gji/rev1/maps')
+	#
 	# make the etas map (but only if necessary; this one takes a while...)
 	#vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=10000, etas_gridsize=.1, plot_sections=[], f_out=None, plot_quake_dots=False, fault_colors = None):
 	# the third map, i think, has to be mande manually using G.Earth.
@@ -76,6 +78,12 @@ def make_gji_figs():
 	#
 	z = gji_forecast_fig(fignum=0, section_id=16, f_out = 'figs_gji/rev1/forecast_section_16.png', time_range=(13400., 14850.), opt_data='dumps/gji_roc_lt_500_b/roc_sec_lt_%d_nits_1000_allprams.npy' )
 
+def make_iags_figs():
+	a = iags_map_with_sections(iags_map=None)
+	plt.savefig('figs_gji/rev1/maps')
+	#
+	# ... and the rest of them too...
+
 def waiting_time_aggregate(section_ids=vc_parser.emc_sections, do_local_fit=False, fs_title=fs_title, fs_legend=fs_legend, fs_label=fs_label, f_out='figs_gji/rev1/EWTs/EMC_expected_intervals.png'):
 	#
 	b=vc_parser.expected_waiting_time_t0(section_ids=vc_parser.emc_sections, do_local_fit=False)
@@ -90,9 +98,10 @@ def waiting_time_aggregate(section_ids=vc_parser.emc_sections, do_local_fit=Fals
 		plt.savefig(f_out)
 
 
-def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, f_out=None, plot_quake_dots=False, plot_section_labels=None, fault_colors=None, plot_sections=[], verbose=True, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, n_cpus=None, fignum=0):
+def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, f_out=None, plot_quake_dots=False, plot_section_labels=None, fault_colors=None, plot_sections=[], verbose=True, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, n_cpus=None, fignum=0, sections_to_label=None, section_label_adjustments=None):
 	# make an etas map from a vc catalog. we probably have to pare down the catalog, since simulated catalogs are super huge.
 	# sectionses: a list of a list of sections[ [secs1], [secs2], etc.] to (over)plot separately.
+	# sections_to_label: sections to print labels. we might (like for IAGS paper) want to only print a few labels.
 	#
 	# we'll want to control the color cycle:
 	if fault_colors==None: fault_colors = mpl.rcParams['axes.color_cycle']
@@ -101,9 +110,7 @@ def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_g
 	# ... which is a list, like: ['b', 'g', 'r', 'c', 'm', 'y', 'k']
 	#
 	# hard-code some section label position adjustments, as a factor of label_delta_{x,y}:
-	section_label_adjustments = {  17:{'dx':0., 'dy':-1.}, 56:{'dx':2., 'dy':-1.}, 57:{'dx':2., 'dy':1.}, 105:{'dx':-5., 'dy':2.}, 107:{'dx':-6., 'dy':4.5}, 110:{'dx':-8., 'dy':3.}, 111:{'dx':-1., 'dy':-1.}, 112:{'dx':1., 'dy':-1.}, 113:{'dx':-3., 'dy':1.}, 114:{'dx':-3., 'dy':3.}, 115: {'dx':4., 'dy':-.5}, 116:{'dx':3., 'dy':-4.}, 149:{'dx':0., 'dy':4.}, 73:{'dx':10., 'dy':1.}, 84:{'dx':-3., 'dy':0.}  }
-		
-	#	
+	if section_label_adjustments==None: section_label_adjustments = {  17:{'dx':0., 'dy':-1.}, 56:{'dx':2., 'dy':-1.}, 57:{'dx':2., 'dy':1.}, 105:{'dx':-5., 'dy':2.}, 107:{'dx':-6., 'dy':4.5}, 110:{'dx':-8., 'dy':3.}, 111:{'dx':-1., 'dy':-1.}, 112:{'dx':1., 'dy':-1.}, 113:{'dx':-3., 'dy':1.}, 114:{'dx':-3., 'dy':3.}, 115: {'dx':4., 'dy':-.5}, 116:{'dx':3., 'dy':-4.}, 149:{'dx':0., 'dy':4.}, 73:{'dx':10., 'dy':1.}, 84:{'dx':-3., 'dy':0.}  }	
 	#
 	# extras:
 	if verbose: print "customize with map_flavor: ", map_flavor
@@ -139,6 +146,8 @@ def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_g
 	#
 	if verbose: print "... and now, make seismicity_map(), then do some local plotting... (or maybe not. i think we skip this since it takes forever)."
 	#
+	# ... it would be cool to script the option to combine ETAS with labeled section (especially just a few sections), but we really need to speed up
+	# ETAS before we do this...
 	#my_map = vc_parser.seismicity_map(section_ids=sectionses[map_flavor], start_date=10000., etas_catalog={'catalog':list(catalog[i_min:i_max]), 'sweep_index':sweep_index}, p_map=0., etas_gridsize=etas_gridsize)
 	#
 	ll_range = vc_parser.get_fault_model_extents(section_ids=plot_sections, sim_file=sim_file, n_cpus=n_cpus)
@@ -202,6 +211,9 @@ def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_g
 		if j_sections<len(plot_section_labels):
 			#x = numpy.mean(X)
 			#y = numpy.mean(Y)
+			#
+			# we might want to label only a few sections:
+			if sections_to_label!=None and sections not in sections_to_label: continue
 			#			
 			x = numpy.mean([section_x_min, section_x_max])
 			y = numpy.mean([section_y_min, section_y_max])
@@ -217,6 +229,51 @@ def vc_map_with_fault_sections(map_flavor='napa', i_min=1000, i_max=4000, etas_g
 		plt.savefig(f_out)
 	#
 	return my_map
+	#
+def iags_map_with_sections(iags_map=None):
+	# special version of the sections map for iags paper. namely, we need arrows pointing to sections of interest.
+	#my_sections = [123, 111]
+	section_data = {123:{'color':'y', 'arrow_dx0':0.105, 'arrow_dy0':-.05, 'arrow_dx':.15, 'arrow_dy':.5}, 111:{'color':'k', 'arrow_dx0':.05, 'arrow_dy0':0.05, 'arrow_dx':.7, 'arrow_dy':.35}}
+	#
+	# get a map:
+	if iags_map==None: iags_map = vc_map_with_fault_sections(map_flavor='emc', map_res='f', sections_to_label=[])
+	#
+	# now, get (again) the traces for these and find the mean values of their element positions. then, draw an arrow to that section:
+	# (for now, just code it; if we need to revisit this, we'll write pretty code):
+	#
+	# and note, to automate this, we'd have to synchronize the colors, etc.
+	#s_111 = vc_parser.get_block_traces(section_ids=111, fignum=None, lat_lon=True, sim_file=default_sim_file)
+	#s_123 = vc_parser.get_block_traces(section_ids=123, fignum=None, lat_lon=True, sim_file=default_sim_file)
+	#
+	ax = plt.gca()
+	for sec, sec_data in section_data.iteritems():
+		S = vc_parser.get_block_traces(section_ids=sec, fignum=None, lat_lon=True, sim_file=default_sim_file)
+		SS = [rw for vec in S for rw in vec]
+		#
+		# consolidate vectors into rows:
+		#SS = [x for x in rw for rw in S]
+		
+		x = numpy.mean([rw[0] for rw in SS]) + .04 + sec_data['arrow_dx0']
+		y = numpy.mean([rw[1] for rw in SS]) + .04 + sec_data['arrow_dy0']
+		#
+		x_start = x + sec_data['arrow_dx']
+		y_start = y + sec_data['arrow_dy']
+		#
+		v_end = iags_map(x,y)
+		v_start = iags_map(x_start, y_start)
+		#
+		dx,dy = [v_end[j]-v_start[j] for j in xrange(2)]
+		#
+		plt.arrow(x_start, y_start, dx, dy, color=sec_data['color'], width=.003, zorder=11, length_includes_head=True)
+		plt.text(x_start, y_start, '%d' % sec, color=sec_data['color'], size=16)
+		
+		#plt.text(x + label_delta_x*(1.0 + dx), y + label_delta_y*(1.0 + dy), '%s' % plot_section_labels[j_sections], color=this_color)
+		#
+		# it will be easier to just draw arrows...
+		#ax.annotate('Sec. %d' % sec, color=sec_data['color'], xy=(v_end[0], v_end[1]), xycoords='data', xytext=(sec_data['arrow_dx'], sec_data['arrow_dy']), textcoords='offset points', arrowprops=dict(arrowstyle="->", color=sec_data['color'], lw=2))
+	#
+	return iags_map
+	
 
 def vc_etas_RI_map(map_flavor='napa', i_min=1000, i_max=4000, etas_gridsize=.1, plot_sections=[], f_out=None, plot_quake_dots=False, fault_colors = ['b'], plot_section_labels=False):
 	# note, here "RI" means "Relative Intensity", NOT "recurrence interval"
@@ -1261,4 +1318,7 @@ def iags_expected_waiting_times(output_dir='figs_iags', section_ids = [123, 111,
 		plt.savefig('%s/expected_waiting_time_m%s_sec_%s.png' % (output_dir, str(m0), '_'.join([str(x) for x in sec_id])))
 		#
 
-	
+if __name__=='__main__':
+	mpl.use('Agg')
+else:
+	plt.ion()

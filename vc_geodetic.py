@@ -472,9 +472,34 @@ def plot_block_slip_vector(block_id=0, sim_file=default_sim_file):
 	#figs[0].plot(blocks_xyz[0], blocks_xyz[1], 'o-')
 	#figs[1].plot(blocks_xyz[1], blocks_xyz[2], 'o-')
 	#figs[2].plot(blocks_xyz[2], blocks_xyz[0], 'o-')
-	
 #
-def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=None, f_pickle_out='dumps/blockwise_slip_0.pkl', plot_factor=1.0):
+def slips_denormalized(positions=None, sim_file=default_sim_file):
+	# @slips from blockwise_slip()
+	# now, de-normalize and sort by time, aka, create a time-series
+	#
+	if positions == None:
+		positions = blockwise_slip(sim_file=sim_file, faults=faults, sections=sections, pipe=None, f_pickle_out=kwargs.get('f_pickle_out', None), plot_factor=1.0)
+	if isinstance(slips, str):
+		positions = numpy.load(blockwise_obj)
+	#
+	# but for now, let's not fully denormalize. let's denormalize with an index, so we'll have a time-series like:
+	# [[block_id, year, x,y,z, slip, slip_type]]]
+	#
+	slips_time_series = []
+	for block_id, block_data in positions.iteritems():
+		slips_time_series += [[block_id] + list(rw) for rw in block_data['positions']]
+		# and note that slip has been calculated for each row, though the direction, vector, etc. will have to be constructed
+		# from the block_info. we could calc. vectors directly from some sort of x[j]-x[j-1] operation.
+		
+	#
+	slips_time_series.sort(key=lambda rw: rw[1])
+	#
+	slips_time_series = numpy.core.records.fromarrays(zip(*slips_time_series), names=['block_id'] + list(slips[0]['positions'].dtype.names), formats = ['int'] + [s[1] for s in slips[0]['positions'].dtype.descr])
+	#
+	return slips_time_series
+
+#
+def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=None, f_pickle_out='dumps/blockwise_slip_0.pkl', plot_factor=1.0, do_aseismic=True):
 	#
 	# get slip along faults. these can then be used as sources for Ogata deformation modeling.
 	#
@@ -613,8 +638,9 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 			rupture_delta_t = (10.0**(events_data[event_number]['event_magnitude']/2. - 2.3))/year2sec		# (see Yoder et al. 2014 ETAS). the exact value is not really 			
 																					# important; it just needs to be small and preferably (??) not 0.
 			# aseismic:
-			x0, y0, z0 = block_info[block_id]['positions'][-1][1:4]
-			block_info[block_id]['positions'] += [[event_time, x0 + aseismic_slip_vector[0], y0 + aseismic_slip_vector[1], z0 + aseismic_slip_vector[2], aseismic_slip, 'aseismic']]
+			if do_aseismic: 
+				x0, y0, z0 = block_info[block_id]['positions'][-1][1:4]
+				block_info[block_id]['positions'] += [[event_time, x0 + aseismic_slip_vector[0], y0 + aseismic_slip_vector[1], z0 + aseismic_slip_vector[2], aseismic_slip, 'aseismic']]
 			#
 			# seismic (this is the new position after the event):
 			x0, y0, z0 = block_info[block_id]['positions'][-1][1:4]

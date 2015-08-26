@@ -133,7 +133,6 @@ def blocks_test(n_cycles=1):
 	#
 	print "finished."
 #
-#
 def get_blocks_dict_process(sim_file=default_sim_file, faults=None, sections=None, n_cpus=None):
 	# 
 	if n_cpus==None: n_cpus = mpp.cpu_count()
@@ -150,6 +149,9 @@ def get_blocks_dict_process(sim_file=default_sim_file, faults=None, sections=Non
 #
 def get_blocks_dict_pool(sim_file=default_sim_file, faults=None, sections=None, n_cpus=None):
 	# 
+	# don't know the status of this. my guess is that it isn't properly optimized for MPP (using the generic pool.apply_async() ) method
+	# (aka, not pre parsing the input)
+	# almost certainly much slower from overhead, at least for a small data-set like "blocks"
 	if n_cpus==None: n_cpus = mpp.cpu_count()
 	#
 	
@@ -164,7 +166,7 @@ def get_blocks_dict_pool(sim_file=default_sim_file, faults=None, sections=None, 
 	#return pool.get()
 	if len(X)==1: return X[0].get()
 	if len(X)>1:
-		# reduce() syndax?
+		# reduce() syntax?
 		r_dict = X[0].get()
 		for x in X[1:]:
 			r_dict.update(x.get())
@@ -189,7 +191,6 @@ def get_blocks_dict(sim_file=default_sim_file, faults=None, sections=None, pipe=
 			block_dict[rw['block_id']] = {name:rw[name] for name in block_info.dtype.names}
 		'''
 	block_dict = {rw['block_id']:{name:rw[name] for name in block_info.dtype.names} for rw in block_info if (sections==None or rw['section_id'] in sections) or (faults==None or rw['fault_id'] in faults)}
-		#
 	#
 	if pipe!=None:
 		pipe.send(block_dict)
@@ -198,8 +199,9 @@ def get_blocks_dict(sim_file=default_sim_file, faults=None, sections=None, pipe=
 #
 def block_slip_for_mpp(rws, block_info, events_data, plot_factor=1.0):
 	#
+	# note: this function is not in use anywhere at this time. might be worth trying though.
 	# diagnostic:
-	print 'input types: ', [type(x) for x in [rws, block_info, events_data]]
+	#print 'input types: ', [type(x) for x in [rws, block_info, events_data]]
 	return_positions = {key:[key, 0., 0., 0., 0., 0.] for key in block_info.keys()}
 	for i_rw, rw in enumerate(rws):
 		#
@@ -217,7 +219,7 @@ def block_slip_for_mpp(rws, block_info, events_data, plot_factor=1.0):
 		#
 		#x0, y0, z0 = block_info[key]['positions'][-1][1:4]
 		x0, y0, z0 = return_positions[key][-1][2:5]
-		slip_vector = [slip*x for x in block_info['block_id']['slip_vector']]	# this should be a numpy array, but [] will work with any iteratable obj.
+		slip_vector = [slip*x for x in numpy.array(block_info['block_id']['slip_vector'])]	# this should be a numpy array, but [] will work with any iteratable obj.
 		#
 		return_positions[block_id] += [[block_id, event_time, x0 + slip_vector[0], y0 + slip_vector[1], z0 + slip_vector[2], slip]]
 		#
@@ -373,7 +375,7 @@ def plot_block_slip_vector(block_id=0, sim_file=default_sim_file):
 	# for development and testing: plot a single block and it's supposed slip direction(s).
 	#
 	with h5py.File(sim_file, 'r') as vc_data:
-		block=vc_data['block_info_table'][block_id][()]
+		block=vc_data['block_info_table'][block_id]
 		#
 		block_vertices = [[block['m_%s_pt%d' % (xyz, 1+corner_index)] for xyz in ('x', 'y', 'z')] for corner_index in xrange(4)]
 		# get strike direction vector:
@@ -473,6 +475,13 @@ def plot_block_slip_vector(block_id=0, sim_file=default_sim_file):
 	
 #
 def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=None, f_pickle_out='dumps/blockwise_slip_0.pkl', plot_factor=1.0):
+	#
+	# get slip along faults. these can then be used as sources for Ogata deformation modeling.
+	#
+	# some house keeping:
+	if not f_pickle_out==None:
+		if os.path.isdir(f_pickle_out): f_pickle_out.join(f_pickle_out, 'blockwise_slip_default.pkl')
+		pickle_path, pickle_fname = os.path.split(f_pickle_out)
 	#
 	# note: plot_factor is being (effectively) moved to the plotting routines, so should not typically be used here.
 	t0=time.time()
@@ -632,17 +641,61 @@ def blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=N
 	#
 	print "finished: %f" % (time.time()-t0)
 	#
-	print "try to pickle:"
-	try:
-		with open(f_pickle_out, 'w') as f_pickle:
-			cPickle.dump(block_info, f_pickle)
-		#
-	except:
-		print "failed to pickle..."
+	if f_pickle_out!=None:
+		print "try to pickle:"
+		try:
+			with open(f_pickle_out, 'w') as f_pickle:
+				cPickle.dump(block_info, f_pickle)
+			#
+		except:
+			print "failed to pickle..."
 	
-	return block_info
+	if pipe!=None:
+		pipe.send(block_info)
+	else:
+		return block_info
 #
-def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, plot_factor=100.0):
+def blockwise_slip_mpp2(sim_file=default_sim_file, faults=None, sections=None, f_pickle_out='dumps/blockwise_slip_0.pkl', plot_factor=1.0, n_cpus=None):
+	# this appears to work, but uses a ton of memory, since the child function blockwise_slip() loads the full sweeps[()] table into memory...
+	#  so we'll get back to it later.
+	#
+	# this will likely replace the existing blockwise_slip_mpp() that uses an mpp.pool() object. this will be a bit simpler; it might
+	# use Pool(), might use Process().
+	# basically, use blocwise_slip() on subsets of sections. this is not a perfect parsing of data, but it will be quick, clean, and will minimize
+	# pickling overhead.
+	# blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=None, f_pickle_out='dumps/blockwise_slip_0.pkl', plot_factor=1.0)
+	#
+	if n_cpus == None: n_cpus = mpp.cpu_count()
+	if sections==None:
+		with h5py.File(default_sim_file) as f:
+			blocks = f['block_info_table'][()]
+			sections = list(set(blocks['section_id']))
+		#
+	#		
+	n_sec = len(sections)/n_cpus
+	pipes = [mpp.Pipe() for j in xrange(n_cpus)]
+	jobs = [mpp.Process(target=blockwise_slip, kwargs={'sim_file':sim_file, 'faults':None, 'sections':sections[j*n_sec:(j+1)*n_sec], 'f_pickle_out':None, 'pipe':pipes[j][0], 'plot_factor':plot_factor}) for j in xrange(n_cpus)]
+	#
+	print 'jobs: ', jobs
+	for j, job in enumerate(jobs):
+		jobs[j].start()
+	#for j, job in jobs:
+	#	try:
+	#		jobs[j].join()
+	#	except:
+	#		# in the event
+	#		pass
+	return_datas = [pipe.recv() for pipe in pipes]
+	#
+	r_dict = {}
+	for d in return_datas: r_dict.update(d)
+		
+	
+	# blockwise_slip(sim_file=default_sim_file, faults=None, sections=None, pipe=None, f_pickle_out='dumps/blockwise_slip_0.pkl', plot_factor=1.0)
+	
+	return d
+#
+def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_start=0, i_stop=None, do_return=False, fnum=0, sim_file=default_sim_file, map_size=[8.,10.], map_res='i', map_padding = .7, plot_factor=100.0, **kwargs):
 	# original "blockwise" map plotter. plots a 2D map; each block element is a separate plot (and so goes the color rotation).
 	# originally, this plotted the full slip time-series -- which is fine by itself, but when we add the map, it fully explodes, so we
 	# plot only the total slip vector (x[0], x[-1]).
@@ -658,9 +711,11 @@ def plot_blockwise_slip(blockwise_obj='dumps/blockwise_slip.pkl', sections=None,
 	plot_factor = float(plot_factor)
 	#
 	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
+	if blockwise_obj==None:
+		blockwise_obj = blockwise_slip(sim_file=sim_file, faults=faults, sections=sections, pipe=None, f_pickle_out=kwargs.get('f_pickle_out', None), plot_factor=1.0)
 	if isinstance(blockwise_obj, str):
 		blockwise_obj = numpy.load(blockwise_obj)
-	#return blockwise_obj
+	#
 	if sections==None:
 		block_ids = blockwise_obj.keys()
 	else:
@@ -812,7 +867,7 @@ def plot_blockwise_slip_color_thrust(blockwise_obj='dumps/blockwise_slip.pkl', s
 	if do_return: return slip_vectors
 #
 def plot_initial_section_positions(blockwise_obj='dumps/blockwise_slip.pkl', sections=None, faults=None, i_range=[0,1], fignum=3):
-	# vceventually, add section and faultwise filters...
+	# eventually, add section and faultwise filters...
 	blockwise_obj=('dumps/blockwise_slip.pkl' or blockwise_obj)
 	#
 	plt.figure(fignum)
@@ -891,7 +946,7 @@ def slip_field_time_series(blockwise_obj=None, dx=None, dy=None, i_start=0, i_st
 	pass
 #
 def slip_field(blockwise_obj=None, dx=None, dy=None, i_start=0, i_stop=-1, section_ids=None, plot_factor=10., f_out=None):
-	#+
+	#
 	# use:
 	# Vec<3> calc_displacement_vector(const Vec<3> location, const double c, const double dip, const double L, const double W, const double US, const double UD, const double UT, const double lambda, const double mu) throw(std::invalid_argument)
 	#
@@ -914,6 +969,8 @@ def slip_field(blockwise_obj=None, dx=None, dy=None, i_start=0, i_stop=-1, secti
 	# a default blockwise_obj:
 	if blockwise_obj==None:
 		#blockwise_obj=numpy.load('dumps/blockwise_290ct.pkl')
+		blockwise_obj = blockwise_slip()
+	if blockwise_obj=='':
 		blockwise_obj = 'dumps/blockwise_290ct.pkl'
 	#
 	# blockwise_obj is a dict (or dict-like) object, with keys: BWS[section_id]
